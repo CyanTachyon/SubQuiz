@@ -2,6 +2,8 @@
 
 package cn.org.subit.route.user
 
+import cn.org.subit.console.command.About
+import cn.org.subit.console.command.About.Author
 import cn.org.subit.dataClass.BasicUserInfo
 import cn.org.subit.dataClass.Permission
 import cn.org.subit.dataClass.UserFull
@@ -15,6 +17,7 @@ import cn.org.subit.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
 import io.github.smiley4.ktorswaggerui.dsl.routing.route
 import io.ktor.server.routing.*
+import kotlinx.serialization.Serializable
 
 fun Route.user() = route("user", {
     tags("user")
@@ -50,5 +53,16 @@ fun Route.user() = route("user", {
             finishCall(HttpStatus.OK, user)
 
         finishCall(HttpStatus.OK, user.toBasicUserInfo())
+    }
+
+    get("/author", {
+        summary = "获取作者信息"
+        description = "获取作者信息"
+        response {
+            statuses<Author>(HttpStatus.OK, example = Author.example)
+        }
+    })
+    {
+        finishCall(HttpStatus.OK, About.author)
     }
 }
