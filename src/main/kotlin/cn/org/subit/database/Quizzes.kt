@@ -3,23 +3,18 @@ package cn.org.subit.database
 import cn.org.subit.dataClass.*
 import cn.org.subit.dataClass.Slice
 import cn.org.subit.database.utils.asSlice
-import cn.org.subit.database.utils.single
 import cn.org.subit.database.utils.singleOrNull
 import cn.org.subit.plugin.contentNegotiation.dataJson
 import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
-import org.jetbrains.exposed.dao.id.EntityID
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.json.jsonb
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp
 import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 
 class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
 {
-    companion object QuizTable: IdTable<QuizId>("quizzes")
+    object QuizTable: IdTable<QuizId>("quizzes")
     {
         override val id = quizId("id").autoIncrement().entityId()
         val user = reference("user", Users.UsersTable).index()
@@ -32,18 +27,19 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
 
     private fun deserialize(row: ResultRow): Quiz<Int, Int?, String> =
         Quiz(
-            id = row[Quizzes.id].value,
-            user = row[Quizzes.user].value,
-            time = row[Quizzes.time].toEpochMilliseconds(),
-            sections = row[Quizzes.sections],
-            duration = row[Quizzes.duration],
-            finished = row[Quizzes.finished],
+            id = row[table.id].value,
+            user = row[table.user].value,
+            time = row[table.time].toEpochMilliseconds(),
+            sections = row[table.sections],
+            duration = row[table.duration],
+            finished = row[table.finished],
         )
 
-    suspend fun getUnfinishQuiz(user: UserId): Quiz<Int, Int?, String>? = query()
+    suspend fun getUnfinishedQuiz(user: UserId): Quiz<Int, Int?, String>? = query()
     {
         selectAll()
             .where { finished eq false }
+            .andWhere { table.user eq user }
             .singleOrNull()
             ?.let(::deserialize)
     }
@@ -56,10 +52,10 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             ?.let(::deserialize)
     }
 
-    suspend fun getQuizzes(user: UserId, begin: Long, count: Int): Slice<Quiz<Int, Int?, String>> = query()
+    suspend fun getQuizzes(user: UserId?, begin: Long, count: Int): Slice<Quiz<Int, Int?, String>> = query()
     {
         selectAll()
-            .where { table.user eq user }
+            .apply { if (user != null) andWhere { table.user eq user } }
             .asSlice(begin, count)
             .map(::deserialize)
     }
