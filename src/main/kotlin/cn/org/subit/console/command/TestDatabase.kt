@@ -1,16 +1,12 @@
 package cn.org.subit.console.command
 
 import cn.org.subit.console.SimpleAnsiColor.Companion.RED
+import cn.org.subit.console.command.TestDatabase.toStr
 import cn.org.subit.database.*
-import cn.org.subit.database.Permissions
-import cn.org.subit.database.Preferences
-import cn.org.subit.database.Quizzes
-import cn.org.subit.database.SectionTypes
-import cn.org.subit.database.Sections
-import cn.org.subit.database.Subjects
-import cn.org.subit.database.Users
 import cn.org.subit.debug
+import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
+import cn.org.subit.plugin.contentNegotiation.showJson
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.serializer
 import org.jline.reader.Candidate
@@ -18,6 +14,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
 import kotlin.reflect.KClass
 import kotlin.reflect.KParameter
+import kotlin.reflect.KType
 import kotlin.reflect.full.callSuspendBy
 import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.full.isSubclassOf
@@ -25,6 +22,7 @@ import kotlin.reflect.full.memberFunctions
 
 object TestDatabase: Command, KoinComponent
 {
+    private val logger = SubQuizLogger.getLogger<TestDatabase>()
     override val description: String = "Call the database interface. ${RED.bright()}This command is for debugging only."
     override val args: String = "<table> <method> [args]..."
     override val aliases: List<String> = listOf("database", "db")
@@ -51,7 +49,8 @@ object TestDatabase: Command, KoinComponent
      * - 内联值类则将其值转为字符串
      * - 单例类则将其类名转为字符串
      */
-    private fun toStr(any: Any?): String = when (any)
+    @OptIn(InternalSerializationApi::class)
+    private fun <T> toStr(any: T, type: KType): String = when (any)
     {
         null                                                                         -> "null"
         is Int, is Long, is Short, is Byte, is Float, is Double, is Char, is Boolean -> any.toString()
@@ -61,11 +60,16 @@ object TestDatabase: Command, KoinComponent
         {
             if (any::class.isValue)
             {
-                require(any::class.declaredMemberProperties.size == 1) { "Data class should have only one property." }
-                toStr(any::class.declaredMemberProperties.first().getter.call(any))
+                val property = any::class.declaredMemberProperties.first()
+                val propertyType = property.getter.returnType
+                val propertyValue = property.getter.call(any)
+                toStr(propertyValue, propertyType)
             }
             else if (any::class.objectInstance != null) any::class.simpleName!!
-            else any.toString()
+            else
+            {
+                runCatching { showJson.encodeToString(serializer(type), any) }.getOrElse { any.toString() }
+            }
         }
     }
 
@@ -95,7 +99,7 @@ object TestDatabase: Command, KoinComponent
             }
             else if (clazz.isValue)
             {
-                require(clazz.declaredMemberProperties.size == 1) { "Data class should have only one property." }
+                require(clazz.declaredMemberProperties.size == 1) { "Value class should have only one property." }
                 val property = clazz.declaredMemberProperties.first()
                 val value = fromStr(str, property.returnType.classifier as KClass<*>)
                 clazz.constructors.first().call(value)
@@ -137,7 +141,7 @@ object TestDatabase: Command, KoinComponent
 
         val res = if (method.isSuspend) method.callSuspendBy(params)
         else method.callBy(params)
-        sender.out("Result: $res")
+        sender.out("Result: ${toStr(res, method.returnType)}")
         return true
     }
 
