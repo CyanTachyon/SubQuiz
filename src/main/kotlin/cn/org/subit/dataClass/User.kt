@@ -84,7 +84,7 @@ data class UserFull(
     override val permission: Permission,
 ): NamedUser, PermissionUser
 {
-//    fun toBasicUserInfo() = BasicUserInfo(id, username, registrationTime, email)
+    fun toBasicUserInfo() = BasicUserInfo(id, username, registrationTime, email)
     fun toSsoUser() = SsoUserFull(id, username, registrationTime, phone, email, seiue)
     fun toDatabaseUser() = DatabaseUser(id, permission)
     companion object
@@ -106,6 +106,25 @@ data class UserFull(
             listOf("email"),
             listOf(SsoUserFull.Seiue("studentId", "realName", false)),
             permission = Permission.NORMAL,
+        )
+    }
+}
+
+@Serializable
+data class BasicUserInfo(
+    override val id: UserId,
+    override val username: String,
+    val registrationTime: Long,
+    val email: List<String>,
+): NamedUser
+{
+    companion object
+    {
+        val example = BasicUserInfo(
+            UserId(1),
+            "username",
+            System.currentTimeMillis(),
+            listOf("email"),
         )
     }
 }

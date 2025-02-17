@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class SectionType(
     val id: SectionTypeId,
-    val subjectId: SubjectId,
+    val subject: SubjectId,
     val name: String,
     val description: String,
 )

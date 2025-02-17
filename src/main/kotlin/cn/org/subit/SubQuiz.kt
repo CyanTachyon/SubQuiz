@@ -16,8 +16,6 @@ import cn.org.subit.plugin.webSockets.installWebSockets
 import cn.org.subit.route.router
 import cn.org.subit.utils.Power
 import io.ktor.server.application.*
-import io.ktor.server.config.ConfigLoader
-import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import net.mamoe.yamlkt.Yaml
 import java.io.File
@@ -57,7 +55,7 @@ private fun parseCommandLineArgs(args: Array<String>): Pair<Array<String>, File>
 
     // 是否开启debug模式
     debug = argsMap["-debug"].toBoolean()
-    System.setProperty("io.ktor.development", "${debug}")
+    System.setProperty("io.ktor.development", "$debug")
 
     // 去除命令行中的-config参数, 因为ktor会解析此参数进而不加载打包的application.yaml
     // 其余参数还原为字符串数组

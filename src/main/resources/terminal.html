@@ -529,46 +529,7 @@
     }
     var templateObject_1, templateObject_2, templateObject_3;
 
-    const token = (() => {
-        // 获取cookie
-        let cookie = document.cookie;
-        // 声明token
-        let tmp_token = "";
-        // 尝试解=解码cookie中token
-        try {
-            // 拆分cookie
-            let tmp = cookie.split(";");
-            console.log(tmp,"tmp");
-            // 遍历cookie，找出有效的cookie部分
-            let encoded= tmp.map((item) => {
-                // 拆分键值对
-                let key = item.split("=")[0].trim();
-                // 如果是token,返回未解码的token
-                console.log(key,"key",key === "__session", item);
-                if(key.includes("__session")){
-                    console.log(item,"item");
-                    // 返回未解码的token(等于号之后的部分)
-                    return item.split("=")[1];
-                }
-            })[0];
-            // 如果解码成功
-            if(encoded !== undefined){
-                // 去除token中无效部分(URL编码的等号片段)
-                encoded = encoded.split("%3D")[0];
-                // 解码token
-                tmp_token = JSON.parse(window.atob(encoded)).token;
-                console.log(JSON.parse(window.atob(encoded)));
-                console.log(tmp_token);
-                return tmp_token;
-            }else {
-                console.log(encoded,"failed");
-                return null;
-            }
-
-        }catch (error){
-            console.log(error);
-        }
-    })();
+    const token = localStorage.getItem('token');
 
     console.log("get token", token);
 

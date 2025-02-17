@@ -12,6 +12,8 @@ import cn.org.subit.route.utils.Context
 import cn.org.subit.route.utils.finishCall
 import cn.org.subit.route.utils.get
 import cn.org.subit.route.utils.getLoginUser
+import cn.org.subit.route.utils.getPage
+import cn.org.subit.route.utils.paged
 import cn.org.subit.utils.HttpStatus
 import cn.org.subit.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
@@ -40,7 +42,7 @@ fun Route.subject() = route("/subject", {
 
         response()
         {
-            statuses<SubjectId>(HttpStatus.OK)
+            statuses<SubjectId>(HttpStatus.OK, example = SubjectId(1))
             statuses(HttpStatus.Conflict.subStatus("已有重名科目", 1))
         }
     }) { newSubject() }
@@ -79,6 +81,19 @@ fun Route.subject() = route("/subject", {
             statuses(HttpStatus.OK)
         }
     }) { editSubject() }
+
+    get("/list", {
+        summary = "获得学科列表"
+        description = "获得学科列表"
+        request()
+        {
+            paged()
+        }
+        response()
+        {
+            statuses<List<Subject>>(HttpStatus.OK, example = listOf(Subject.example))
+        }
+    }) { getSubjectList() }
 }
 
 @Serializable
@@ -114,4 +129,11 @@ private suspend fun Context.editSubject(): Nothing
     val body = call.receive<SubjectInfo>()
     get<Subjects>().updateSubject(id, body.name, body.description)
     finishCall(HttpStatus.OK)
+}
+
+private suspend fun Context.getSubjectList(): Nothing
+{
+    val (begin, count) = call.getPage()
+    val subjects = get<Subjects>()
+    finishCall(HttpStatus.OK, subjects.getSubjects(begin, count))
 }

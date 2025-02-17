@@ -167,7 +167,7 @@ object SqlDatabase: KoinComponent
  * @property warp 转换函数
  * @property unwrap 反转换函数
  */
-abstract class WarpColumnType<Base: Any, T: Any>(
+abstract class WrapColumnType<Base: Any, T: Any>(
     private val base: ColumnType<Base>,
     private val warp: (Base)->T,
     private val unwrap: (T)->Base
@@ -179,21 +179,21 @@ abstract class WarpColumnType<Base: Any, T: Any>(
 }
 
 // UserId
-class UserIdColumnType: WarpColumnType<Int, UserId>(IntegerColumnType(), ::UserId, UserId::value)
+class UserIdColumnType: WrapColumnType<Int, UserId>(IntegerColumnType(), ::UserId, UserId::value)
 fun Table.userId(name: String) = registerColumn(name, UserIdColumnType())
 
 // SectionId
-class SectionIdColumnType: WarpColumnType<Int, SectionId>(IntegerColumnType(), ::SectionId, SectionId::value)
+class SectionIdColumnType: WrapColumnType<Int, SectionId>(IntegerColumnType(), ::SectionId, SectionId::value)
 fun Table.sectionId(name: String) = registerColumn(name, SectionIdColumnType())
 
 // SubjectId
-class SubjectIdColumnType: WarpColumnType<Int, SubjectId>(IntegerColumnType(), ::SubjectId, SubjectId::value)
+class SubjectIdColumnType: WrapColumnType<Int, SubjectId>(IntegerColumnType(), ::SubjectId, SubjectId::value)
 fun Table.subjectId(name: String) = registerColumn(name, SubjectIdColumnType())
 
 // SectionTypeId
-class SectionTypeIdColumnType: WarpColumnType<Int, SectionTypeId>(IntegerColumnType(), ::SectionTypeId, SectionTypeId::value)
+class SectionTypeIdColumnType: WrapColumnType<Int, SectionTypeId>(IntegerColumnType(), ::SectionTypeId, SectionTypeId::value)
 fun Table.sectionTypeId(name: String) = registerColumn(name, SectionTypeIdColumnType())
 
 // QuizId
-class QuizIdColumnType: WarpColumnType<Long, QuizId>(LongColumnType(), ::QuizId, QuizId::value)
+class QuizIdColumnType: WrapColumnType<Long, QuizId>(LongColumnType(), ::QuizId, QuizId::value)
 fun Table.quizId(name: String) = registerColumn(name, QuizIdColumnType())

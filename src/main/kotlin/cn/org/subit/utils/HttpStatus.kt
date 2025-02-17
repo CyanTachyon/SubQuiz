@@ -84,6 +84,8 @@ data class HttpStatus(val code: HttpStatusCode, val message: String, val subStat
         val Conflict = HttpStatus(HttpStatusCode.Conflict, "冲突")
         // 登录成功但未授权
         val LoginSuccessButNotAuthorized = HttpStatus(HttpStatusCode.ExpectationFailed, "登录成功但未授权")
+        // 没有足够多符合要求的题目
+        val NotEnoughQuestions = HttpStatus(HttpStatusCode.RequestedRangeNotSatisfiable, "没有足够多符合要求的题目")
     }
 
     fun subStatus(message: String? = null, code: Int = this.subStatus) =

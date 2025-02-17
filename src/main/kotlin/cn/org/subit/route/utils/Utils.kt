@@ -9,9 +9,9 @@ import io.github.smiley4.ktorswaggerui.dsl.routes.OpenApiRequest
 import io.github.smiley4.ktorswaggerui.dsl.routes.OpenApiRequestParameter
 import io.github.smiley4.ktorswaggerui.dsl.routes.OpenApiSimpleBody
 import io.ktor.server.application.*
-import io.ktor.server.auth.principal
-import io.ktor.server.routing.RoutingContext
-import io.ktor.util.pipeline.*
+import io.ktor.server.auth.*
+import io.ktor.server.routing.*
+import kotlinx.serialization.Serializable
 import org.koin.core.parameter.ParametersDefinition
 import org.koin.core.qualifier.Qualifier
 import org.koin.ktor.ext.get
@@ -68,3 +68,5 @@ fun ApplicationCall.getRealIp(): String
     val xForwardedFor = request.headers["X-Forwarded-For"]
     return if (xForwardedFor.isNullOrBlank()) request.local.remoteHost else xForwardedFor
 }
+
+@Serializable data class Wrap<T>(val data: T)

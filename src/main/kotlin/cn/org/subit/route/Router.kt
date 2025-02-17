@@ -4,9 +4,10 @@ import cn.org.subit.dataClass.Permission
 import cn.org.subit.route.adimin.admin
 import cn.org.subit.route.oauth.oauth
 import cn.org.subit.route.quiz.quiz
+import cn.org.subit.route.section.section
 import cn.org.subit.route.subject.subject
 import cn.org.subit.route.terminal.terminal
-import cn.org.subit.route.utils.Context
+import cn.org.subit.route.user.user
 import cn.org.subit.route.utils.finishCall
 import cn.org.subit.route.utils.getLoginUser
 import cn.org.subit.utils.HttpStatus
@@ -53,7 +54,9 @@ fun Application.router() = routing()
 
         admin()
         quiz()
+        section()
         subject()
         terminal()
+        user()
     }
 }

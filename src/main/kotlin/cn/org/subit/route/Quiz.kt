@@ -12,9 +12,11 @@ import cn.org.subit.plugin.rateLimit.RateLimit.NewQuiz
 import cn.org.subit.route.utils.*
 import cn.org.subit.utils.HttpStatus
 import cn.org.subit.utils.statuses
-import io.github.smiley4.ktorswaggerui.dsl.routing.*
-import io.ktor.server.plugins.ratelimit.rateLimit
-import io.ktor.server.request.*
+import io.github.smiley4.ktorswaggerui.dsl.routing.get
+import io.github.smiley4.ktorswaggerui.dsl.routing.post
+import io.github.smiley4.ktorswaggerui.dsl.routing.put
+import io.github.smiley4.ktorswaggerui.dsl.routing.route
+import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.routing.*
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
@@ -42,7 +44,7 @@ fun Route.quiz() = route("/quiz", {
             }
             response {
                 statuses<Quiz<Nothing?, Int?, Nothing?>>(HttpStatus.NotAcceptable.subStatus("已有未完成的测试"), HttpStatus.OK, example = Quiz.example.hideAnswer())
-                statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
+                statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest, HttpStatus.NotEnoughQuestions)
             }
         }, Context::newQuiz)
     }
@@ -125,6 +127,7 @@ private suspend fun Context.newQuiz(): Nothing
     if (q != null) finishCall(HttpStatus.NotAcceptable.subStatus("已有未完成的测试"), q.hideAnswer())
     val count = call.parameters["count"]?.toIntOrNull() ?: finishCall(HttpStatus.BadRequest)
     val sections = get<Sections>().recommendSections(user, subject, count)
+    if (sections.count < count) finishCall(HttpStatus.NotEnoughQuestions)
     finishCall(HttpStatus.OK, quizzes.addQuiz(user, sections.list).hideAnswer())
 }
 
@@ -142,7 +145,7 @@ private suspend fun Context.saveQuiz(body: Map<SectionId, List<Int?>>): Nothing
         if (body[it.id]?.size != it.questions.size)
             finishCall(HttpStatus.BadRequest.subStatus("作答情况与测试题目不匹配", 1))
     }
-    val q1 = q.copy(sections = q.sections.map { section ->
+    val q1 = q.copy(finished = finish,sections = q.sections.map { section ->
         section.copy(questions = section.questions.mapIndexed { index, question ->
             question.copy(userAnswer = body[section.id]?.get(index))
         })

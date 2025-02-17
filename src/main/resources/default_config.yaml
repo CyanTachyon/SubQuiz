@@ -33,7 +33,3 @@ database:
 
     # 数据库懒惰初始化
     lazyInit: true
-
-# jwt登陆验证
-#jwt:
-#  secret: "SUBIT_SECRET" # Your can set your own secret key here, or a random one will be used

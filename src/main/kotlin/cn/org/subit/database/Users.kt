@@ -2,7 +2,9 @@ package cn.org.subit.database
 
 import cn.org.subit.dataClass.DatabaseUser
 import cn.org.subit.dataClass.Permission
+import cn.org.subit.dataClass.Slice
 import cn.org.subit.dataClass.UserId
+import cn.org.subit.database.utils.asSlice
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 
@@ -32,5 +34,13 @@ class Users: SqlDao<Users.UsersTable>(UsersTable)
     {
         insertIgnore { it[UsersTable.id] = id }
         selectAll().where { UsersTable.id eq id }.single().let(::deserialize)
+    }
+
+    suspend fun getAdmins(begin: Long, count: Int): Slice<Pair<UserId, Permission>> = query()
+    {
+        select(id, permission)
+            .andWhere { permission greaterEq Permission.ADMIN }
+            .asSlice(begin, count)
+            .map { it[id].value to it[permission] }
     }
 }
