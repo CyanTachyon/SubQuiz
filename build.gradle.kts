@@ -9,13 +9,13 @@ val swagger_ui_version: String by project
 val schema_kenerator_version: String by project
 
 plugins {
-    kotlin("jvm") version "2.1.0"
-    kotlin("plugin.serialization") version "2.1.0"
-    id("io.ktor.plugin") version "3.0.3"
+    kotlin("jvm") version "2.1.20"
+    kotlin("plugin.serialization") version "2.1.20"
+    id("io.ktor.plugin") version "3.1.1"
 }
 
 group = "cn.org.subit"
-version = "0.0.0"
+version = "1.0.0"
 
 application {
     mainClass.set("cn.org.subit.SubQuizKt")
@@ -52,6 +52,8 @@ dependencies {
 
     // ktor common
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm") // json on request/response
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0") // json on request/response
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1") // 协程
 
     // utils
     implementation("io.github.smiley4:ktor-swagger-ui:$swagger_ui_version") // 创建api页面
@@ -87,6 +89,9 @@ dependencies {
 
     implementation("me.nullaqua:BluestarAPI-kotlin:4.3.3")
     implementation("me.nullaqua:BluestarAPI-kotlin-reflect:4.3.3")
+
+    // tencent cloud object storage
+    implementation("com.qcloud:cos_api:5.6.244")
 }
 
 tasks.withType<ProcessResources> {

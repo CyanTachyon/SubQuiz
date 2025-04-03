@@ -34,7 +34,7 @@ sealed interface RateLimit
     {
         override val rawRateLimitName = "NewQuiz"
         override val limit = 1
-        override val duration = 10.seconds
+        override val duration = 1.seconds
         override suspend fun customResponse(call: ApplicationCall, duration: Duration)
         {
             call.respond(HttpStatus.TooManyRequests.copy(message = "创建测试过于频繁, 请${duration}后再试"))

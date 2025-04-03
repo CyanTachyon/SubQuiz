@@ -15,7 +15,7 @@ abstract class TreeCommand(): Command
          */
         fun parseName(name: String): String
         {
-            return name.toCharArray().filter { !it.isWhitespace() }.joinToString("").lowercase()
+            return name.toCharArray().filterNot(Char::isWhitespace).joinToString("").lowercase()
         }
     }
 

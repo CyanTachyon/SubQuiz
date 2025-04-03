@@ -21,13 +21,12 @@ object Logger : TreeCommand(Level, Filter, ShowLoggerName)
 
         override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
         {
-            if (args.isEmpty()) // 没参数就打印当前日志等级
+            if (args.isEmpty())
             {
                 sender.out("logger level: ${SubQuizLogger.globalLogger.logger.level.name}")
             }
             else try
             {
-                // 有参数就设置日志等级
                 val level=java.util.logging.Level.parse(args[0])
                 SubQuizLogger.setLevel(level)
                 sender.out("set logger level to ${level.name}")

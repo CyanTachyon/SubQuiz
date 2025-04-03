@@ -5,22 +5,25 @@ import cn.org.subit.dataClass.Slice
 import cn.org.subit.dataClass.SubjectId
 import cn.org.subit.dataClass.UserId
 import cn.org.subit.database.utils.asSlice
-import cn.org.subit.database.utils.singleOrNull
-import org.jetbrains.exposed.dao.id.IdTable
-import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.dao.id.CompositeIdTable
+import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.andWhere
-import org.jetbrains.exposed.sql.insertIgnore
-import org.jetbrains.exposed.sql.update
+import org.jetbrains.exposed.sql.upsert
 
 class Permissions: SqlDao<Permissions.PermissionTable>(PermissionTable)
 {
-    object PermissionTable: IdTable<Long>("permissions")
+    object PermissionTable: CompositeIdTable("permissions")
     {
-        override val id = long("id").autoIncrement().entityId()
-        val user = reference("user", Users.UsersTable)
-        val subject = reference("subject", Subjects.SubjectTable)
+        val user = reference("user", Users.UsersTable, ReferenceOption.CASCADE, ReferenceOption.CASCADE).index()
+        val subject = reference("subject", Subjects.SubjectTable, ReferenceOption.CASCADE, ReferenceOption.CASCADE).index()
         val permission = enumeration<Permission>("permission").default(Permission.NORMAL)
-        override val primaryKey = PrimaryKey(id)
+        override val primaryKey = PrimaryKey(user, subject)
+
+        init
+        {
+            addIdColumn(user)
+            addIdColumn(subject)
+        }
     }
 
     suspend fun getPermission(user: UserId, subject: SubjectId) = query()
@@ -35,13 +38,7 @@ class Permissions: SqlDao<Permissions.PermissionTable>(PermissionTable)
 
     suspend fun setPermission(user: UserId, subject: SubjectId, permission: Permission) = query()
     {
-        val b = update(where = { table.user eq user and (table.subject eq subject) })
-        {
-            it[table.user] = user
-            it[table.subject] = subject
-            it[table.permission] = permission
-        } > 0
-        if (!b) insertIgnore()
+        upsert()
         {
             it[table.user] = user
             it[table.subject] = subject

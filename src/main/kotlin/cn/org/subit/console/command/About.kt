@@ -13,7 +13,7 @@ object About: Command
     override val aliases = listOf("version", "ver")
     val author = Author(
         "CyanTachyon",
-        "CyanTachyon@outlook.com",
+        "cyan@tachyon.moe",
         "https://www.tachyon.moe/",
         "https://github.com/CyanTachyon",
     )

@@ -15,10 +15,15 @@ class SectionTypes: SqlDao<SectionTypes.SectionTypeTable>(SectionTypeTable)
     object SectionTypeTable: IdTable<SectionTypeId>("sectionTypes")
     {
         override val id = sectionTypeId("id").autoIncrement().entityId()
-        val subject = reference("subject", Subjects.SubjectTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE)
-        val name = text("name").uniqueIndex()
+        val subject = reference("subject", Subjects.SubjectTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
+        val name = text("name").index()
         val description = text("description")
         override val primaryKey = PrimaryKey(id)
+
+        init
+        {
+            uniqueIndex(subject, name)
+        }
     }
 
     private fun deserialize(row: ResultRow) = SectionTypeTable.run()

@@ -7,6 +7,7 @@ import net.mamoe.yamlkt.YamlElement
 import net.mamoe.yamlkt.YamlMap
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.workDir
+import kotlinx.serialization.builtins.serializer
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.*
@@ -15,9 +16,6 @@ import kotlin.reflect.KType
 import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.typeOf
 
-/**
- *
- */
 inline fun <reified T: Any> config(
     filename: String,
     default: T,
@@ -28,13 +26,14 @@ inline fun <reified T: Any> config(
 class ConfigLoader<T: Any> private constructor(
     private val default: T,
     private val filename: String,
-    private val type: KType,
+    val type: KType,
     private var listeners: MutableSet<(T, T)->Unit> = mutableSetOf()
 )
 {
-    private var config: T = default
+    var config: T = default
+        private set
 
-    private fun setValue(value: T)
+    fun setValue(value: T)
     {
         listeners.forEach {
             logger.warning("Error in config listener")
@@ -66,10 +65,8 @@ class ConfigLoader<T: Any> private constructor(
         private val logger by lazy { SubQuizLogger.getLogger() }
         fun init() // 初始化所有配置
         {
-            listOf(::apiDocsConfig, ::loggerConfig, ::systemConfig).forEach {
-                it.isAccessible = true
-                (it.getDelegate() as ConfigLoader<*>).reload()
-            }
+            listOf(aiConfig, apiDocsConfig, loggerConfig, systemConfig, cosConfig)
+            reloadAll()
         }
 
         /**

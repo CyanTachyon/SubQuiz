@@ -1,5 +1,8 @@
 package cn.org.subit
 
+import cn.org.subit.console.AnsiEffect
+import cn.org.subit.console.AnsiStyle
+import cn.org.subit.console.SimpleAnsiColor
 import cn.org.subit.console.command.CommandSet.startCommandThread
 import cn.org.subit.database.SqlDatabase
 import cn.org.subit.logger.SubQuizLogger
@@ -14,6 +17,7 @@ import cn.org.subit.plugin.rateLimit.installRateLimit
 import cn.org.subit.plugin.statusPages.installStatusPages
 import cn.org.subit.plugin.webSockets.installWebSockets
 import cn.org.subit.route.router
+import cn.org.subit.utils.COS
 import cn.org.subit.utils.Power
 import io.ktor.server.application.*
 import io.ktor.server.netty.*
@@ -77,6 +81,16 @@ fun main(args: Array<String>)
     // 初始化配置文件加载器, 会加载所有配置文件
     cn.org.subit.config.ConfigLoader.init()
 
+    Loader.getResource("logo/Cyan.txt")
+        ?.bufferedReader()
+        ?.forEachLine { println("${SimpleAnsiColor.CYAN}${AnsiEffect.BOLD}$it") }
+        ?: SubQuizLogger.getLogger().severe("Cyan.txt not found")
+
+    Loader.getResource("logo/Tachyon.txt")
+        ?.bufferedReader()
+        ?.forEachLine { println("${SimpleAnsiColor.BLUE}${AnsiEffect.BOLD}$it") }
+        ?: SubQuizLogger.getLogger().severe("Tachyon.txt not found")
+
     // 检查主配置文件是否存在, 不存在则创建默认配置文件, 并结束程序
     if (!configFile.exists())
     {
@@ -92,20 +106,13 @@ fun main(args: Array<String>)
         )
         return
     }
-
     val defaultConfig = Loader.getResource("application.yaml") ?: error("application.yaml not found")
     val customConfig = configFile.inputStream()
-
     val resConfig = Loader.mergeConfigs(defaultConfig, customConfig)
-    // 创建一个临时文件, 用于存储合并后的配置文件
     val tempFile = File.createTempFile("resConfig", ".yaml")
     tempFile.writeText(Yaml.encodeToString(resConfig))
-
     val resArgs = args1 + "-config=${tempFile.absolutePath}"
-
-    // 启动服务器
     EngineMain.main(resArgs)
-    // 若服务器关闭则终止整个程序
     Power.shutdown(0)
 }
 
@@ -118,11 +125,6 @@ fun Application.init()
     version = environment.config.property("version").getString()
 
     if (debug) SubQuizLogger.globalLogger.warning("Debug mode is enabled")
-
-    Loader.getResource("logo/SubIT-logo.txt")
-        ?.bufferedReader()
-        ?.use { it.readText().split("\n").forEach(SubQuizLogger.globalLogger::info) }
-    ?: SubQuizLogger.globalLogger.warning("SubIT-logo.txt not found")
 
     startCommandThread()
 

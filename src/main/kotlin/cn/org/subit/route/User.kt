@@ -16,6 +16,7 @@ import cn.org.subit.utils.SSO
 import cn.org.subit.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
 import io.github.smiley4.ktorswaggerui.dsl.routing.route
+import io.ktor.server.plugins.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 

@@ -60,4 +60,23 @@ class Locks<K>
         }
         return getLock(key).withLock { block() }
     }
+
+    @OptIn(ExperimentalContracts::class)
+    suspend inline fun <R> tryWithLock(key: K, fail: ()->R, block: ()->R): R
+    {
+        contract {
+            callsInPlace(fail, InvocationKind.AT_MOST_ONCE)
+            callsInPlace(block, InvocationKind.AT_MOST_ONCE)
+        }
+        val lock = getLock(key)
+        if (!lock.tryLock()) return fail()
+        return try
+        {
+            block()
+        }
+        finally
+        {
+            lock.unlock()
+        }
+    }
 }

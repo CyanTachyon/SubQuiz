@@ -19,29 +19,24 @@ import org.jline.reader.impl.DefaultParser
  */
 object CommandSet: TreeCommand(
     Reload,
+    Config,
     Stop,
     Help,
     About,
     Clear,
     Logger,
     Color,
-    TestDatabase
+    SSO,
+    TestDatabase,
 )
 {
     private val logger = SubQuizLogger.getLogger()
 
-    /**
-     * 上一次命令是否成功
-     */
     private var success = true
     private fun parsePrompt(prompt: String): String =
         "${if (success) SimpleAnsiColor.CYAN.bright() else SimpleAnsiColor.RED.bright()}$prompt${RESET}"
-
-    /**
-     * 命令提示符, 上一次成功为青色, 失败为红色
-     */
     private val prompt: String get() = parsePrompt("SubQuiz > ")
-    private val rightPrompt: String get() = parsePrompt("<| POWERED BY SUBIT |>")
+    private val rightPrompt: String get() = parsePrompt("<| POWERED BY TACHYON |>")
 
     fun Application.startCommandThread() = CoroutineScope(Dispatchers.IO).launch()
     {
@@ -74,7 +69,7 @@ object CommandSet: TreeCommand(
             val words = DefaultParser().parse(line, 0, Parser.ParseContext.ACCEPT_LINE).words()
             if (words.isEmpty() || (words.size == 1 && words.first().isEmpty())) return
             val command = CommandSet.getCommand(words[0])
-            if (command == null || command.log) logger.info("${sender.name} is used command: $line")
+            if (command == null || command.log) logger.info("${sender.name} is executing command: $line")
             success = false
             if (command == null)
             {

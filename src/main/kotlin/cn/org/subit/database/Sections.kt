@@ -6,6 +6,7 @@ import cn.org.subit.dataClass.Slice
 import cn.org.subit.database.utils.asSlice
 import cn.org.subit.database.utils.singleOrNull
 import cn.org.subit.plugin.contentNegotiation.dataJson
+import kotlinx.serialization.serializer
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.coalesce
@@ -24,26 +25,32 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             SectionTypes.SectionTypeTable,
             onDelete = ReferenceOption.CASCADE,
             onUpdate = ReferenceOption.CASCADE
-        )
+        ).index()
         val description = text("description")
-        val questions = jsonb<List<Question<Int, Nothing?, String>>>("questions", dataJson)
+        val weight = integer("weight").default(50)
+        val available = bool("available").default(true)
+        val markdown = bool("markdown").default(false)
+        val questions = jsonb<List<Question<Any, Nothing?, String>>>("questions", dataJson, dataJson.serializersModule.serializer())
         override val primaryKey = PrimaryKey(id)
     }
 
     private val sectionTypeTable by lazy { get<SectionTypes>().table }
 
-    private fun deserialize(row: ResultRow): Section<Int, Nothing?, String> = SectionTable.run()
+    private fun deserialize(row: ResultRow): Section<Any, Nothing?, String> = SectionTable.run()
     {
         Section(
             id = row[id].value,
             subject = row[sectionTypeTable.subject].value,
             type = row[type].value,
             description = row[description],
+            weight = row[weight],
+            available = row[available],
+            markdown = row[markdown],
             questions = row[questions]
         )
     }
 
-    suspend fun getSection(id: SectionId): Section<Int, Nothing?, String>? = query()
+    suspend fun getSection(id: SectionId): Section<Any, Nothing?, String>? = query()
     {
         table.join(sectionTypeTable, JoinType.INNER, table.type, sectionTypeTable.id)
             .select(table.columns + sectionTypeTable.subject)
@@ -56,7 +63,7 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
         user: UserId,
         subject: SubjectId?,
         count: Int
-    ): Slice<Section<Int, Nothing?, String>> = query()
+    ): Slice<Section<Any, Nothing?, String>> = query()
     {
         val preferencesTable = get<Preferences>().table
         val historyTable = get<Histories>().table
@@ -71,45 +78,44 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             ) { (historyTable.user eq user) and (historyTable.score greaterEq systemConfig.score) }
             .select(table.columns + sectionTypeTable.subject)
             .apply { subject?.let { andWhere { sectionTypeTable.subject eq it } } }
+            .andWhere { available eq true }
             .groupBy(*table.columns.toTypedArray())
             .groupBy(*preferencesTable.columns.toTypedArray())
             .groupBy(*sectionTypeTable.columns.toTypedArray())
-            .andHaving { historyTable.id.count() eq 0 }
+            .andHaving { historyTable.user.count() eq 0 }
             .orderBy(
-                coalesce(preferencesTable.value, longParam(1000)) * CustomFunction("RANDOM", LongColumnType()),
+                coalesce(preferencesTable.value, longParam(Preferences.DEFAULT_PREFERENCE)) *
+                table.weight *
+                CustomFunction("RANDOM", LongColumnType()),
                 SortOrder.DESC
             )
             .asSlice(0, count)
             .map(::deserialize)
     }
 
-    suspend fun newSection(
-        type: SectionTypeId,
-        description: String,
-        questions: List<Question<Int, Nothing?, String>>
-    ) = query()
+    suspend fun newSection(section: Section<Any, Nothing?, String>) = query()
     {
         insertAndGetId()
         {
-            it[table.type] = type
-            it[table.description] = description
-            it[table.questions] = questions
+            it[table.type] = section.type
+            it[table.description] = section.description
+            it[table.weight] = section.weight
+            it[table.available] = section.available
+            it[table.markdown] = section.markdown
+            it[table.questions] = section.questions
         }.value
     }
 
-    suspend fun updateSection(
-        id: SectionId,
-        type: SectionTypeId?,
-        description: String?,
-        questions: List<Question<Int, Nothing?, String>>?
-    ) = query()
+    suspend fun updateSection(section: Section<Any, Nothing?, String>) = query()
     {
-        if (type == null && description == null && questions == null) return@query false
-        update({ table.id eq id })
+        update({ table.id eq section.id })
         {
-            if (type != null) it[table.type] = type
-            if (description != null) it[table.description] = description
-            if (questions != null) it[table.questions] = questions
+            it[table.type] = section.type
+            it[table.description] = section.description
+            it[table.weight] = section.weight
+            it[table.available] = section.available
+            it[table.markdown] = section.markdown
+            it[table.questions] = section.questions
         } > 0
     }
 
@@ -123,13 +129,14 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
         type: SectionTypeId?,
         begin: Long,
         count: Int
-    ): Slice<Section<Int, Nothing?, String>> = query()
+    ): Slice<Section<Any, Nothing?, String>> = query()
     {
         table
             .join(sectionTypeTable, JoinType.INNER, table.type, sectionTypeTable.id)
             .select(table.columns + sectionTypeTable.subject)
             .apply { subject?.let { andWhere { sectionTypeTable.subject eq it } } }
             .apply { type?.let { andWhere { table.type eq it } } }
+            .orderBy(id to SortOrder.ASC)
             .asSlice(begin, count)
             .map(::deserialize)
     }

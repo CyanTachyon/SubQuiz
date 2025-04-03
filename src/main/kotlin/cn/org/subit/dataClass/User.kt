@@ -1,5 +1,8 @@
 package cn.org.subit.dataClass
 
+import cn.org.subit.utils.ai.AI
+import cn.org.subit.utils.ai.AiRequest
+import cn.org.subit.utils.ai.AiResponse
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -60,7 +63,8 @@ data class SsoUserInfo(
 @Serializable
 data class DatabaseUser(
     override val id: UserId,
-    override val permission: Permission
+    override val permission: Permission,
+    val tokenUsage: AiResponse.Usage,
 ): PermissionUser
 {
     companion object
@@ -68,6 +72,7 @@ data class DatabaseUser(
         val example = DatabaseUser(
             UserId(1),
             permission = Permission.NORMAL,
+            tokenUsage = AiResponse.Usage(),
         )
     }
 }
@@ -82,11 +87,12 @@ data class UserFull(
     val email: List<String>,
     val seiue: List<SsoUserFull.Seiue>,
     override val permission: Permission,
+    val tokenUsage: AiResponse.Usage,
 ): NamedUser, PermissionUser
 {
     fun toBasicUserInfo() = BasicUserInfo(id, username, registrationTime, email)
     fun toSsoUser() = SsoUserFull(id, username, registrationTime, phone, email, seiue)
-    fun toDatabaseUser() = DatabaseUser(id, permission)
+    fun toDatabaseUser() = DatabaseUser(id, permission, tokenUsage)
     companion object
     {
         fun from(ssoUser: SsoUserFull, dbUser: DatabaseUser) = UserFull(
@@ -97,6 +103,7 @@ data class UserFull(
             ssoUser.email,
             ssoUser.seiue,
             dbUser.permission,
+            dbUser.tokenUsage,
         )
         val example = UserFull(
             UserId(1),
@@ -106,6 +113,7 @@ data class UserFull(
             listOf("email"),
             listOf(SsoUserFull.Seiue("studentId", "realName", false)),
             permission = Permission.NORMAL,
+            tokenUsage = AiResponse.Usage(),
         )
     }
 }

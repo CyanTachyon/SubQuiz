@@ -48,9 +48,7 @@ var loggerConfig: LoggerConfig by config(
     LoggerConfig(listOf(), true, "INFO", false, ColorDisplayMode.RGB, true, 7.days),
     { _, new ->
         SubQuizLogger.globalLogger.logger.setLevel(new.level)
-        Console.ansiEffectMode =
-            if (new.effect) EffectDisplayMode.ON
-            else EffectDisplayMode.OFF
+        Console.ansiEffectMode = if (new.effect) EffectDisplayMode.ON else EffectDisplayMode.OFF
         Console.ansiColorMode = new.color
         ToFileHandler.clearOld(new.logFileSaveTime)
     }

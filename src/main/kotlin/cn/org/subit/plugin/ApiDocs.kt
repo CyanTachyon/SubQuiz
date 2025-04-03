@@ -56,7 +56,7 @@ fun Application.installApiDoc() = install(SwaggerUI)
         encoder { type, example ->
             when (type)
             {
-                is KTypeDescriptor -> showJson.encodeToString(serializer(type.type), example)
+                is KTypeDescriptor -> showJson.encodeToString(showJson.serializersModule.serializer(type.type), example)
                 else -> example
             }
         }

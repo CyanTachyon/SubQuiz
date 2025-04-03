@@ -1,40 +1,22 @@
 package cn.org.subit.utils
 
-import io.ktor.client.*
+import cn.org.subit.config.systemConfig
+import cn.org.subit.dataClass.*
+import cn.org.subit.database.Users
+import cn.org.subit.logger.SubQuizLogger.getLogger
 import io.ktor.client.call.*
-import io.ktor.client.engine.java.*
-import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
-import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import cn.org.subit.config.systemConfig
-import cn.org.subit.dataClass.*
-import cn.org.subit.database.Users
-import cn.org.subit.logger.SubQuizLogger.getLogger
-import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
 
 @Suppress("MemberVisibilityCanBePrivate")
 object SSO: KoinComponent
 {
     val users: Users by inject()
     private val logger = getLogger()
-    private val httpClient = HttpClient(Java)
-    {
-        engine()
-        {
-            pipelining = true
-            dispatcher = Dispatchers.IO
-            protocolVersion = java.net.http.HttpClient.Version.HTTP_2
-        }
-        install(ContentNegotiation)
-        {
-            json(contentNegotiationJson)
-        }
-    }
 
     @Serializable
     @Suppress("unused")

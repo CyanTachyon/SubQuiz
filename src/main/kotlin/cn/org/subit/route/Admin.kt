@@ -10,8 +10,10 @@ import cn.org.subit.database.Users
 import cn.org.subit.route.utils.*
 import cn.org.subit.utils.HttpStatus
 import cn.org.subit.utils.SSO
+import cn.org.subit.utils.ai.AiImage
 import cn.org.subit.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
+import io.github.smiley4.ktorswaggerui.dsl.routing.post
 import io.github.smiley4.ktorswaggerui.dsl.routing.put
 import io.github.smiley4.ktorswaggerui.dsl.routing.route
 import io.ktor.server.request.*
@@ -78,10 +80,10 @@ fun Route.admin() = route("/admin", {
             })
             {
                 val subject = call.parameters["sid"]?.toSubjectIdOrNull() ?: finishCall(HttpStatus.BadRequest)
-                val user = call.parameters["uid"]?.toUserIdOrNull() ?: finishCall(HttpStatus.BadRequest)
                 val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+                val user = call.parameters["uid"]?.toUserIdOrNull()?.let { if (it == UserId(0)) loginUser.id else it } ?: finishCall(HttpStatus.BadRequest)
                 val permissions: Permissions = get()
-                if (loginUser.permission < Permission.ADMIN && permissions.getPermission(loginUser.id, subject) < Permission.ADMIN)
+                if (user != loginUser.id && loginUser.permission < Permission.ADMIN && permissions.getPermission(loginUser.id, subject) < Permission.ADMIN)
                     finishCall(HttpStatus.Forbidden)
                 finishCall(HttpStatus.OK, permissions.getPermission(user, subject))
             }
@@ -182,6 +184,28 @@ fun Route.admin() = route("/admin", {
             users.changePermission(user, p)
             finishCall(HttpStatus.OK)
         }
+    }
+
+    post("/test", {
+        request {
+            body<String>()
+            {
+                required = true
+                description = "url"
+            }
+        }
+        response()
+        {
+            statuses<String>(HttpStatus.OK)
+        }
+    })
+    {
+        val url = call.receive<String>()
+        val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+        if (loginUser.permission < Permission.ADMIN)
+            finishCall(HttpStatus.Forbidden)
+        val result = AiImage.imageToMarkdown(url).choices[0].message.content
+        finishCall(HttpStatus.OK, result)
     }
 }
 
