@@ -2,8 +2,11 @@ package cn.org.subit.console.command
 
 import cn.org.subit.config.ConfigLoader
 import cn.org.subit.plugin.contentNegotiation.showJson
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.serializer
-import net.mamoe.yamlkt.*
 import org.jline.reader.Candidate
 
 object Config: TreeCommand(Get, Set)
@@ -20,13 +23,18 @@ object Config: TreeCommand(Get, Set)
         {
             if (args.size <= 1) return ConfigLoader.configs().map(::Candidate)
             val config = ConfigLoader.getConfigLoader(args[0]) ?: return emptyList()
-            var res: Any = Yaml.decodeYamlMapFromString(Yaml.encodeToString(serializer(config.type), config.config))
-            for (i in 1 until args.size - 1) res = (res as? YamlMap)?.get(args[i]) ?: return emptyList()
+            var res: JsonElement = showJson.encodeToJsonElement(showJson.serializersModule.serializer(config.type), config.config)
+            for (i in 1 until args.size - 1) res = when (res)
+            {
+                is JsonObject -> res[args[i]] ?: return emptyList()
+                is JsonArray -> res.getOrNull(args[i].toIntOrNull() ?: return emptyList()) ?: return emptyList()
+                is JsonPrimitive -> return emptyList()
+            }
             return when (res)
             {
-                is YamlMap -> res.keys.mapNotNull { it.asPrimitiveOrNull()?.content }.map(::Candidate)
-                is YamlList -> res.indices.map { it.toString() }.map(::Candidate)
-                else -> listOf(Candidate(res.toString()))
+                is JsonObject -> res.keys.map(::Candidate)
+                is JsonArray -> res.indices.map { it.toString() }.map(::Candidate)
+                is JsonPrimitive -> listOf(Candidate(res.content))
             }
         }
 
@@ -35,18 +43,63 @@ object Config: TreeCommand(Get, Set)
             if (args.size < 2) return false
             @Suppress("UNCHECKED_CAST")
             val config = ConfigLoader.getConfigLoader(args[0]) as? ConfigLoader<Any> ?: return false
-            val rootMap = Yaml.decodeYamlMapFromString(Yaml.encodeToString(serializer(config.type), config.config)).toContentMap().toMutableMap()
-            var yamlMap = rootMap
-            for (i in 1 until args.size - 2)
+            val rootMap = (showJson.encodeToJsonElement(showJson.serializersModule.serializer(config.type), config.config) as JsonObject).toMutableMap()
+            var map: Any = rootMap
+            for (i in 1 until args.size - 2) map = when (map)
             {
-                @Suppress("UNCHECKED_CAST")
-                val newMap = (yamlMap[args[i]] as? Map<String?, Any?>)?.toMutableMap() ?: return false
-                yamlMap[args[i]] = newMap
-                yamlMap = newMap
+                is MutableMap<*, *> -> {
+                    @Suppress("UNCHECKED_CAST")
+                    map as MutableMap<String, JsonElement>
+                    when (val new0 = map[args[i]])
+                    {
+                        is JsonObject -> new0.toMutableMap().also { map[args[i]] = JsonObject(it) }
+                        is JsonArray -> new0.toMutableList().also { map[args[i]] = JsonArray(it) }
+                        else -> return false
+                    }
+                }
+                is MutableList<*> -> {
+                    @Suppress("UNCHECKED_CAST")
+                    map as MutableList<JsonElement>
+                    when (val new0 = map.getOrNull(args[i].toIntOrNull() ?: return false))
+                    {
+                        is JsonObject -> new0.toMutableMap().also { map[args[i].toInt()] = JsonObject(it) }
+                        is JsonArray -> new0.toMutableList().also { map[args[i].toInt()] = JsonArray(it) }
+                        else -> return false
+                    }
+                }
+                else -> return false
             }
-            yamlMap[args[args.size - 2]] = args[args.size - 1]
-            val res = YamlMap(rootMap)
-            config.setValue(Yaml.decodeFromString(serializer(config.type), Yaml.encodeToString(res))!!)
+
+            fun setValue(value: JsonElement): Boolean
+            {
+                val i = args.size - 2
+                when (map)
+                {
+                    is MutableMap<*, *> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        map as MutableMap<String, JsonElement>
+                        map[args[i]] = value
+                    }
+                    is MutableList<*> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        map as MutableList<JsonElement>
+                        val index = args[i].toIntOrNull() ?: return false
+                        if (index < map.size) map[index] = value
+                        else if (index == map.size) map.add(value)
+                        else return false
+                    }
+                    else -> return false
+                }
+                return true
+            }
+
+            runCatching {
+                setValue(showJson.decodeFromString<JsonElement>(args[args.size - 1]))
+                config.setValue(showJson.decodeFromJsonElement(showJson.serializersModule.serializer(config.type), JsonObject(rootMap))!!)
+            }.onFailure {
+                setValue(JsonPrimitive(args[args.size - 1]))
+                config.setValue(showJson.decodeFromJsonElement(showJson.serializersModule.serializer(config.type), JsonObject(rootMap))!!)
+            }
             sender.out("Set.")
             return true
         }
@@ -62,19 +115,35 @@ object Config: TreeCommand(Get, Set)
         {
             if (args.size <= 1) return ConfigLoader.configs().map(::Candidate)
             val config = ConfigLoader.getConfigLoader(args[0]) ?: return emptyList()
-            var res: Any = Yaml.decodeYamlMapFromString(Yaml.encodeToString(serializer(config.type), config.config))
-            for (i in 1 until args.size - 1) res = (res as? YamlMap)?.get(args[i]) ?: return emptyList()
+            var res: JsonElement = showJson.encodeToJsonElement(showJson.serializersModule.serializer(config.type), config.config)
+            for (i in 1 until args.size - 1) res = when (res)
+            {
+                is JsonObject -> res[args[i]] ?: return emptyList()
+                is JsonArray -> res.getOrNull(args[i].toIntOrNull() ?: return emptyList()) ?: return emptyList()
+                else -> return emptyList()
+            }
             return when (res)
             {
-                is YamlMap -> res.keys.mapNotNull { it.asPrimitiveOrNull()?.content }.map(::Candidate)
-                is YamlList -> res.indices.map { it.toString() }.map(::Candidate)
+                is JsonObject -> res.keys.map(::Candidate)
+                is JsonArray -> res.indices.map { it.toString() }.map(::Candidate)
                 else -> emptyList()
             }
         }
 
         override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
         {
-            if (args.isEmpty()) return false
+            if (args.isEmpty())
+            {
+                val map = JsonObject(
+                    ConfigLoader.configs().associate {
+                        it to ConfigLoader.getConfigLoader(it)!!.let { config ->
+                            showJson.encodeToJsonElement(showJson.serializersModule.serializer(config.type), config.config)
+                        }
+                    }
+                )
+                sender.out(showJson.encodeToString(map))
+                return true
+            }
             @Suppress("UNCHECKED_CAST")
             val config = ConfigLoader.getConfigLoader(args[0]) as? ConfigLoader<Any> ?: return false
             if (args.size == 1)
@@ -82,12 +151,17 @@ object Config: TreeCommand(Get, Set)
                 sender.out(showJson.encodeToString(showJson.serializersModule.serializer(config.type), config.config))
                 return true
             }
-            var yamlMap = Yaml.decodeYamlMapFromString(Yaml.encodeToString(serializer(config.type), config.config))
-            for (i in 1 until args.size - 1)
+            var obj = showJson.encodeToJsonElement(showJson.serializersModule.serializer(config.type), config.config)
+            for (i in 1 until args.size)
             {
-                yamlMap = yamlMap[args[i]] as? YamlMap ?: return false
+                obj = when (obj)
+                {
+                    is JsonObject -> obj[args[i]] ?: return false
+                    is JsonArray -> obj.getOrNull(args[i].toIntOrNull() ?: return false) ?: return false
+                    else -> return false
+                }
             }
-            sender.out(showJson.encodeToString(yamlMap[args.last()]))
+            sender.out(showJson.encodeToString(obj))
             return true
         }
     }
