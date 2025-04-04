@@ -71,7 +71,7 @@ object AI: KoinComponent
             {
                 val res = sendAiRequest(
                     url = aiConfig.chat.url,
-                    key = aiConfig.chat.key,
+                    key = aiConfig.chat.key.random(),
                     messages = messages,
                     model = aiConfig.chat.model,
                     maxTokens = aiConfig.chat.maxTokens,

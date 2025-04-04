@@ -12,7 +12,7 @@ object AiImage
     {
         val response = sendAiRequest(
             url = aiConfig.image.url,
-            key = aiConfig.image.key,
+            key = aiConfig.image.key.random(),
             model = aiConfig.image.model,
             messages = listOf(AiRequest.Message(Role.USER, listOf(AiRequest.Message.Content.image(imageUrl), AiRequest.Message.Content(IMAGE_TO_MARKDOWN_PROMPT)))),
             maxTokens = aiConfig.image.maxTokens,

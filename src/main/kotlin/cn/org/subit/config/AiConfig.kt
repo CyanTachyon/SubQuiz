@@ -17,7 +17,7 @@ data class AiConfig(
     @Serializable
     data class ChatConfig(
         val url: String = "https://api.deepseek.com/chat/completions",
-        val key: String = "your api key",
+        val key: List<String> = listOf("your api key"),
         val model: String = "deepseek-reasoner",
         val useJsonOutput: Boolean = false,
         val maxTokens: Int = 16384,
@@ -26,10 +26,19 @@ data class AiConfig(
     @Serializable
     data class ImageConfig(
         val url: String = "https://api.siliconflow.cn/v1/chat/completions",
-        val key: String = "your api key",
+        val key: List<String> = listOf("your api key"),
         val model: String = "deepseek-ai/deepseek-vl2",
         val maxTokens: Int = 16384,
     )
+
+    init
+    {
+        require(timeout > 0) { "timeout must be greater than 0" }
+        require(retry > 0) { "retry must be greater than 0" }
+        require(maxConcurrency > 0) { "maxConcurrency must be greater than 0" }
+        require(chat.key.isNotEmpty()) { "chat key must not be empty" }
+        require(image.key.isNotEmpty()) { "image key must not be empty" }
+    }
 }
 
 var aiConfig: AiConfig by config("ai.yml", AiConfig())
