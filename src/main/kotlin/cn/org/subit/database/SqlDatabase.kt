@@ -131,6 +131,7 @@ object SqlDatabase: KoinComponent
             singleOf(::Permissions)
             singleOf(::Preferences)
             singleOf(::Quizzes)
+            singleOf(::Records)
             singleOf(::Sections)
             singleOf(::SectionTypes)
             singleOf(::Subjects)
@@ -147,6 +148,7 @@ object SqlDatabase: KoinComponent
             get<Permissions>().table
             get<Preferences>().table
             get<Quizzes>().table
+            get<Records>().table
             get<Sections>().table
             get<SectionTypes>().table
             get<Subjects>().table

@@ -9,10 +9,9 @@ import cn.org.subit.database.*
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.rateLimit.RateLimit.NewQuiz
 import cn.org.subit.route.utils.*
-import cn.org.subit.utils.ai.AI
-import cn.org.subit.utils.ai.AI.checkAnswer
 import cn.org.subit.utils.HttpStatus
 import cn.org.subit.utils.Locks
+import cn.org.subit.utils.ai.AI.checkAnswerAsync
 import cn.org.subit.utils.ai.AiResponse
 import cn.org.subit.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
@@ -169,11 +168,13 @@ private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, String?>): Nothing
                     answerSubmitLock.withLock(user)
                     {
                         var totalToken = AiResponse.Usage()
-                        val res = q2.sections.map {
-                            val ans = it.checkAnswer()
-                            totalToken += ans.second
-                            ans.first
-                        }
+                        val res = q2.sections
+                            .map { it.checkAnswerAsync() }
+                            .map {
+                                val ans = it.await()
+                                totalToken += ans.second
+                                ans.first
+                            }
                         logger.severe("") { quizzes.updateQuizAnswerCorrect(q2.id, res, totalToken) }
                         val score = (res zip q2.sections).associate { (r, s) ->
                             s.id to (r.count { it == true }.toDouble() / r.size)

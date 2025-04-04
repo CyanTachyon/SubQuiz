@@ -16,6 +16,8 @@ object AI: KoinComponent
     @OptIn(DelicateCoroutinesApi::class)
     private val checkAnswerCoroutineScope = CoroutineScope(newFixedThreadPoolContext(aiConfig.maxConcurrency, "checkAnswerDispatcher"))
 
+    fun Section<Any, Any, *>.checkAnswerAsync(): Deferred<Pair<List<Boolean?>, AiResponse.Usage>> =
+        checkAnswerCoroutineScope.async { checkAnswer() }
     suspend fun Section<Any, Any, *>.checkAnswer(): Pair<List<Boolean?>, AiResponse.Usage>
     {
         val subject = subjects.getSubject(this.subject)
@@ -109,35 +111,32 @@ object AI: KoinComponent
     ): String
     {
         val sb = StringBuilder()
-        sb.append("请你根据题目信息和评分标准，检查给定的答案是否正确\n")
+        sb.append("请你帮忙进行判卷，")
+        sb.append("根据题目信息和评分标准，检查学生的答案是否正确\n")
 
         if (!subjectName.isNullOrBlank())
         {
             sb.append("题目所属科目: $subjectName\n\n")
         }
-        if (sectionDescription.isNotBlank())
-        {
-            sb.append("大题题目描述: \n")
-            sb.append("```\n")
-            sb.append(sectionDescription.replace(codeBlockRegex, ""))
-            sb.append("\n```\n\n")
-        }
-        if (questionDescription.isNotBlank())
-        {
-            sb.append("小题题目描述: \n")
-            sb.append("```\n")
-            sb.append(questionDescription.replace(codeBlockRegex, ""))
-            sb.append("\n```\n\n")
-        }
-        sb.append("评分标准/标准答案: \n")
+
+        sb.append("题目信息: \n")
+        sb.append("```\n")
+        sb.append(sectionDescription.replace(codeBlockRegex, ""))
+        sb.append("\n")
+        sb.append(questionDescription.replace(codeBlockRegex, ""))
+        sb.append("\n```\n\n")
+
+        sb.append("标准答案/评分标准: \n")
         sb.append("```\n")
         sb.append(standard.replace(codeBlockRegex, ""))
         sb.append("\n```\n\n")
-        sb.append("请严格遵循上述`标准答案/评分标准`,判断该答案是否正确: \n")
+
+        sb.append("学生答案: \n")
         sb.append("```\n")
         sb.append(userAnswer.replace(codeBlockRegex, ""))
         sb.append("\n```\n\n")
-        sb.append("请你根据题目信息和评分标准，检查给定的答案是否正确，并返回且仅返回一个json对象，")
+
+        sb.append("请你根据题目信息和评分标准，检查学生的答案是否正确，并返回且仅返回一个json对象，")
         sb.append("其中包含一个\"result\"字段，其类型为bool，表示给定的答案是否正确\n")
         return sb.toString()
     }

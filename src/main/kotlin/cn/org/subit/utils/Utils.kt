@@ -2,6 +2,9 @@ package cn.org.subit.utils
 
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
+import org.koin.core.Koin
+import org.koin.core.component.KoinComponent
+import org.koin.mp.KoinPlatformTools
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 import java.io.PrintStream
@@ -13,6 +16,7 @@ private val logger = SubQuizLogger.getLogger()
 fun String?.toUUIDOrNull(): UUID? = runCatching { UUID.fromString(this) }.getOrNull()
 inline fun <reified T: Enum<T>> String?.toEnumOrNull(): T? =
     this?.runCatching { contentNegotiationJson.decodeFromString<T>(this) }?.getOrNull()
+fun getKoin() = KoinPlatformTools.defaultContext().get()
 
 open class LineOutputStream(private val line: (String) -> Unit): OutputStream()
 {

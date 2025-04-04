@@ -36,6 +36,7 @@ object TestDatabase: Command, KoinComponent
             "Permissions" to dao<Permissions>(),
             "Preference" to dao<Preferences>(),
             "Quizzes" to dao<Quizzes>(),
+            "Records" to dao<Records>(),
             "Sections" to dao<Sections>(),
             "SectionTypes" to dao<SectionTypes>(),
             "Subjects" to dao<Subjects>(),

@@ -1,9 +1,11 @@
 package cn.org.subit.utils.ai
 
 import cn.org.subit.config.aiConfig
+import cn.org.subit.database.Records
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
 import cn.org.subit.plugin.contentNegotiation.showJson
+import cn.org.subit.utils.getKoin
 import cn.org.subit.utils.httpClient
 import io.ktor.client.call.*
 import io.ktor.client.request.*
@@ -19,10 +21,12 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import org.koin.core.component.inject
+import org.koin.mp.KoinPlatformTools
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-private val semaphore = Semaphore(aiConfig.maxConcurrency)
+private val semaphore by lazy { Semaphore(aiConfig.maxConcurrency) }
 private val logger = SubQuizLogger.getLogger()
 
 @Serializable
@@ -187,6 +191,8 @@ data class AiRequest(
     }
 }
 
+private val records: Records by getKoin().inject()
+
 suspend fun sendAiRequest(
     url: String,
     key: String,
@@ -199,29 +205,39 @@ suspend fun sendAiRequest(
     presencePenalty: Double? = null,
     responseFormat: AiRequest.ResponseFormat? = null,
     stop: List<String>? = null,
-): AiResponse = semaphore.withPermit()
+): AiResponse = semaphore.withPermit<AiResponse>()
 {
-    withTimeout(aiConfig.timeout)
+    val body = AiRequest(
+        model = model,
+        messages = messages,
+        maxTokens = maxTokens,
+        temperature = temperature,
+        topP = topP,
+        frequencyPenalty = frequencyPenalty,
+        presencePenalty = presencePenalty,
+        responseFormat = responseFormat,
+        stop = stop,
+    )
+
+    var res: AiResponse? = null
+    try
     {
-        logger.config("发送AI请求: $url")
-        val body = AiRequest(
-            model = model,
-            messages = messages,
-            maxTokens = maxTokens,
-            temperature = temperature,
-            topP = topP,
-            frequencyPenalty = frequencyPenalty,
-            presencePenalty = presencePenalty,
-            responseFormat = responseFormat,
-            stop = stop,
-        )
-        val res = httpClient.post(url)
+        res = withTimeout<AiResponse>(aiConfig.timeout)
         {
-            bearerAuth(key)
-            contentType(ContentType.Application.Json)
-            accept(ContentType.Application.Json)
-            setBody(body)
+            logger.config("发送AI请求: $url")
+            val res = httpClient.post(url)
+            {
+                bearerAuth(key)
+                contentType(ContentType.Application.Json)
+                accept(ContentType.Application.Json)
+                setBody(body)
+            }
+            res.body<AiResponse>()
         }
-        res.body()
+        res!!
+    }
+    finally
+    {
+        records.addRecord(body, res)
     }
 }
