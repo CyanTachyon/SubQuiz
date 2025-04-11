@@ -105,6 +105,10 @@ tasks.withType<ProcessResources> {
 
 kotlin {
     jvmToolchain(17)
+
+    compilerOptions {
+        freeCompilerArgs.add("-Xmulti-dollar-interpolation")
+    }
 }
 
 ktor {
