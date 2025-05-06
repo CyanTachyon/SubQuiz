@@ -2,17 +2,24 @@ package cn.org.subit.utils.ai
 
 import cn.org.subit.config.aiConfig
 import cn.org.subit.dataClass.*
+import cn.org.subit.database.KnowledgePoints
+import cn.org.subit.database.PreparationGroups
+import cn.org.subit.database.SectionTypes
 import cn.org.subit.database.Subjects
 import cn.org.subit.logger.SubQuizLogger
 import kotlinx.coroutines.*
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import kotlin.getValue
 
 @Suppress("unused")
 object AI: KoinComponent
 {
     private val logger = SubQuizLogger.getLogger<AI>()
     private val subjects by inject<Subjects>()
+    private val sectionTypes by inject<SectionTypes>()
+    private val knowledgePoints by inject<KnowledgePoints>()
+    private val preparationGroups by inject<PreparationGroups>()
     @OptIn(DelicateCoroutinesApi::class)
     private val checkAnswerCoroutineScope = CoroutineScope(newFixedThreadPoolContext(aiConfig.maxConcurrency, "checkAnswerDispatcher"))
 
@@ -20,7 +27,11 @@ object AI: KoinComponent
         checkAnswerCoroutineScope.async { checkAnswer() }
     suspend fun Section<Any, Any, *>.checkAnswer(): Pair<List<Boolean?>, AiResponse.Usage>
     {
-        val subject = subjects.getSubject(this.subject)
+        val subject =
+            sectionTypes.getSectionType(type)?.knowledgePoint
+                ?.let { knowledgePoints.getKnowledgePoint(it) }?.group
+                ?.let { preparationGroups.getPreparationGroup(it) }?.subject
+                ?.let { subjects.getSubject(it) }
         var totalTokens = AiResponse.Usage()
         val res = this.questions.mapIndexed { index, it ->
             checkAnswerCoroutineScope.async {

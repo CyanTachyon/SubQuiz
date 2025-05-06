@@ -3,17 +3,15 @@
 package cn.org.subit.route.adimin
 
 import cn.org.subit.dataClass.*
-import cn.org.subit.dataClass.SubjectId.Companion.toSubjectIdOrNull
+import cn.org.subit.dataClass.PreparationGroupId.Companion.toPreparationGroupIdOrNull
 import cn.org.subit.dataClass.UserId.Companion.toUserIdOrNull
 import cn.org.subit.database.Permissions
 import cn.org.subit.database.Users
 import cn.org.subit.route.utils.*
 import cn.org.subit.utils.HttpStatus
 import cn.org.subit.utils.SSO
-import cn.org.subit.utils.ai.AiImage
 import cn.org.subit.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
-import io.github.smiley4.ktorswaggerui.dsl.routing.post
 import io.github.smiley4.ktorswaggerui.dsl.routing.put
 import io.github.smiley4.ktorswaggerui.dsl.routing.route
 import io.ktor.server.request.*
@@ -24,10 +22,10 @@ fun Route.admin() = route("/admin", {
     tags("admin")
 })
 {
-    route("/subject/{sid}", {
+    route("/group/{group}", {
         request()
         {
-            pathParameter<SubjectId>("sid")
+            pathParameter<PreparationGroupId>("group")
             {
                 required = true
                 description = "学科id"
@@ -36,8 +34,8 @@ fun Route.admin() = route("/admin", {
     })
     {
         get("/list", {
-            summary = "获取学科管理员"
-            description = "获取该学科的管理员列表"
+            summary = "获取备课组管理员"
+            description = "获取该备课组的管理员列表"
             request()
             {
                 paged()
@@ -48,30 +46,30 @@ fun Route.admin() = route("/admin", {
             }
         })
         {
-            val subject = call.parameters["sid"]?.toSubjectIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+            val group = call.parameters["group"]?.toPreparationGroupIdOrNull() ?: finishCall(HttpStatus.BadRequest)
             val (begin, count) = call.getPage()
             val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
             val permissions: Permissions = get()
-            if (loginUser.permission < Permission.ADMIN && permissions.getPermission(loginUser.id, subject) < Permission.ADMIN)
+            if (loginUser.permission < Permission.ADMIN && permissions.getPermission(loginUser.id, group) < Permission.ADMIN)
                 finishCall(HttpStatus.Forbidden)
-            finishCall(HttpStatus.OK, permissions.getAdmins(subject, begin, count).map { UserWithPermission(it.first, it.second) })
+            finishCall(HttpStatus.OK, permissions.getAdmins(group, begin, count).map { UserWithPermission(it.first, it.second) })
         }
 
         route("/user/{uid}", {
             request()
             {
-                pathParameter<SubjectId>("uid")
+                pathParameter<UserId>("uid")
                 {
                     required = true
-                    description = "学科id"
+                    description = "用户id"
                 }
             }
         })
         {
             get({
-                summary = "获取用户对于某一学科的权限"
+                summary = "获取用户对于某一备课组的权限"
                 description = """
-                    获取指定用户在指定学科的权限
+                    获取指定用户在指定备课组的权限
                 """.trimIndent()
                 response()
                 {
@@ -79,18 +77,18 @@ fun Route.admin() = route("/admin", {
                 }
             })
             {
-                val subject = call.parameters["sid"]?.toSubjectIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+                val group = call.parameters["group"]?.toPreparationGroupIdOrNull() ?: finishCall(HttpStatus.BadRequest)
                 val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
                 val user = call.parameters["uid"]?.toUserIdOrNull()?.let { if (it == UserId(0)) loginUser.id else it } ?: finishCall(HttpStatus.BadRequest)
                 val permissions: Permissions = get()
-                if (user != loginUser.id && loginUser.permission < Permission.ADMIN && permissions.getPermission(loginUser.id, subject) < Permission.ADMIN)
+                if (user != loginUser.id && loginUser.permission < Permission.ADMIN && permissions.getPermission(loginUser.id, group) < Permission.ADMIN)
                     finishCall(HttpStatus.Forbidden)
-                finishCall(HttpStatus.OK, permissions.getPermission(user, subject))
+                finishCall(HttpStatus.OK, permissions.getPermission(user, group))
             }
 
             put({
-                summary = "修改用户对于某一学科的权限"
-                description = "修改指定用户在指定学科的权限"
+                summary = "修改用户对于某一备课组的权限"
+                description = "修改指定用户在指定备课组的权限"
                 request()
                 {
                     body<Wrap<Permission>>()
@@ -104,20 +102,20 @@ fun Route.admin() = route("/admin", {
                 }
             })
             {
-                val subject = call.parameters["sid"]?.toSubjectIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+                val group = call.parameters["group"]?.toPreparationGroupIdOrNull() ?: finishCall(HttpStatus.BadRequest)
                 val user = call.parameters["uid"]?.toUserIdOrNull() ?: finishCall(HttpStatus.BadRequest)
                 val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
                 val p = call.receive<Wrap<Permission>>().data
                 val permissions: Permissions = get()
-                val loginPermission = permissions.getPermission(loginUser.id, subject)
+                val loginPermission = permissions.getPermission(loginUser.id, group)
                 SSO.getDbUser(user) ?: finishCall(HttpStatus.NotFound)
-                val userPermission = permissions.getPermission(user, subject)
+                val userPermission = permissions.getPermission(user, group)
 
                 if (!loginUser.hasGlobalAdmin() && loginPermission < Permission.ADMIN)
                     finishCall(HttpStatus.Forbidden)
                 if (!loginUser.hasGlobalAdmin() && (loginPermission <= userPermission || loginPermission <= p) && loginUser.id != user)
                     finishCall(HttpStatus.Forbidden)
-                permissions.setPermission(user, subject, p)
+                permissions.setPermission(user, group, p)
                 finishCall(HttpStatus.OK)
             }
         }
@@ -184,28 +182,6 @@ fun Route.admin() = route("/admin", {
             users.changePermission(user, p)
             finishCall(HttpStatus.OK)
         }
-    }
-
-    post("/test", {
-        request {
-            body<String>()
-            {
-                required = true
-                description = "url"
-            }
-        }
-        response()
-        {
-            statuses<String>(HttpStatus.OK)
-        }
-    })
-    {
-        val url = call.receive<String>()
-        val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-        if (loginUser.permission < Permission.ADMIN)
-            finishCall(HttpStatus.Forbidden)
-        val result = AiImage.imageToMarkdown(url).choices[0].message.content
-        finishCall(HttpStatus.OK, result)
     }
 }
 

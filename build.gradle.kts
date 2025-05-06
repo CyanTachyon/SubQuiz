@@ -9,9 +9,9 @@ val swagger_ui_version: String by project
 val schema_kenerator_version: String by project
 
 plugins {
-    kotlin("jvm") version "2.1.20"
-    kotlin("plugin.serialization") version "2.1.20"
-    id("io.ktor.plugin") version "3.1.1"
+    kotlin("jvm") version "2.2.0-Beta1"
+    kotlin("plugin.serialization") version "2.2.0-Beta1"
+    id("io.ktor.plugin") version "3.1.2"
 }
 
 group = "cn.org.subit"
@@ -52,7 +52,7 @@ dependencies {
 
     // ktor common
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm") // json on request/response
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0") // json on request/response
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1") // json on request/response
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1") // 协程
 
     // utils
@@ -108,6 +108,7 @@ kotlin {
 
     compilerOptions {
         freeCompilerArgs.add("-Xmulti-dollar-interpolation")
+        freeCompilerArgs.add("-Xcontext-parameters")
     }
 }
 

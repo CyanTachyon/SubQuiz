@@ -113,6 +113,7 @@ fun main(args: Array<String>)
     tempFile.writeText(Yaml.encodeToString(resConfig))
     val resArgs = args1 + "-config=${tempFile.absolutePath}"
     EngineMain.main(resArgs)
+    SubQuizLogger.getLogger().info("main thread finished")
     Power.shutdown(0)
 }
 
@@ -126,20 +127,26 @@ fun Application.init()
 
     if (debug) SubQuizLogger.globalLogger.warning("Debug mode is enabled")
 
+    // must install the Koin plugin first
+    installKoin()
+
+    // start command thread
     startCommandThread()
 
+    // install other plugins
     installApiDoc()
     installAuthentication()
     installAutoHead()
     installContentNegotiation()
     installCORS()
     installDoubleReceive()
-    installKoin()
     installRateLimit()
     installStatusPages()
     installWebSockets()
 
+    // install database
     SqlDatabase.apply { this@init.init() }
 
+    // router
     router()
 }

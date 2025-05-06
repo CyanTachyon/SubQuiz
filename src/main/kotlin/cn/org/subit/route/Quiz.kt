@@ -48,10 +48,10 @@ fun Route.quiz() = route("/quiz", {
                     required = true
                     description = "小测包含的题目数量"
                 }
-                queryParameter<SubjectId>("subjectId")
+                body<List<KnowledgePointId>>
                 {
                     required = false
-                    description = "若该选项不为null, 则小测仅包含指定学科的题目"
+                    description = "知识点id列表, 若该选项不为null, 则小测仅包含指定知识点的题目"
                 }
             }
             response {
@@ -130,17 +130,16 @@ fun Route.quiz() = route("/quiz", {
 
 }
 
-private suspend fun Context.newQuiz(): Nothing
+private suspend fun Context.newQuiz(knowledgePoints: List<KnowledgePointId>?): Nothing
 {
     val user = getLoginUser()?.id ?: finishCall(HttpStatus.Unauthorized)
-    val subject = call.parameters["subjectId"]?.toSubjectIdOrNull()
     val quizzes: Quizzes = get()
-    answerSubmitLock.tryWithLock<Nothing>(user, { finishCall(HttpStatus.Conflict.subStatus("仍有测试在批阅中")) })
+    answerSubmitLock.tryWithLock(user, { finishCall(HttpStatus.Conflict.subStatus("仍有测试在批阅中")) })
     {
         val q = quizzes.getUnfinishedQuiz(user)
         if (q != null) finishCall(HttpStatus.NotAcceptable.subStatus("已有未完成的测试"), q.hideAnswer())
         val count = call.parameters["count"]?.toIntOrNull() ?: finishCall(HttpStatus.BadRequest)
-        val sections = get<Sections>().recommendSections(user, subject, count)
+        val sections = get<Sections>().recommendSections(user, knowledgePoints, count)
         if (sections.count < count) finishCall(HttpStatus.NotEnoughQuestions)
         finishCall(HttpStatus.OK, quizzes.addQuiz(user, sections.list).hideAnswer())
     }
@@ -184,7 +183,11 @@ private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, String?>): Nothing
                         (res zip q2.sections)
                             .map { (r, s) -> s.type to (r.count { it == true }.toDouble() / r.size) }
                             .forEach {
-                                logger.severe("") { get<Preferences>().addPreference(user, it.first, it.second) }
+                                logger.severe("")
+                                {
+                                    val knowledgePoint = get<SectionTypes>().getSectionType(it.first)?.knowledgePoint ?: return@forEach
+                                    get<Preferences>().addPreference(user, knowledgePoint, it.second)
+                                }
                             }
                     }
                 }

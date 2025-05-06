@@ -33,8 +33,10 @@ object TestDatabase: Command, KoinComponent
     {
         mapOf(
             "Histories" to dao<Histories>(),
+            "KnowledgePoints" to dao<KnowledgePoints>(),
             "Permissions" to dao<Permissions>(),
             "Preference" to dao<Preferences>(),
+            "PreparationGroups" to dao<PreparationGroups>(),
             "Quizzes" to dao<Quizzes>(),
             "Records" to dao<Records>(),
             "Sections" to dao<Sections>(),

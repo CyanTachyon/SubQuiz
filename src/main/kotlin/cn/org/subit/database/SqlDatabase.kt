@@ -128,8 +128,10 @@ object SqlDatabase: KoinComponent
             single { Database.connect(createHikariDataSource(url, driver, user, password)) }.bind<Database>()
 
             singleOf(::Histories)
+            singleOf(::KnowledgePoints)
             singleOf(::Permissions)
             singleOf(::Preferences)
+            singleOf(::PreparationGroups)
             singleOf(::Quizzes)
             singleOf(::Records)
             singleOf(::Sections)
@@ -145,8 +147,10 @@ object SqlDatabase: KoinComponent
             logger.info("${CYAN}It may take a while to initialize the database. Please wait patiently.")
 
             get<Histories>().table
+            get<KnowledgePoints>().table
             get<Permissions>().table
             get<Preferences>().table
+            get<PreparationGroups>().table
             get<Quizzes>().table
             get<Records>().table
             get<Sections>().table
@@ -199,3 +203,11 @@ fun Table.sectionTypeId(name: String) = registerColumn(name, SectionTypeIdColumn
 // QuizId
 class QuizIdColumnType: WrapColumnType<Long, QuizId>(LongColumnType(), ::QuizId, QuizId::value)
 fun Table.quizId(name: String) = registerColumn(name, QuizIdColumnType())
+
+// PreparationGroupId
+class PreparationGroupIdColumnType: WrapColumnType<Int, PreparationGroupId>(IntegerColumnType(), ::PreparationGroupId, PreparationGroupId::value)
+fun Table.preparationGroupId(name: String) = registerColumn(name, PreparationGroupIdColumnType())
+
+// KnowledgePointId
+class KnowledgePointIdColumnType: WrapColumnType<Long, KnowledgePointId>(LongColumnType(), ::KnowledgePointId, KnowledgePointId::value)
+fun Table.knowledgePointId(name: String) = registerColumn(name, KnowledgePointIdColumnType())

@@ -1,5 +1,6 @@
 package cn.org.subit.database
 
+import cn.org.subit.dataClass.KnowledgePointId
 import cn.org.subit.dataClass.SectionTypeId
 import cn.org.subit.dataClass.UserId
 import org.jetbrains.exposed.dao.id.CompositeIdTable
@@ -19,22 +20,22 @@ class Preferences: SqlDao<Preferences.PreferenceTable>(PreferenceTable)
     object PreferenceTable: CompositeIdTable("preferences")
     {
         val user = reference("user", Users.UsersTable).index()
-        val type = reference("type", SectionTypes.SectionTypeTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
+        val knowledgePoint = reference("knowledge_point", KnowledgePoints.KnowledgePointTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
         val value = double("value")
-        override val primaryKey = PrimaryKey(user, type)
+        override val primaryKey = PrimaryKey(user, knowledgePoint)
 
         init
         {
             addIdColumn(user)
-            addIdColumn(type)
+            addIdColumn(knowledgePoint)
         }
     }
 
-    suspend fun addPreference(user: UserId, type: SectionTypeId, score: Double): Unit = query()
+    suspend fun addPreference(user: UserId, knowledgePoint: KnowledgePointId, score: Double): Unit = query()
     {
         val oldValue = select(value)
             .andWhere { PreferenceTable.user eq user }
-            .andWhere { PreferenceTable.type eq type }
+            .andWhere { PreferenceTable.knowledgePoint eq knowledgePoint }
             .singleOrNull()
             ?.get(value)
             ?: 0.0
@@ -43,7 +44,7 @@ class Preferences: SqlDao<Preferences.PreferenceTable>(PreferenceTable)
         upsert()
         {
             it[PreferenceTable.user] = user
-            it[PreferenceTable.type] = type
+            it[PreferenceTable.knowledgePoint] = knowledgePoint
             it[value] = 1 - newValue
         }
     }

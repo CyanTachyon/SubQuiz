@@ -6,6 +6,7 @@ import cn.org.subit.console.Console
 import cn.org.subit.console.SimpleAnsiColor
 import cn.org.subit.console.SimpleAnsiColor.Companion.CYAN
 import cn.org.subit.console.SimpleAnsiColor.Companion.PURPLE
+import cn.org.subit.logger.SubQuizLogger.getLevelName
 import cn.org.subit.logger.SubQuizLogger.safe
 import cn.org.subit.workDir
 import kotlinx.datetime.Clock
@@ -85,6 +86,8 @@ object SubQuizLogger
 
     fun setLevel(level: Level)
     {
+        if (level !in setOf(Level.OFF, Level.FINEST, Level.FINER, Level.FINE, Level.CONFIG, Level.INFO, Level.WARNING, Level.SEVERE, Level.ALL))
+            throw IllegalArgumentException("Invalid level: $level")
         loggerConfig = loggerConfig.copy(levelName = level.name)
     }
 
@@ -150,6 +153,21 @@ object SubQuizLogger
             else synchronized(arrayOutputStream) { arrayOutputStream.write(b) }
         }
     }
+
+    fun getLevelName(level: Level): String
+    {
+        operator fun Level.compareTo(other: Level): Int = this.intValue() - other.intValue()
+        return when
+        {
+            level >= Level.SEVERE -> "ERROR"
+            level >= Level.WARNING -> "WARN"
+            level >= Level.INFO -> "INFO"
+            level >= Level.CONFIG -> "DEBUG"
+            level >= Level.FINE -> "FINE"
+            level >= Level.FINER -> "FINER"
+            else -> "FINEST"
+        }
+    }
 }
 
 /**
@@ -182,7 +200,7 @@ object ToConsoleHandler: Handler()
                     CYAN.bright(),
                     record.loggerName,
                     ansiStyle,
-                    level.name,
+                    getLevelName(level),
                     RESET,
                 )
                 else String.format(
@@ -190,7 +208,7 @@ object ToConsoleHandler: Handler()
                     PURPLE.bright(),
                     SubQuizLogger.loggerDateFormat.format(record.millis),
                     ansiStyle,
-                    level.name,
+                    getLevelName(level),
                     RESET,
                 )
                 return messages.joinToString("\n") { "$head $it$RESET" }
@@ -262,12 +280,12 @@ object ToFileHandler: Handler()
                     "[%s][%s][%s]",
                     SubQuizLogger.loggerDateFormat.format(record.millis),
                     record.loggerName,
-                    level.name
+                    getLevelName(level)
                 )
                 else String.format(
                     "[%s][%s]",
                     SubQuizLogger.loggerDateFormat.format(record.millis),
-                    level.name
+                    getLevelName(level)
                 )
                 return messages.joinToString("\n") { "$head $it" }
             }

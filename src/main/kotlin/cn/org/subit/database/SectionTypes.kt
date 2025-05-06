@@ -2,9 +2,7 @@ package cn.org.subit.database
 
 import cn.org.subit.dataClass.SectionType
 import cn.org.subit.dataClass.SectionTypeId
-import cn.org.subit.dataClass.Slice
-import cn.org.subit.dataClass.SubjectId
-import cn.org.subit.database.utils.asSlice
+import cn.org.subit.dataClass.KnowledgePointId
 import cn.org.subit.database.utils.singleOrNull
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
@@ -15,14 +13,14 @@ class SectionTypes: SqlDao<SectionTypes.SectionTypeTable>(SectionTypeTable)
     object SectionTypeTable: IdTable<SectionTypeId>("sectionTypes")
     {
         override val id = sectionTypeId("id").autoIncrement().entityId()
-        val subject = reference("subject", Subjects.SubjectTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
+        val knowledgePoint = reference("knowledgePoint", KnowledgePoints.KnowledgePointTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
         val name = text("name").index()
         val description = text("description")
         override val primaryKey = PrimaryKey(id)
 
         init
         {
-            uniqueIndex(subject, name)
+            uniqueIndex(knowledgePoint, name)
         }
     }
 
@@ -30,7 +28,7 @@ class SectionTypes: SqlDao<SectionTypes.SectionTypeTable>(SectionTypeTable)
     {
         SectionType(
             row[id].value,
-            row[subject].value,
+            row[knowledgePoint].value,
             row[name],
             row[description],
         )
@@ -44,21 +42,21 @@ class SectionTypes: SqlDao<SectionTypes.SectionTypeTable>(SectionTypeTable)
             ?.let(::deserialize)
     }
 
-    suspend fun newSectionType(subject: SubjectId, name: String, description: String): SectionTypeId? = query()
+    suspend fun newSectionType(knowledgePoint: KnowledgePointId, name: String, description: String): SectionTypeId? = query()
     {
         insertIgnoreAndGetId()
         {
-            it[table.subject] = subject
+            it[table.knowledgePoint] = knowledgePoint
             it[table.name] = name
             it[table.description] = description
         }?.value
     }
 
-    suspend fun updateSectionType(id: SectionTypeId, subject: SubjectId, name: String, description: String): Boolean = query()
+    suspend fun updateSectionType(id: SectionTypeId, knowledgePoint: KnowledgePointId, name: String, description: String): Boolean = query()
     {
         update({ table.id eq id })
         {
-            it[table.subject] = subject
+            it[table.knowledgePoint] = knowledgePoint
             it[table.name] = name
             it[table.description] = description
         } > 0
@@ -69,11 +67,10 @@ class SectionTypes: SqlDao<SectionTypes.SectionTypeTable>(SectionTypeTable)
         deleteWhere { table.id eq id } > 0
     }
 
-    suspend fun getSectionTypes(subject: SubjectId?, begin: Long, count: Int): Slice<SectionType> = query()
+    suspend fun getSectionTypes(knowledgePoint: KnowledgePointId?): List<SectionType> = query()
     {
         selectAll()
-            .apply { subject?.let { andWhere { table.subject eq it } } }
-            .asSlice(begin, count)
+            .apply { knowledgePoint?.let { andWhere { table.knowledgePoint eq it } } }
             .map(::deserialize)
     }
 }

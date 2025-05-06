@@ -36,8 +36,8 @@ fun Query.asSlice(begin: Long, limit: Int): Slice<ResultRow>
     return Slice(resCount, begin, resList)
 }
 
-fun Query.single() = asSlice(0, 1).list[0]
-fun Query.singleOrNull() = asSlice(0, 1).list.firstOrNull()
+fun Query.single() = this.limit(1).toList().first()
+fun Query.singleOrNull() = this.limit(1).toList().firstOrNull()
 
 private object TheAny: Expression<Any>()
 {

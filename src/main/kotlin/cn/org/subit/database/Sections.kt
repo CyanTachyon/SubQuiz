@@ -40,7 +40,6 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
     {
         Section(
             id = row[id].value,
-            subject = row[sectionTypeTable.subject].value,
             type = row[type].value,
             description = row[description],
             weight = row[weight],
@@ -52,8 +51,8 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
 
     suspend fun getSection(id: SectionId): Section<Any, Nothing?, String>? = query()
     {
-        table.join(sectionTypeTable, JoinType.INNER, table.type, sectionTypeTable.id)
-            .select(table.columns + sectionTypeTable.subject)
+        table
+            .select(table.columns)
             .where { SectionTable.id eq id }
             .singleOrNull()
             ?.let(::deserialize)
@@ -61,7 +60,7 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
 
     suspend fun recommendSections(
         user: UserId,
-        subject: SubjectId?,
+        knowledgePoints: List<KnowledgePointId>?,
         count: Int
     ): Slice<Section<Any, Nothing?, String>> = query()
     {
@@ -69,15 +68,15 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
         val historyTable = get<Histories>().table
         table
             .join(sectionTypeTable, JoinType.INNER, table.type, sectionTypeTable.id)
-            .join(preferencesTable, JoinType.LEFT, table.type, preferencesTable.type) { preferencesTable.user eq user }
+            .join(preferencesTable, JoinType.LEFT, sectionTypeTable.knowledgePoint, preferencesTable.knowledgePoint) { preferencesTable.user eq user }
             .join(
                 historyTable,
                 JoinType.LEFT,
                 table.id,
                 historyTable.section
             ) { (historyTable.user eq user) and (historyTable.score greaterEq systemConfig.score) }
-            .select(table.columns + sectionTypeTable.subject)
-            .apply { subject?.let { andWhere { sectionTypeTable.subject eq it } } }
+            .select(table.columns)
+            .apply { knowledgePoints?.let { andWhere { sectionTypeTable.knowledgePoint inList it } } }
             .andWhere { available eq true }
             .groupBy(*table.columns.toTypedArray())
             .groupBy(*preferencesTable.columns.toTypedArray())
@@ -125,17 +124,17 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
     }
 
     suspend fun getSections(
-        subject: SubjectId?,
-        type: SectionTypeId?,
+        knowledgePoint: KnowledgePointId,
+        sectionType: SectionTypeId?,
         begin: Long,
         count: Int
     ): Slice<Section<Any, Nothing?, String>> = query()
     {
         table
             .join(sectionTypeTable, JoinType.INNER, table.type, sectionTypeTable.id)
-            .select(table.columns + sectionTypeTable.subject)
-            .apply { subject?.let { andWhere { sectionTypeTable.subject eq it } } }
-            .apply { type?.let { andWhere { table.type eq it } } }
+            .select(table.columns + sectionTypeTable.knowledgePoint)
+            .andWhere { sectionTypeTable.knowledgePoint eq knowledgePoint }
+            .apply { sectionType?.let { andWhere { table.type eq it } } }
             .orderBy(id to SortOrder.ASC)
             .asSlice(begin, count)
             .map(::deserialize)

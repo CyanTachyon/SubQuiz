@@ -13,7 +13,6 @@ import kotlinx.serialization.encoding.Encoder
 @KeepGeneratedSerializer
 data class Section<out Answer, out UserAnswer, out Analysis: String?>(
     val id: SectionId,
-    val subject: SubjectId,
     val type: SectionTypeId,
     val description: String,
     val weight: Int,
@@ -30,7 +29,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
 
     fun hideAnswer() = Section(
         id = id,
-        subject = subject,
         type = type,
         description = description,
         weight = weight,
@@ -42,7 +40,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
     fun checkFinished(): Section<Answer, Any, Analysis>? =
         Section(
             id = id,
-            subject = subject,
             type = type,
             description = description,
             weight = weight,
@@ -54,7 +51,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
     fun withoutUserAnswer() =
         Section(
             id = id,
-            subject = subject,
             type = type,
             description = description,
             weight = weight,
@@ -68,7 +64,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
         require(questions.size == o.questions.size) { "Questions size must be equal" }
         return Section(
             id = id,
-            subject = subject,
             type = type,
             description = description,
             weight = weight,
@@ -82,7 +77,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
     {
         val example = Section(
             id = SectionId(1),
-            subject = SubjectId(1),
             type = SectionTypeId(1),
             description = "the section description",
             weight = 50,
@@ -122,7 +116,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
         override val descriptor: SerialDescriptor = generatedSerializer(analysisSerializer, answerSerializer, userAnswerSerializer).descriptor
 
         private val idIndex = descriptor.getElementIndex("id")
-        private val subjectIndex = descriptor.getElementIndex("subject")
         private val typeIndex = descriptor.getElementIndex("type")
         private val descriptionIndex = descriptor.getElementIndex("description")
         private val weightIndex = descriptor.getElementIndex("weight")
@@ -135,7 +128,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
             val d = decoder.beginStructure(descriptor)
             var bits = 0
             var id: SectionId? = null
-            var subject: SubjectId? = null
             var type: SectionTypeId? = null
             var description: String? = null
             var weight: Int = 50
@@ -149,7 +141,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
                 {
                     DECODE_DONE -> break@loop
                     idIndex -> id = d.decodeSerializableElement(descriptor, i, SectionId.serializer())
-                    subjectIndex -> subject = d.decodeSerializableElement(descriptor, i, SubjectId.serializer())
                     typeIndex -> type = d.decodeSerializableElement(descriptor, i, SectionTypeId.serializer())
                     descriptionIndex -> description = d.decodeStringElement(descriptor, i)
                     weightIndex -> weight = d.decodeIntElement(descriptor, i)
@@ -164,7 +155,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
             if (bits != FULL_BITS)
             {
                 if (bits and (1 shl idIndex) == 0) throw SerializationException("Missing id")
-                if (bits and (1 shl subjectIndex) == 0) throw SerializationException("Missing subject")
                 if (bits and (1 shl typeIndex) == 0) throw SerializationException("Missing type")
                 if (bits and (1 shl descriptionIndex) == 0) throw SerializationException("Missing description")
                 if (bits and (1 shl questionsIndex) == 0) throw SerializationException("Missing questions")
@@ -178,7 +168,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
             }
             return Section(
                 id = id!!,
-                subject = subject!!,
                 type = type!!,
                 description = description!!,
                 weight = weight,
@@ -192,7 +181,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
         {
             val c = encoder.beginStructure(descriptor)
             c.encodeSerializableElement(descriptor, idIndex, SectionId.serializer(), value.id)
-            c.encodeSerializableElement(descriptor, subjectIndex, SubjectId.serializer(), value.subject)
             c.encodeSerializableElement(descriptor, typeIndex, SectionTypeId.serializer(), value.type)
             c.encodeStringElement(descriptor, descriptionIndex, value.description)
             c.encodeIntElement(descriptor, weightIndex, value.weight)

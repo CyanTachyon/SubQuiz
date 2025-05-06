@@ -18,10 +18,11 @@ import org.koin.ktor.ext.get
 
 typealias Context = RoutingContext
 
-inline fun <reified T: Any> Context.get(
+context(context: Context)
+inline fun <reified T: Any> get(
     qualifier: Qualifier? = null,
     noinline parameters: ParametersDefinition? = null
-) = call.application.get<T>(qualifier, parameters)
+) = context.call.application.get<T>(qualifier, parameters)
 
 /**
  * 辅助方法, 标记此方法返回需要传入begin和count, 用于分页
@@ -60,7 +61,8 @@ inline fun <reified T> OpenApiRequestParameter.example(any: T)
     this.example = ValueExampleDescriptor("example", any)
 }
 
-inline fun Context.getLoginUser(): UserFull? = call.getLoginUser()
+context(context: Context)
+inline fun getLoginUser(): UserFull? = context.call.getLoginUser()
 inline fun ApplicationCall.getLoginUser(): UserFull? = this.principal<UserFull>()
 
 fun ApplicationCall.getRealIp(): String

@@ -124,8 +124,7 @@ private suspend fun Context.editSubject(): Nothing
 {
     val id = call.pathParameters["id"]?.toSubjectIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, id) < Permission.ADMIN)
-        finishCall(HttpStatus.Forbidden)
+    if (loginUser.permission < Permission.ADMIN) finishCall(HttpStatus.Forbidden)
     val body = call.receive<SubjectInfo>()
     get<Subjects>().updateSubject(id, body.name, body.description)
     finishCall(HttpStatus.OK)

@@ -7,8 +7,8 @@ import cn.org.subit.console.SimpleAnsiColor
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.utils.Power.shutdown
 import io.ktor.server.application.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.jline.reader.*
@@ -38,7 +38,8 @@ object CommandSet: TreeCommand(
     private val prompt: String get() = parsePrompt("SubQuiz > ")
     private val rightPrompt: String get() = parsePrompt("<| POWERED BY TACHYON |>")
 
-    fun Application.startCommandThread() = CoroutineScope(Dispatchers.IO).launch()
+    @OptIn(DelicateCoroutinesApi::class)
+    fun Application.startCommandThread() = GlobalScope.launch()
     {
         if (Console.lineReader == null) return@launch
         var line: String?
@@ -52,7 +53,7 @@ object CommandSet: TreeCommand(
             {
                 Console.onUserInterrupt(ConsoleCommandSender)
             }
-            catch (e: EndOfFileException)
+            catch (_: EndOfFileException)
             {
                 logger.warning("Console is closed")
                 shutdown(0, "Console is closed")
@@ -62,29 +63,18 @@ object CommandSet: TreeCommand(
         }
     }.start()
 
-    suspend fun invokeCommand(sender: CommandSender, line: String)
+    suspend fun invokeCommand(sender: CommandSender, line: String) = logger.severe("An error occurred while processing the command: $line")
     {
-        try
-        {
-            val words = DefaultParser().parse(line, 0, Parser.ParseContext.ACCEPT_LINE).words()
-            if (words.isEmpty() || (words.size == 1 && words.first().isEmpty())) return
-            val command = CommandSet.getCommand(words[0])
-            if (command == null || command.log) logger.info("${sender.name} is executing command: $line")
-            success = false
-            if (command == null)
-            {
-                sender.err("Unknown command: ${words[0]}, use \"help\" to get help")
-            }
-            else if (!command.execute(sender, words.subList(1, words.size)))
-            {
-                sender.err("Command is illegal, use \"help ${words[0]}\" to get help")
-            }
-            else success = true
-        }
-        catch (e: Throwable)
-        {
-            logger.severe("An error occurred while processing the command: $line", e)
-        }
+        val words = DefaultParser().parse(line, 0, Parser.ParseContext.ACCEPT_LINE).words()
+        if (words.isEmpty() || (words.size == 1 && words.first().isEmpty())) return
+        val command = getCommand(words[0])
+        if (command != null && command.log) logger.info("${sender.name} is executing command: $line")
+        success = false
+        if (command == null)
+            sender.err("Unknown command: ${words[0]}, use \"help\" to get help")
+        else if (!command.execute(sender, words.subList(1, words.size)))
+            sender.err("Command is illegal, use \"help ${words[0]}\" to get help")
+        else success = true
     }
 
     suspend fun invokeTabComplete(line: String): List<String>
@@ -123,7 +113,7 @@ object CommandSet: TreeCommand(
         {
             val color = if (err) SimpleAnsiColor.RED.bright() else SimpleAnsiColor.BLUE.bright()
             val type = if (err) "[ERROR]" else "[INFO]"
-            return SimpleAnsiColor.PURPLE.bright().ansi().toString() + "[COMMAND]" + color.ansi() + type + RESET + line + RESET
+            return SimpleAnsiColor.PURPLE.bright().ansi().toString() + "[COMMAND]" + color.ansi() + type + RESET + " " + line + RESET
         }
     }
 

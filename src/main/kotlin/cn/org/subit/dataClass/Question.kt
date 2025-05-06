@@ -1,6 +1,7 @@
 package cn.org.subit.dataClass
 
 import cn.org.subit.plugin.contentNegotiation.QuestionAnswerSerializer
+import cn.org.subit.utils.ai.AiRequest
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.NothingSerializer

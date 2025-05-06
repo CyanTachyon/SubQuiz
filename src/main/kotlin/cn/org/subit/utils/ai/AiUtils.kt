@@ -106,41 +106,19 @@ data class AiResponse(
 }
 
 @OptIn(ExperimentalSerializationApi::class)
-@Serializable(with = AiRequest.Serializer::class)
-@KeepGeneratedSerializer
+@Serializable
 data class AiRequest(
     val model: String,
     val messages: List<Message>,
-    val maxTokens: Int? = null,
-    val temperature: Double? = null,
-    val topP: Double? = null,
-    val frequencyPenalty: Double? = null,
-    val presencePenalty: Double? = null,
-    val responseFormat: ResponseFormat? = null,
-    val stop: List<String>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val maxTokens: Int? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val temperature: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val topP: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val frequencyPenalty: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val presencePenalty: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val responseFormat: ResponseFormat? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val stop: List<String>? = null,
 )
 {
-    class Serializer: KSerializer<AiRequest>
-    {
-        private val _ser = generatedSerializer()
-        override val descriptor: SerialDescriptor = _ser.descriptor
-        override fun deserialize(decoder: Decoder): AiRequest = _ser.deserialize(decoder)
-        override fun serialize(encoder: Encoder, value: AiRequest)
-        {
-            val c = encoder.beginStructure(descriptor)
-            c.encodeStringElement(descriptor, 0, value.model)
-            c.encodeSerializableElement(descriptor, 1, ListSerializer(Message.serializer()), value.messages)
-            if (value.maxTokens != null) c.encodeIntElement(descriptor, 2, value.maxTokens)
-            if (value.temperature != null) c.encodeDoubleElement(descriptor, 3, value.temperature)
-            if (value.topP != null) c.encodeDoubleElement(descriptor, 4, value.topP)
-            if (value.frequencyPenalty != null) c.encodeDoubleElement(descriptor, 5, value.frequencyPenalty)
-            if (value.presencePenalty != null) c.encodeDoubleElement(descriptor, 6, value.presencePenalty)
-            if (value.responseFormat != null) c.encodeSerializableElement(descriptor, 7, ResponseFormat.serializer(), value.responseFormat)
-            if (value.stop != null) c.encodeSerializableElement(descriptor, 8, ListSerializer(String.serializer()), value.stop)
-            c.endStructure(descriptor)
-        }
-    }
-
     @Serializable
     data class Message(
         val role: Role,

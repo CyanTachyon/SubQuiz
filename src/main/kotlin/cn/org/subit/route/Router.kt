@@ -2,7 +2,9 @@ package cn.org.subit.route
 
 import cn.org.subit.dataClass.Permission
 import cn.org.subit.route.adimin.admin
+import cn.org.subit.route.knowledgePoint.knowledgePoint
 import cn.org.subit.route.oauth.oauth
+import cn.org.subit.route.preparationGroup.preparationGroup
 import cn.org.subit.route.quiz.quiz
 import cn.org.subit.route.section.section
 import cn.org.subit.route.subject.subject
@@ -53,6 +55,8 @@ fun Application.router() = routing()
         })
 
         admin()
+        knowledgePoint()
+        preparationGroup()
         quiz()
         section()
         subject()

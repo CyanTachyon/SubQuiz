@@ -3,11 +3,13 @@
 package cn.org.subit.route.section
 
 import cn.org.subit.dataClass.*
-import cn.org.subit.dataClass.Section.Companion.generatedSerializer
+import cn.org.subit.dataClass.KnowledgePointId.Companion.toKnowledgePointId
 import cn.org.subit.dataClass.SectionId.Companion.toSectionIdOrNull
 import cn.org.subit.dataClass.SectionTypeId.Companion.toSectionTypeIdOrNull
 import cn.org.subit.dataClass.SubjectId.Companion.toSubjectIdOrNull
+import cn.org.subit.database.KnowledgePoints
 import cn.org.subit.database.Permissions
+import cn.org.subit.database.PreparationGroups
 import cn.org.subit.database.SectionTypes
 import cn.org.subit.database.Sections
 import cn.org.subit.route.utils.*
@@ -15,22 +17,14 @@ import cn.org.subit.utils.COS
 import cn.org.subit.utils.HttpStatus
 import cn.org.subit.utils.statuses
 import cn.org.subit.utils.toEnumOrNull
-import io.github.smiley4.ktorswaggerui.data.anyOf
 import io.github.smiley4.ktorswaggerui.dsl.routing.*
 import io.ktor.client.request.*
 import io.ktor.http.*
-import io.ktor.http.ContentType.Image.TYPE
 import io.ktor.http.content.*
-import io.ktor.http.contentType
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.*
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.encoding.CompositeDecoder.Companion.DECODE_DONE
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.encoding.Encoder
 
 fun Route.section() = route("/section", {
     tags("section")
@@ -114,10 +108,10 @@ fun Route.section() = route("/section", {
         request()
         {
             paged()
-            queryParameter<SubjectId>("subject")
+            queryParameter<KnowledgePointId>("knowledge")
             {
-                required = false
-                description = "学科id"
+                required = true
+                description = "知识点id"
             }
             queryParameter<SectionTypeId>("type")
             {
@@ -139,11 +133,11 @@ private fun Route.sectionType() = route("/type", {})
         description = "创建一个SectionType"
         request()
         {
-            body<SectionTypeInfo>()
+            body<SectionType>()
             {
                 required = true
                 description = "section类型信息"
-                example("example", SectionTypeInfo(SubjectId(1), "example", "example"))
+                example("example", SectionType.example)
             }
         }
 
@@ -173,24 +167,6 @@ private fun Route.sectionType() = route("/type", {})
             }
         }, Context::getSectionType)
 
-        put("", {
-            summary = "更新题目类型"
-            description = "更新一个SectionType"
-            request()
-            {
-                body<SectionTypeInfo>()
-                {
-                    required = true
-                    description = "section类型信息"
-                    example("example", SectionTypeInfo(SubjectId(1), "example", "example"))
-                }
-            }
-            response()
-            {
-                statuses(HttpStatus.OK)
-            }
-        }, Context::updateSectionType)
-
         delete("", {
             summary = "删除题目类型"
             description = "删除一个SectionType"
@@ -201,21 +177,38 @@ private fun Route.sectionType() = route("/type", {})
         }, Context::deleteSectionType)
     }
 
+    put("", {
+        summary = "更新题目类型"
+        description = "更新一个SectionType"
+        request()
+        {
+            body<SectionType>()
+            {
+                required = true
+                description = "section类型信息"
+                example("example", SectionType.example)
+            }
+        }
+        response()
+        {
+            statuses(HttpStatus.OK)
+        }
+    }, Context::updateSectionType)
+
     get("/list", {
         summary = "获取题目类型列表"
         description = "获取一个SectionType列表"
         request()
         {
-            paged()
-            queryParameter<SubjectId>("subject")
+            queryParameter<KnowledgePointId>("knowledge")
             {
-                required = false
-                description = "学科id"
+                required = true
+                description = "知识点id"
             }
         }
         response()
         {
-            statuses<Slice<SectionType>>(HttpStatus.OK, example = sliceOf(SectionType.example))
+            statuses<List<SectionType>>(HttpStatus.OK, example = listOf(SectionType.example))
         }
     }, Context::getSectionTypes)
 }
@@ -286,21 +279,16 @@ fun Route.sectionImage() = route("/image", {})
     }, Context::getSectionImages)
 }
 
-@Serializable
-data class SectionTypeInfo(
-    val subject: SubjectId,
-    val name: String,
-    val description: String,
-)
-
 private suspend fun Context.newSection(section: Section<Any, Nothing?, String>): Nothing
 {
     if (section.questions.isEmpty() && section.available) finishCall(HttpStatus.BadRequest.subStatus("题目不能为空", 1))
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, section.subject) < Permission.ADMIN)
+    val sectionType = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
+
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
-    val subject = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
-    if (subject.subject != section.subject) finishCall(HttpStatus.BadRequest.subStatus("目标学科与section类型所在学科不符", 1))
+
     val sections = get<Sections>()
     val res = sections.newSection(section)
     finishCall(HttpStatus.OK, res)
@@ -311,7 +299,9 @@ private suspend fun Context.getSection(): Nothing
     val id = call.parameters["id"]?.toSectionIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val section = get<Sections>().getSection(id) ?: finishCall(HttpStatus.NotFound)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, section.subject) < Permission.ADMIN)
+    val sectionType = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
     finishCall(HttpStatus.OK, section)
 }
@@ -320,10 +310,10 @@ private suspend fun Context.updateSection(section: Section<Any, Nothing?, String
 {
     if (section.questions.isEmpty() && section.available) finishCall(HttpStatus.BadRequest.subStatus("题目不能为空", 1))
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, section.subject) < Permission.ADMIN)
+    val sectionType = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
-    val subject = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
-    if (subject.subject != section.subject) finishCall(HttpStatus.BadRequest.subStatus("目标学科与section类型所在学科不符", 1))
     val sections = get<Sections>()
     sections.updateSection(section)
     finishCall(HttpStatus.OK)
@@ -335,7 +325,9 @@ private suspend fun Context.deleteSection(): Nothing
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val sections = get<Sections>()
     val section = sections.getSection(id) ?: finishCall(HttpStatus.NotFound)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, section.subject) < Permission.ADMIN)
+    val sectionType = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
     sections.deleteSection(id)
     finishCall(HttpStatus.OK)
@@ -345,20 +337,13 @@ private suspend fun Context.getSections(): Nothing
 {
     val (begin, count) = call.getPage()
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val permissions = get<Permissions>()
     val sections = get<Sections>()
-    val subject = call.request.queryParameters["subject"]?.toSubjectIdOrNull()
+    val kpId = call.request.queryParameters["knowledge"]?.toKnowledgePointId() ?: finishCall(HttpStatus.BadRequest.subStatus("知识点id不能为空", 1))
+    val kp = get<KnowledgePoints>().getKnowledgePoint(kpId) ?: finishCall(HttpStatus.NotFound)
     val type = call.request.queryParameters["type"]?.toSectionTypeIdOrNull()
-    if (subject == null && type == null)
-    {
-        if (loginUser.permission < Permission.ADMIN) finishCall(HttpStatus.Forbidden)
-    }
-    else if (loginUser.permission < Permission.ADMIN)
-    {
-        val subject0 = subject ?: get<SectionTypes>().getSectionType(type!!)?.subject ?: finishCall(HttpStatus.NotFound)
-        if (permissions.getPermission(loginUser.id, subject0) < Permission.ADMIN) finishCall(HttpStatus.Forbidden)
-    }
-    finishCall(HttpStatus.OK, sections.getSections(subject, type, begin, count))
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
+        finishCall(HttpStatus.Forbidden)
+    finishCall(HttpStatus.OK, sections.getSections(kpId, type, begin, count))
 }
 
 ////////////////////////
@@ -381,8 +366,10 @@ private suspend fun Context.addSectionImage()
     val type = call.request.queryParameters["type"]?.toEnumOrNull<ImageType>() ?: finishCall(HttpStatus.BadRequest.subStatus("type is required", 2))
     val sectionId = call.parameters["id"]?.toSectionIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("section id is required", 3))
     val section = get<Sections>().getSection(sectionId) ?: finishCall(HttpStatus.NotFound)
+    val sectionType = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, section.subject) < Permission.ADMIN)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
     val res = COS.addImage(sectionId, md5, type.contentType) ?: finishCall(HttpStatus.OK.subStatus("图片已存在", 1))
     finishCall(HttpStatus.OK, res)
@@ -393,8 +380,10 @@ private suspend fun Context.deleteSectionImage()
     val md5 = call.request.queryParameters["md5"] ?: finishCall(HttpStatus.BadRequest.subStatus("md5 is required", 1))
     val sectionId = call.parameters["id"]?.toSectionIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("section id is required", 3))
     val section = get<Sections>().getSection(sectionId) ?: finishCall(HttpStatus.NotFound)
+    val sectionType = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, section.subject) < Permission.ADMIN)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
     COS.removeImage(sectionId, md5)
     finishCall(HttpStatus.OK)
@@ -411,13 +400,14 @@ private fun Context.getSectionImages()
 ///// SectionType /////
 ///////////////////////
 
-private suspend fun Context.newSectionType(sectionType: SectionTypeInfo): Nothing
+private suspend fun Context.newSectionType(sectionType: SectionType): Nothing
 {
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, sectionType.subject) < Permission.ADMIN)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
     val sectionTypes = get<SectionTypes>()
-    val id = sectionTypes.newSectionType(sectionType.subject, sectionType.name, sectionType.description) ?: finishCall(HttpStatus.Conflict.subStatus("存在同名的section type", 1))
+    val id = sectionTypes.newSectionType(kp.id, sectionType.name, sectionType.description) ?: finishCall(HttpStatus.Conflict.subStatus("存在同名的section type", 1))
     finishCall(HttpStatus.OK, id)
 }
 
@@ -428,15 +418,21 @@ private suspend fun Context.getSectionType(): Nothing
     finishCall(HttpStatus.OK, sectionType)
 }
 
-private suspend fun Context.updateSectionType(sectionType: SectionTypeInfo): Nothing
+private suspend fun Context.updateSectionType(sectionType: SectionType): Nothing
 {
-    val id = call.parameters["id"]?.toSectionTypeIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val sectionTypes = get<SectionTypes>()
-    val oldSectionType = sectionTypes.getSectionType(id) ?: finishCall(HttpStatus.NotFound)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, oldSectionType.subject) < Permission.ADMIN)
+    val oldSectionType = sectionTypes.getSectionType(sectionType.id) ?: finishCall(HttpStatus.NotFound)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(oldSectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
-    sectionTypes.updateSectionType(id, sectionType.subject, sectionType.name, sectionType.description)
+    if (sectionType.knowledgePoint != oldSectionType.knowledgePoint)
+    {
+        val newKp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
+        if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, newKp.group) < Permission.ADMIN)
+            finishCall(HttpStatus.Forbidden)
+    }
+    sectionTypes.updateSectionType(sectionType.id, sectionType.knowledgePoint, sectionType.name, sectionType.description)
     finishCall(HttpStatus.OK)
 }
 
@@ -446,7 +442,8 @@ private suspend fun Context.deleteSectionType(): Nothing
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val sectionTypes = get<SectionTypes>()
     val sectionType = sectionTypes.getSectionType(id) ?: finishCall(HttpStatus.NotFound)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, sectionType.subject) < Permission.ADMIN)
+    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
     sectionTypes.deleteSectionType(id)
     finishCall(HttpStatus.OK)
@@ -454,8 +451,11 @@ private suspend fun Context.deleteSectionType(): Nothing
 
 private suspend fun Context.getSectionTypes(): Nothing
 {
-    val (begin, count) = call.getPage()
+    val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val sectionTypes = get<SectionTypes>()
-    val subject = call.request.queryParameters["subject"]?.toSubjectIdOrNull()
-    finishCall(HttpStatus.OK, sectionTypes.getSectionTypes(subject, begin, count))
+    val kpId = call.request.queryParameters["knowledge"]?.toKnowledgePointId() ?: finishCall(HttpStatus.BadRequest.subStatus("知识点id不能为空", 1))
+    val kp = get<KnowledgePoints>().getKnowledgePoint(kpId) ?: finishCall(HttpStatus.NotFound)
+    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
+        finishCall(HttpStatus.Forbidden)
+    finishCall(HttpStatus.OK, sectionTypes.getSectionTypes(kp.id))
 }

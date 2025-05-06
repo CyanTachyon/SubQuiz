@@ -1,12 +1,11 @@
 package cn.org.subit.utils
 
-import io.ktor.server.application.*
-import io.ktor.server.engine.*
-import org.koin.core.component.KoinComponent
 import cn.org.subit.console.AnsiStyle.Companion.RESET
 import cn.org.subit.console.SimpleAnsiColor.Companion.CYAN
 import cn.org.subit.console.SimpleAnsiColor.Companion.PURPLE
 import cn.org.subit.logger.SubQuizLogger
+import io.ktor.server.application.*
+import org.koin.core.component.KoinComponent
 import kotlin.system.exitProcess
 
 @Suppress("unused")
@@ -28,6 +27,7 @@ object Power: KoinComponent
             monitor.raise(ApplicationStopPreparing, environment)
             engine.stop()
             this.dispose()
+            logger.info("Ktor is stopped.")
         }.onFailure {
             logger.warning("Failed to stop Ktor: ${it.message}")
             it.printStackTrace(SubQuizLogger.err)
