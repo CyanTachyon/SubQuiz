@@ -4,7 +4,6 @@ package cn.org.subit.route.quiz
 
 import cn.org.subit.dataClass.*
 import cn.org.subit.dataClass.QuizId.Companion.toQuizIdOrNull
-import cn.org.subit.dataClass.SubjectId.Companion.toSubjectIdOrNull
 import cn.org.subit.database.*
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.rateLimit.RateLimit.NewQuiz
@@ -19,6 +18,7 @@ import io.github.smiley4.ktorswaggerui.dsl.routing.post
 import io.github.smiley4.ktorswaggerui.dsl.routing.put
 import io.github.smiley4.ktorswaggerui.dsl.routing.route
 import io.ktor.server.plugins.ratelimit.*
+import io.ktor.server.request.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -130,8 +130,9 @@ fun Route.quiz() = route("/quiz", {
 
 }
 
-private suspend fun Context.newQuiz(knowledgePoints: List<KnowledgePointId>?): Nothing
+private suspend fun Context.newQuiz(): Nothing
 {
+    val knowledgePoints = call.receiveNullable<List<KnowledgePointId>?>()
     val user = getLoginUser()?.id ?: finishCall(HttpStatus.Unauthorized)
     val quizzes: Quizzes = get()
     answerSubmitLock.tryWithLock(user, { finishCall(HttpStatus.Conflict.subStatus("仍有测试在批阅中")) })

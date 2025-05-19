@@ -189,7 +189,7 @@ class UserIdColumnType: WrapColumnType<Int, UserId>(IntegerColumnType(), ::UserI
 fun Table.userId(name: String) = registerColumn(name, UserIdColumnType())
 
 // SectionId
-class SectionIdColumnType: WrapColumnType<Int, SectionId>(IntegerColumnType(), ::SectionId, SectionId::value)
+class SectionIdColumnType: WrapColumnType<Long, SectionId>(LongColumnType(), ::SectionId, SectionId::value)
 fun Table.sectionId(name: String) = registerColumn(name, SectionIdColumnType())
 
 // SubjectId

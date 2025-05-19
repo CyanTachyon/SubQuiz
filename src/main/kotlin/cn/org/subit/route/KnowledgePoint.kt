@@ -16,12 +16,14 @@ import cn.org.subit.route.utils.get
 import cn.org.subit.route.utils.getLoginUser
 import cn.org.subit.utils.HttpStatus
 import cn.org.subit.utils.statuses
+import io.github.smiley4.ktorswaggerui.dsl.routing.delete
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
 import io.github.smiley4.ktorswaggerui.dsl.routing.post
 import io.github.smiley4.ktorswaggerui.dsl.routing.put
 import io.github.smiley4.ktorswaggerui.dsl.routing.route
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
+import me.nullaqua.api.kotlin.utils.multiThreadedSorted
 import kotlin.collections.mutableListOf
 
 fun Route.knowledgePoint() = route("/knowledgePoint", {
@@ -62,6 +64,25 @@ fun Route.knowledgePoint() = route("/knowledgePoint", {
             statuses(HttpStatus.NotFound)
         }
     }, Context::getKnowledgePoint)
+
+    delete("/{id}", {
+        summary = "删除知识点"
+        description = "删除一个知识点，其下全部知识点及题目类型、题目均会删除"
+        request()
+        {
+            pathParameter<KnowledgePointId>("id")
+            {
+                required = true
+                description = "知识点id"
+            }
+        }
+        response()
+        {
+            statuses(HttpStatus.OK)
+            statuses(HttpStatus.NotFound)
+            statuses(HttpStatus.Forbidden)
+        }
+    }, Context::deleteKnowledgePoint)
 
     post({
         summary = "新建知识点"
@@ -105,8 +126,6 @@ fun Route.knowledgePoint() = route("/knowledgePoint", {
             statuses(HttpStatus.NotFound)
         }
     }, Context::updateKnowledgePoint)
-
-
 }
 
 @Serializable
@@ -117,7 +136,7 @@ private data class KnowledgePointTree(
 {
     companion object
     {
-        fun makeTree(knowledgePoints: List<KnowledgePoint>, ): List<KnowledgePointTree>
+        fun makeTree(knowledgePoints: List<KnowledgePoint>): List<KnowledgePointTree>
         {
             val map = mutableMapOf<KnowledgePointId?, MutableList<KnowledgePointTree>>()
             for (kp in knowledgePoints) map[kp.id] = mutableListOf()
@@ -149,6 +168,18 @@ private suspend fun Context.getKnowledgePoint(): Nothing
     val id = call.parameters["id"]?.toKnowledgePointIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val knowledgePoint = get<KnowledgePoints>().getKnowledgePoint(id) ?: finishCall(HttpStatus.NotFound)
     finishCall(HttpStatus.OK, knowledgePoint)
+}
+
+private suspend fun Context.deleteKnowledgePoint(): Nothing
+{
+    val id = call.parameters["id"]?.toKnowledgePointIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+    val knowledgePoints = get<KnowledgePoints>()
+    val kp = knowledgePoints.getKnowledgePoint(id) ?: finishCall(HttpStatus.NotFound)
+    val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    if (!loginUser.hasGlobalAdmin() && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
+        finishCall(HttpStatus.Forbidden)
+    knowledgePoints.removeKnowledgePoint(id)
+    finishCall(HttpStatus.OK)
 }
 
 private suspend fun Context.newKnowledgePoint(knowledgePoint: KnowledgePoint): Nothing

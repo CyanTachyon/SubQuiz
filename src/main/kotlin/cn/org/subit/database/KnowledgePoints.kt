@@ -5,9 +5,11 @@ import cn.org.subit.dataClass.KnowledgePointId
 import cn.org.subit.dataClass.PreparationGroupId
 import cn.org.subit.database.utils.singleOrNull
 import org.jetbrains.exposed.dao.id.IdTable
+import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insertIgnoreAndGetId
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.update
@@ -17,10 +19,10 @@ class KnowledgePoints: SqlDao<KnowledgePoints.KnowledgePointTable>(KnowledgePoin
     object KnowledgePointTable: IdTable<KnowledgePointId>("knowledge_points")
     {
         override val id = knowledgePointId("id").autoIncrement().entityId()
-        val group = reference("group", PreparationGroups.PreparationGroupTable).index()
+        val group = reference("group", PreparationGroups.PreparationGroupTable, ReferenceOption.CASCADE, ReferenceOption.CASCADE).index()
         val name = varchar("name", 255).index()
         val folder = bool("folder").default(false)
-        val father = reference("father", this).nullable().index()
+        val father = reference("father", this, ReferenceOption.CASCADE, ReferenceOption.CASCADE).nullable().index()
         override val primaryKey = PrimaryKey(id)
 
         init
@@ -50,7 +52,7 @@ class KnowledgePoints: SqlDao<KnowledgePoints.KnowledgePointTable>(KnowledgePoin
     {
         selectAll()
             .where { table.group eq group }
-            .orderBy(table.id to SortOrder.ASC)
+            .orderBy(table.father to SortOrder.DESC_NULLS_FIRST, table.folder to SortOrder.DESC, table.name to SortOrder.ASC)
             .toList()
             .map(::deserialize)
     }
@@ -84,5 +86,10 @@ class KnowledgePoints: SqlDao<KnowledgePoints.KnowledgePointTable>(KnowledgePoin
             it[table.folder] = folder
             it[table.father] = father
         } > 0
+    }
+
+    suspend fun removeKnowledgePoint(id: KnowledgePointId) = query()
+    {
+        deleteWhere { table.id eq id } > 0
     }
 }

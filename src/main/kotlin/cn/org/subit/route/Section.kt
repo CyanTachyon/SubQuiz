@@ -6,10 +6,8 @@ import cn.org.subit.dataClass.*
 import cn.org.subit.dataClass.KnowledgePointId.Companion.toKnowledgePointId
 import cn.org.subit.dataClass.SectionId.Companion.toSectionIdOrNull
 import cn.org.subit.dataClass.SectionTypeId.Companion.toSectionTypeIdOrNull
-import cn.org.subit.dataClass.SubjectId.Companion.toSubjectIdOrNull
 import cn.org.subit.database.KnowledgePoints
 import cn.org.subit.database.Permissions
-import cn.org.subit.database.PreparationGroups
 import cn.org.subit.database.SectionTypes
 import cn.org.subit.database.Sections
 import cn.org.subit.route.utils.*
@@ -407,7 +405,7 @@ private suspend fun Context.newSectionType(sectionType: SectionType): Nothing
     if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
     val sectionTypes = get<SectionTypes>()
-    val id = sectionTypes.newSectionType(kp.id, sectionType.name, sectionType.description) ?: finishCall(HttpStatus.Conflict.subStatus("存在同名的section type", 1))
+    val id = sectionTypes.newSectionType(kp.id, sectionType.name) ?: finishCall(HttpStatus.Conflict.subStatus("存在同名的section type", 1))
     finishCall(HttpStatus.OK, id)
 }
 
@@ -432,7 +430,7 @@ private suspend fun Context.updateSectionType(sectionType: SectionType): Nothing
         if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, newKp.group) < Permission.ADMIN)
             finishCall(HttpStatus.Forbidden)
     }
-    sectionTypes.updateSectionType(sectionType.id, sectionType.knowledgePoint, sectionType.name, sectionType.description)
+    sectionTypes.updateSectionType(sectionType.id, sectionType.knowledgePoint, sectionType.name)
     finishCall(HttpStatus.OK)
 }
 

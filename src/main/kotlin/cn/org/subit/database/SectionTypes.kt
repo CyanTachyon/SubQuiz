@@ -15,7 +15,6 @@ class SectionTypes: SqlDao<SectionTypes.SectionTypeTable>(SectionTypeTable)
         override val id = sectionTypeId("id").autoIncrement().entityId()
         val knowledgePoint = reference("knowledgePoint", KnowledgePoints.KnowledgePointTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
         val name = text("name").index()
-        val description = text("description")
         override val primaryKey = PrimaryKey(id)
 
         init
@@ -30,7 +29,6 @@ class SectionTypes: SqlDao<SectionTypes.SectionTypeTable>(SectionTypeTable)
             row[id].value,
             row[knowledgePoint].value,
             row[name],
-            row[description],
         )
     }
 
@@ -42,23 +40,21 @@ class SectionTypes: SqlDao<SectionTypes.SectionTypeTable>(SectionTypeTable)
             ?.let(::deserialize)
     }
 
-    suspend fun newSectionType(knowledgePoint: KnowledgePointId, name: String, description: String): SectionTypeId? = query()
+    suspend fun newSectionType(knowledgePoint: KnowledgePointId, name: String): SectionTypeId? = query()
     {
         insertIgnoreAndGetId()
         {
             it[table.knowledgePoint] = knowledgePoint
             it[table.name] = name
-            it[table.description] = description
         }?.value
     }
 
-    suspend fun updateSectionType(id: SectionTypeId, knowledgePoint: KnowledgePointId, name: String, description: String): Boolean = query()
+    suspend fun updateSectionType(id: SectionTypeId, knowledgePoint: KnowledgePointId, name: String): Boolean = query()
     {
         update({ table.id eq id })
         {
             it[table.knowledgePoint] = knowledgePoint
             it[table.name] = name
-            it[table.description] = description
         } > 0
     }
 

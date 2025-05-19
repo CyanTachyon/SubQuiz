@@ -48,7 +48,8 @@ fun Application.router() = routing()
     {
         install(createRouteScopedPlugin("ProhibitPlugin", { })
         {
-            onCall {
+            onCall()
+            {
                 val permission = it.getLoginUser()?.permission ?: return@onCall
                 if (permission < Permission.NORMAL) finishCall(HttpStatus.Prohibit)
             }
