@@ -1,7 +1,6 @@
 package cn.org.subit
 
 import cn.org.subit.console.AnsiEffect
-import cn.org.subit.console.AnsiStyle
 import cn.org.subit.console.SimpleAnsiColor
 import cn.org.subit.console.command.CommandSet.startCommandThread
 import cn.org.subit.database.SqlDatabase
@@ -17,7 +16,6 @@ import cn.org.subit.plugin.rateLimit.installRateLimit
 import cn.org.subit.plugin.statusPages.installStatusPages
 import cn.org.subit.plugin.webSockets.installWebSockets
 import cn.org.subit.route.router
-import cn.org.subit.utils.COS
 import cn.org.subit.utils.Power
 import io.ktor.server.application.*
 import io.ktor.server.netty.*
@@ -81,15 +79,15 @@ fun main(args: Array<String>)
     // 初始化配置文件加载器, 会加载所有配置文件
     cn.org.subit.config.ConfigLoader.init()
 
-    Loader.getResource("logo/Cyan.txt")
+    Loader.getResource(Loader.SUB_QUIZ_LOGO)
         ?.bufferedReader()
         ?.forEachLine { println("${SimpleAnsiColor.CYAN}${AnsiEffect.BOLD}$it") }
-        ?: SubQuizLogger.getLogger().severe("Cyan.txt not found")
+    ?: SubQuizLogger.getLogger().severe("${Loader.SUB_QUIZ_LOGO} not found")
 
-    Loader.getResource("logo/Tachyon.txt")
+    Loader.getResource(Loader.CYAN_LOGO)
         ?.bufferedReader()
-        ?.forEachLine { println("${SimpleAnsiColor.BLUE}${AnsiEffect.BOLD}$it") }
-        ?: SubQuizLogger.getLogger().severe("Tachyon.txt not found")
+        ?.forEachLine { println("${SimpleAnsiColor.CYAN}${AnsiEffect.BOLD}$it") }
+        ?: SubQuizLogger.getLogger().severe("${Loader.CYAN_LOGO} not found")
 
     // 检查主配置文件是否存在, 不存在则创建默认配置文件, 并结束程序
     if (!configFile.exists())

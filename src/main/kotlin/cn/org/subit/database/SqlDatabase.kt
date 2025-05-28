@@ -30,11 +30,12 @@ import org.postgresql.Driver
  */
 abstract class SqlDao<T: Table>(table: T): KoinComponent
 {
-    suspend inline fun <R> query(crossinline block: suspend T.()->R) = table.run {
-        newSuspendedTransaction(Dispatchers.IO) { block() }
+    protected suspend inline fun <R> query(crossinline block: suspend T.()->R) = table.run {
+        newSuspendedTransaction(Dispatchers.IO, database) { block() }
     }
 
-    private val database: Database by inject()
+    protected val database: Database by inject()
+
     val table: T by lazy {
         transaction(database)
         {

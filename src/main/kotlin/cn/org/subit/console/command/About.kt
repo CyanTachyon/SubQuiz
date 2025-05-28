@@ -1,5 +1,9 @@
 package cn.org.subit.console.command
 
+import cn.org.subit.Loader
+import cn.org.subit.console.AnsiEffect
+import cn.org.subit.console.SimpleAnsiColor
+import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.version
 import kotlinx.serialization.Serializable
 
@@ -20,12 +24,25 @@ object About: Command
 
     override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
     {
-        sender.out("SubQuiz")
-        sender.out("Version: $version")
-        sender.out("Author: ${author.name}")
-        sender.out("Github: ${author.github}")
-        sender.out("Website: ${author.website}")
-        sender.out("Email: ${author.email}")
+        Loader.getResource(Loader.SUB_QUIZ_LOGO)
+            ?.bufferedReader()
+            ?.lines()
+            ?.toList()
+            ?.forEach { sender.out("${SimpleAnsiColor.BLUE}${AnsiEffect.BOLD}$it") }
+            ?: SubQuizLogger.getLogger().severe("${Loader.SUB_QUIZ_LOGO} not found")
+
+        Loader.getResource(Loader.CYAN_LOGO)
+            ?.bufferedReader()
+            ?.lines()
+            ?.toList()
+            ?.forEach { sender.out("${SimpleAnsiColor.CYAN}${AnsiEffect.BOLD}$it") }
+            ?: SubQuizLogger.getLogger().severe("${Loader.CYAN_LOGO} not found")
+
+        sender.out("|> Version: $version")
+        sender.out("|> Author: ${author.name}")
+        sender.out("|> Github: ${author.github}")
+        sender.out("|> Website: ${author.website}")
+        sender.out("|> Email: ${author.email}")
         return true
     }
 

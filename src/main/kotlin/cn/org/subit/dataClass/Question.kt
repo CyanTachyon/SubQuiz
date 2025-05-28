@@ -1,7 +1,6 @@
 package cn.org.subit.dataClass
 
 import cn.org.subit.plugin.contentNegotiation.QuestionAnswerSerializer
-import cn.org.subit.utils.ai.AiRequest
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.NothingSerializer
@@ -53,12 +52,24 @@ sealed interface Question<out Answer, out UserAnswer, out Analysis: String?>
                 a == QuestionAnswerSerializer ||
                 a == NothingSerializer().nullable ||
                 a == QuestionAnswerSerializer.nullable
-            ) { "a must be QuestionAnswerSerializer or nullable QuestionAnswerSerializer or nullable NothingSerializer" }
+            )
+            {
+                "a must be QuestionAnswerSerializer or " +
+                "nullable QuestionAnswerSerializer or " +
+                "nullable NothingSerializer. " +
+                "Got ${a.descriptor.serialName}"
+            }
             require(
                 ua == QuestionAnswerSerializer ||
                 ua == NothingSerializer().nullable ||
                 ua == QuestionAnswerSerializer.nullable
-            ) { "ua must be QuestionAnswerSerializer or nullable QuestionAnswerSerializer or nullable NothingSerializer" }
+            )
+            {
+                "ua must be QuestionAnswerSerializer or " +
+                "nullable QuestionAnswerSerializer or " +
+                "nullable NothingSerializer. " +
+                "Got ${ua.descriptor.serialName}"
+            }
 
             return SealedClassSerializer(
                 "Question<${a.descriptor.serialName}, ${ua.descriptor.serialName}, ${ana.descriptor.serialName}>",

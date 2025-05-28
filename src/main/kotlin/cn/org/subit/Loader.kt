@@ -9,6 +9,9 @@ import java.io.InputStream
 @Suppress("unused")
 object Loader
 {
+    const val CYAN_LOGO = "logo/Cyan.logo.txt"
+    const val SUB_QUIZ_LOGO = "logo/SubQuiz.logo.txt"
+
     /**
      * 获取资源文件
      * @param path 资源路径
