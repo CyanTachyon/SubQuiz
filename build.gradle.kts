@@ -11,7 +11,7 @@ val schema_kenerator_version: String by project
 plugins {
     kotlin("jvm") version "2.2.0-Beta1"
     kotlin("plugin.serialization") version "2.2.0-Beta1"
-    id("io.ktor.plugin") version "3.1.2"
+    id("io.ktor.plugin") version "3.1.3"
 }
 
 group = "cn.org.subit"
