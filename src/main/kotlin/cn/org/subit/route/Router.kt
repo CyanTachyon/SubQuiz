@@ -1,6 +1,5 @@
 package cn.org.subit.route
 
-import cn.org.subit.dataClass.Permission
 import cn.org.subit.route.adimin.admin
 import cn.org.subit.route.knowledgePoint.knowledgePoint
 import cn.org.subit.route.oauth.oauth
@@ -10,9 +9,6 @@ import cn.org.subit.route.section.section
 import cn.org.subit.route.subject.subject
 import cn.org.subit.route.terminal.terminal
 import cn.org.subit.route.user.user
-import cn.org.subit.route.utils.finishCall
-import cn.org.subit.route.utils.getLoginUser
-import cn.org.subit.utils.HttpStatus
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
 import io.github.smiley4.ktorswaggerui.routing.openApiSpec
 import io.github.smiley4.ktorswaggerui.routing.swaggerUI
@@ -46,15 +42,6 @@ fun Application.router() = routing()
 
     authenticate("auth", optional = true)
     {
-        install(createRouteScopedPlugin("ProhibitPlugin", { })
-        {
-            onCall()
-            {
-                val permission = it.getLoginUser()?.permission ?: return@onCall
-                if (permission < Permission.NORMAL) finishCall(HttpStatus.Prohibit)
-            }
-        })
-
         admin()
         knowledgePoint()
         preparationGroup()

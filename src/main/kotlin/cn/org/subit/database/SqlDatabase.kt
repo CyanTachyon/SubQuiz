@@ -30,13 +30,16 @@ import org.postgresql.Driver
  */
 abstract class SqlDao<T: Table>(table: T): KoinComponent
 {
-    protected suspend inline fun <R> query(crossinline block: suspend T.()->R) = table.run {
-        newSuspendedTransaction(Dispatchers.IO, database) { block() }
-    }
+    protected suspend inline fun <R> query(crossinline block: suspend T.()->R) =
+        newSuspendedTransaction(Dispatchers.IO, database)
+        {
+            table.block()
+        }
 
     protected val database: Database by inject()
 
-    val table: T by lazy {
+    val table: T by lazy()
+    {
         transaction(database)
         {
             SchemaUtils.createMissingTablesAndColumns(table)

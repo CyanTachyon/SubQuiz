@@ -29,7 +29,7 @@ fun Route.oauth() = route("oauth", {
             }
         }
         response {
-            statuses<String>(HttpStatus.OK, HttpStatus.LoginSuccessButNotAuthorized, example = "token")
+            statuses<String>(HttpStatus.OK, example = "token")
         }
     })
     {
@@ -47,7 +47,7 @@ fun Route.oauth() = route("oauth", {
             finishCall(HttpStatus.InvalidOAuthCode)
         }
         if (status != SSO.AuthorizationStatus.AUTHORIZED)
-            finishCall(HttpStatus.LoginSuccessButNotAuthorized, accessToken)
+            finishCall(HttpStatus.Unauthorized)
         finishCall(HttpStatus.OK, accessToken)
     }
 }

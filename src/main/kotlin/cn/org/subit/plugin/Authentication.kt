@@ -3,6 +3,7 @@
 package cn.org.subit.plugin.authentication
 
 import cn.org.subit.config.apiDocsConfig
+import cn.org.subit.dataClass.Permission
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.route.utils.finishCall
 import cn.org.subit.utils.HttpStatus
@@ -50,9 +51,16 @@ fun Application.installAuthentication() = install(Authentication)
         {
             val token = it.token
             val status = SSO.getStatus(token)
-            if (status == null) finishCall(HttpStatus.Unauthorized)
-            else if (status != SSO.AuthorizationStatus.AUTHORIZED) finishCall(HttpStatus.LoginSuccessButNotAuthorized)
-            else SSO.getUserFull(token)
+            val user =
+                if (status != SSO.AuthorizationStatus.AUTHORIZED) finishCall(HttpStatus.Unauthorized)
+                else SSO.getUserFull(token)
+
+            if (user == null) return@authenticate null
+
+            if (user.permission < Permission.NORMAL) finishCall(HttpStatus.Prohibit)
+            if (user.seiue.isEmpty()) finishCall(HttpStatus.RealNameRequired, user)
+
+            user
         }
     }
 }
