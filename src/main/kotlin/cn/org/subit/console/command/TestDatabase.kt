@@ -32,6 +32,7 @@ object TestDatabase: Command, KoinComponent
     private val database: Map<String, Pair<Any, KClass<*>>> by lazy()
     {
         mapOf(
+            "Exams" to dao<Exams>(),
             "Histories" to dao<Histories>(),
             "KnowledgePoints" to dao<KnowledgePoints>(),
             "Permissions" to dao<Permissions>(),
