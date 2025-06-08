@@ -1,6 +1,8 @@
 package cn.org.subit.route
 
 import cn.org.subit.route.adimin.admin
+import cn.org.subit.route.ai.ai
+import cn.org.subit.route.exam.exam
 import cn.org.subit.route.knowledgePoint.knowledgePoint
 import cn.org.subit.route.oauth.oauth
 import cn.org.subit.route.preparationGroup.preparationGroup
@@ -43,6 +45,8 @@ fun Application.router() = routing()
     authenticate("auth", optional = true)
     {
         admin()
+        ai()
+        exam()
         knowledgePoint()
         preparationGroup()
         quiz()

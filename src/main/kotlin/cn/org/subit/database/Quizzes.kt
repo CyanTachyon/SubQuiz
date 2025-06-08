@@ -5,7 +5,6 @@ import cn.org.subit.dataClass.Slice
 import cn.org.subit.database.utils.asSlice
 import cn.org.subit.database.utils.singleOrNull
 import cn.org.subit.plugin.contentNegotiation.dataJson
-import cn.org.subit.utils.ai.AI
 import cn.org.subit.utils.ai.AiResponse
 import kotlinx.datetime.Clock
 import kotlinx.serialization.serializer

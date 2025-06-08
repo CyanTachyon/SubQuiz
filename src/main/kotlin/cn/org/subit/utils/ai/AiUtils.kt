@@ -4,27 +4,31 @@ import cn.org.subit.config.aiConfig
 import cn.org.subit.database.Records
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
-import cn.org.subit.plugin.contentNegotiation.showJson
 import cn.org.subit.utils.getKoin
 import cn.org.subit.utils.httpClient
+import cn.org.subit.utils.sseClient
 import io.ktor.client.call.*
+import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.http.content.*
+import kotlinx.coroutines.flow.filterNot
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.PolymorphicKind
 import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import org.koin.core.component.inject
-import org.koin.mp.KoinPlatformTools
-import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 private val semaphore by lazy { Semaphore(aiConfig.maxConcurrency) }
 private val logger = SubQuizLogger.getLogger()
@@ -43,48 +47,48 @@ enum class Role
 }
 
 @Serializable
-data class AiResponse(
-    @OptIn(ExperimentalUuidApi::class)
-    val id: Uuid,
-    val choices: List<Choice>,
-    val created: Long,
-    val model: String,
-    val `object`: String,
-    val usage: Usage,
-)
+sealed interface AiResponse
 {
+    val id: String
+    val `object`: String
+    val model: String
+    val usage: Usage
+    val created: Long
+    val choices: List<Choice>
+
     @Serializable
-    data class Choice(
-        @SerialName("finish_reason")
-        val finishReason: FinishReason,
-        val index: Int,
-        val message: Message,
-    )
+    sealed interface Choice
     {
+        val finishReason: FinishReason?
+        val index: Int
+        val message: Message
+
         @Serializable
-        enum class FinishReason
+        sealed interface Message
         {
-            @SerialName("stop")
-            STOP,
-
-            @SerialName("length")
-            LENGTH,
-
-            @SerialName("content_filter")
-            CONTENT_FILTER,
-
-            @SerialName("tool_calls")
-            TOOL_CALLS,
-
-            @SerialName("insufficient_system_resource")
-            INSUFFICIENT_SYSTEM_RESOURCE,
-        }
-
-        @Serializable data class Message(
-            val content: String,
+            val content: String?
             @SerialName("reasoning_content")
-            val reasoningContent: String? = null,
-        )
+            val reasoningContent: String?
+        }
+    }
+
+    @Serializable
+    enum class FinishReason
+    {
+        @SerialName("stop")
+        STOP,
+
+        @SerialName("length")
+        LENGTH,
+
+        @SerialName("content_filter")
+        CONTENT_FILTER,
+
+        @SerialName("tool_calls")
+        TOOL_CALLS,
+
+        @SerialName("insufficient_system_resource")
+        INSUFFICIENT_SYSTEM_RESOURCE,
     }
 
     @Serializable
@@ -105,11 +109,67 @@ data class AiResponse(
     }
 }
 
+@Serializable
+data class DefaultAiResponse(
+    override val id: String,
+    override val choices: List<Choice>,
+    override val created: Long,
+    override val model: String,
+    override val `object`: String,
+    override val usage: AiResponse.Usage,
+): AiResponse
+{
+    @Serializable
+    data class Choice(
+        @SerialName("finish_reason")
+        override val finishReason: AiResponse.FinishReason,
+        override val index: Int,
+        override val message: Message,
+    ): AiResponse.Choice
+    {
+        @Serializable
+        data class Message(
+            override val content: String,
+            @SerialName("reasoning_content")
+            override val reasoningContent: String?,
+        ): AiResponse.Choice.Message
+    }
+}
+
+@Serializable
+data class StreamAiResponse(
+    override val id: String,
+    override val `object`: String,
+    override val created: Long,
+    override val model: String,
+    override val choices: List<Choice>,
+    override val usage: AiResponse.Usage = AiResponse.Usage(),
+): AiResponse
+{
+    @Serializable
+    data class Choice(
+        override val index: Int,
+        @SerialName("finish_reason")
+        override val finishReason: AiResponse.FinishReason? = null,
+        @SerialName("delta")
+        override val message: Message,
+    ): AiResponse.Choice
+    {
+        @Serializable
+        data class Message(
+            override val content: String? = null,
+            @SerialName("reasoning_content")
+            override val reasoningContent: String? = null,
+        ): AiResponse.Choice.Message
+    }
+}
+
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class AiRequest(
     val model: String,
     val messages: List<Message>,
+    val stream: Boolean = false,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val maxTokens: Int? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val temperature: Double? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val topP: Double? = null,
@@ -122,9 +182,11 @@ data class AiRequest(
     @Serializable
     data class Message(
         val role: Role,
+        @Serializable(ContentSerializer::class)
         val content: List<Content> = listOf(Content("")),
     )
     {
+        constructor(role: Role, content: String): this(role, listOf(Content(content)))
 
         @Serializable
         sealed interface Content
@@ -149,6 +211,36 @@ data class AiRequest(
         {
             override val type: String = "image_url"
             @Serializable data class Image(val url: String)
+        }
+
+        private class ContentSerializer: KSerializer<List<Content>>
+        {
+            private val serializer = ListSerializer(Content.serializer())
+            @OptIn(InternalSerializationApi::class)
+            override val descriptor: SerialDescriptor = buildSerialDescriptor("kotlinx.serialization.json.JsonElement", PolymorphicKind.SEALED)
+            {
+                element("simple", String.serializer().descriptor)
+                element("complex", serializer.descriptor)
+            }
+
+            override fun serialize(encoder: Encoder, value: List<Content>)
+            {
+                if (value.all { it is TextContent })
+                    encoder.encodeString(value.joinToString(separator = "") { (it as Message.TextContent).text })
+                else
+                    serializer.serialize(encoder, value)
+            }
+
+            override fun deserialize(decoder: Decoder): List<Content>
+            {
+                val json = if (decoder is JsonDecoder) decoder.json else Json
+                val ele = JsonElement.serializer().deserialize(decoder)
+                if (ele is JsonPrimitive) return listOf(TextContent(ele.content))
+                else
+                {
+                    return json.decodeFromJsonElement(serializer, ele)
+                }
+            }
         }
     }
 
@@ -183,11 +275,12 @@ suspend fun sendAiRequest(
     presencePenalty: Double? = null,
     responseFormat: AiRequest.ResponseFormat? = null,
     stop: List<String>? = null,
-): AiResponse = semaphore.withPermit<AiResponse>()
+) = semaphore.withPermit()
 {
     val body = AiRequest(
         model = model,
         messages = messages,
+        stream = false,
         maxTokens = maxTokens,
         temperature = temperature,
         topP = topP,
@@ -197,10 +290,10 @@ suspend fun sendAiRequest(
         stop = stop,
     )
 
-    var res: AiResponse? = null
+    var res: DefaultAiResponse? = null
     try
     {
-        res = withTimeout<AiResponse>(aiConfig.timeout)
+        res = withTimeout(aiConfig.timeout)
         {
             logger.config("发送AI请求: $url")
             val res = httpClient.post(url)
@@ -210,12 +303,64 @@ suspend fun sendAiRequest(
                 accept(ContentType.Application.Json)
                 setBody(body)
             }
-            res.body<AiResponse>()
+            res.body<DefaultAiResponse>()
         }
-        res!!
+        res
     }
     finally
     {
         records.addRecord(body, res)
+    }
+}
+
+suspend fun sendAiStreamRequest(
+    url: String,
+    key: String,
+    model: String,
+    messages: List<AiRequest.Message>,
+    maxTokens: Int? = null,
+    temperature: Double? = null,
+    topP: Double? = null,
+    frequencyPenalty: Double? = null,
+    presencePenalty: Double? = null,
+    responseFormat: AiRequest.ResponseFormat? = null,
+    stop: List<String>? = null,
+    onRecord: suspend (StreamAiResponse) -> Unit,
+)
+{
+    val body = AiRequest(
+        model = model,
+        messages = messages,
+        stream = true,
+        maxTokens = maxTokens,
+        temperature = temperature,
+        topP = topP,
+        frequencyPenalty = frequencyPenalty,
+        presencePenalty = presencePenalty,
+        responseFormat = responseFormat,
+        stop = stop,
+    )
+
+    logger.config("发送AI流式请求: $url")
+    val serializedBody = contentNegotiationJson.encodeToString(body)
+    runCatching()
+    {
+        sseClient.sse(url,{
+            method = HttpMethod.Post
+            bearerAuth(key)
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Any)
+            setBody(serializedBody)
+        })
+        {
+            incoming
+                .mapNotNull { it.data }
+                .filterNot { it == "[DONE]" }
+                .map { contentNegotiationJson.decodeFromString<StreamAiResponse>(it) }
+                .collect(onRecord)
+        }
+    }.onFailure()
+    {
+        logger.warning("发送AI流式请求请求失败: $serializedBody", it)
     }
 }

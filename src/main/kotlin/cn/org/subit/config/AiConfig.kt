@@ -9,7 +9,7 @@ data class AiConfig(
     val retry: Int = 3,
     @Comment("最大并发数, 受技术限制，修改此项必须重启整个服务，仅使用reload命令不会生效")
     val maxConcurrency: Int = 10,
-
+    val bdfzHelper: String = "http://localhost:8000",
     val chat: ChatConfig = ChatConfig(),
     val image: ImageConfig = ImageConfig(),
 )
@@ -27,7 +27,7 @@ data class AiConfig(
     data class ImageConfig(
         val url: String = "https://api.siliconflow.cn/v1/chat/completions",
         val key: List<String> = listOf("your api key"),
-        val model: String = "deepseek-ai/deepseek-vl2",
+        val model: String = "Qwen/Qwen2.5-72B-Instruct",
         val maxTokens: Int = 16384,
     )
 

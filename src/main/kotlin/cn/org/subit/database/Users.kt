@@ -8,7 +8,6 @@ import cn.org.subit.database.utils.asSlice
 import cn.org.subit.database.utils.single
 import cn.org.subit.database.utils.singleOrNull
 import cn.org.subit.plugin.contentNegotiation.dataJson
-import cn.org.subit.utils.ai.AI
 import cn.org.subit.utils.ai.AiResponse
 import kotlinx.serialization.serializer
 import org.jetbrains.exposed.dao.id.IdTable

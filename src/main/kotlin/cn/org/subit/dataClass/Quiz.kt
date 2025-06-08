@@ -1,6 +1,5 @@
 package cn.org.subit.dataClass
 
-import cn.org.subit.utils.ai.AI
 import cn.org.subit.utils.ai.AiResponse
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer

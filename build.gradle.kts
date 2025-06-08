@@ -31,6 +31,7 @@ repositories {
 dependencies {
     // ktor server
     implementation(kotlin("reflect")) // kotlin 反射库
+    implementation("io.ktor:ktor-server-core")
     implementation("io.ktor:ktor-server-core-jvm") // core
     implementation("io.ktor:ktor-server-netty-jvm") // netty
     implementation("io.ktor:ktor-server-auth-jvm") // 登陆验证
@@ -44,6 +45,7 @@ dependencies {
     implementation("io.ktor:ktor-server-auto-head-response-jvm") // 自动响应HEAD请求
     implementation("io.ktor:ktor-server-double-receive-jvm") // 重复接收
     implementation("io.ktor:ktor-server-call-logging-jvm") // 日志
+    implementation("io.ktor:ktor-server-sse") // Server-Sent Events (SSE) 支持
 
     // ktor client
     implementation("io.ktor:ktor-client-core-jvm") // core

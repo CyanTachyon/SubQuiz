@@ -13,6 +13,7 @@ import cn.org.subit.plugin.cors.installCORS
 import cn.org.subit.plugin.doubleReceive.installDoubleReceive
 import cn.org.subit.plugin.koin.installKoin
 import cn.org.subit.plugin.rateLimit.installRateLimit
+import cn.org.subit.plugin.sse.installSSE
 import cn.org.subit.plugin.statusPages.installStatusPages
 import cn.org.subit.plugin.webSockets.installWebSockets
 import cn.org.subit.route.router
@@ -37,7 +38,8 @@ var debug by Delegates.notNull<Boolean>()
  */
 private fun parseCommandLineArgs(args: Array<String>): Pair<Array<String>, File>
 {
-    val argsMap = args.mapNotNull {
+    val argsMap = args.mapNotNull()
+    {
         when (val idx = it.indexOf("="))
         {
             -1 -> null
@@ -139,6 +141,7 @@ fun Application.init()
     installCORS()
     installDoubleReceive()
     installRateLimit()
+    installSSE()
     installStatusPages()
     installWebSockets()
 
