@@ -9,13 +9,13 @@ val swagger_ui_version: String by project
 val schema_kenerator_version: String by project
 
 plugins {
-    kotlin("jvm") version "2.2.0-Beta1"
-    kotlin("plugin.serialization") version "2.2.0-Beta1"
+    kotlin("jvm") version "2.2.0-RC2"
+    kotlin("plugin.serialization") version "2.2.0-RC2"
     id("io.ktor.plugin") version "3.1.3"
 }
 
 group = "cn.org.subit"
-version = "2.1.0"
+version = "2.2.0"
 
 application {
     mainClass.set("cn.org.subit.SubQuizKt")
@@ -61,6 +61,7 @@ dependencies {
     implementation("io.github.smiley4:ktor-swagger-ui:$swagger_ui_version") // 创建api页面
     implementation("io.github.smiley4:schema-kenerator-core:$schema_kenerator_version")
     implementation("io.github.smiley4:schema-kenerator-reflection:$schema_kenerator_version")
+    implementation("io.github.smiley4:schema-kenerator-serialization:$schema_kenerator_version")
     implementation("io.github.smiley4:schema-kenerator-swagger:$schema_kenerator_version")
     implementation("io.swagger.parser.v3:swagger-parser:2.1.22")
     implementation("com.sun.mail:javax.mail:1.6.2") // 邮件发送

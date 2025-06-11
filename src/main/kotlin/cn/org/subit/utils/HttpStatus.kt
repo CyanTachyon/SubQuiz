@@ -102,7 +102,7 @@ data class Response<T>(val code: Int, val subStatus: Int, val message: String, v
 }
 
 suspend inline fun ApplicationCall.respond(status: HttpStatus) =
-    this.respond(status.code, Response<Nothing?>(status, null))
+    this.respond(status.code, Response(status, null))
 suspend inline fun <reified T: Any> ApplicationCall.respond(status: HttpStatus, t: T) =
     this.respond(status.code, Response(status, t))
 

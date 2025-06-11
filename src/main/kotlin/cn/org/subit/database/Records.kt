@@ -31,28 +31,33 @@ class Records: SqlDao<RecordTable>(RecordTable)
     object RecordTable: IdTable<Long>("records")
     {
         override val id = long("id").autoIncrement().entityId()
+        val url = text("url").nullable().default(null)
         val request = jsonb<AiRequest>("request", dataJson, dataJson.serializersModule.serializer())
         val response = jsonb<ResponseRecord>("response", dataJson, dataJson.serializersModule.serializer()).nullable()
         override val primaryKey = PrimaryKey(id)
     }
 
     suspend fun addRecord(
+        url: String,
         request: AiRequest,
         response: DefaultAiResponse?,
     ) = query()
     {
         insertAndGetId {
+            it[RecordTable.url] = url
             it[RecordTable.request] = request
             it[RecordTable.response] = response?.let(ResponseRecord::DefaultResponseRecord)
         }
     }
 
     suspend fun addRecord(
+        url: String,
         request: AiRequest,
         response: List<StreamAiResponse>?,
     ) = query()
     {
         insertAndGetId {
+            it[RecordTable.url] = url
             it[RecordTable.request] = request
             it[RecordTable.response] = response?.let(ResponseRecord::StreamResponseRecord)
         }

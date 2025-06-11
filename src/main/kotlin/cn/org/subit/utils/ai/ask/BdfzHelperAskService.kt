@@ -14,11 +14,12 @@ import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.serialization.Serializable
+import org.koin.core.component.KoinComponent
 
 /**
  * 北大附中问答助手问答服务
  */
-object BdfzHelperAskService: AskService()
+object BdfzHelperAskService: AskService(), KoinComponent
 {
     private val logger = SubQuizLogger.getLogger<BdfzHelperAskService>()
 
@@ -30,7 +31,7 @@ object BdfzHelperAskService: AskService()
     )
 
     override suspend fun ask(
-        section: Section<Any, Any, String>,
+        section: Section<Any, Any, String>?,
         histories: List<AiRequest.Message>,
         content: String,
         onRecord: suspend (StreamAiResponse.Choice.Message)->Unit
@@ -40,7 +41,7 @@ object BdfzHelperAskService: AskService()
         val messages = listOf(prompt) + histories
         val body = RequestBody(content, messages)
 
-        logger.config("发送问答助手请求: ${section.id} - ${content.take(50)}")
+        logger.config("发送问答助手请求: ${section?.id} - ${content.take(50)}")
         val serializedBody = contentNegotiationJson.encodeToString(body)
         runCatching()
         {
@@ -57,9 +58,6 @@ object BdfzHelperAskService: AskService()
                     .map { contentNegotiationJson.decodeFromString<StreamAiResponse>(it) }
                     .collect { it.choices.forEach { it1 -> onRecord(it1.message) } }
             }
-        }.onFailure()
-        {
-            logger.warning("发送问答助手请求失败: $serializedBody", it)
-        }
+        }.onFailure { logger.warning("发送问答助手请求失败: $serializedBody", it) }
     }
 }

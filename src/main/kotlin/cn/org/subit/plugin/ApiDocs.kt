@@ -8,7 +8,7 @@ import io.github.smiley4.ktorswaggerui.data.AuthKeyLocation
 import io.github.smiley4.ktorswaggerui.data.AuthScheme
 import io.github.smiley4.ktorswaggerui.data.AuthType
 import io.github.smiley4.ktorswaggerui.data.KTypeDescriptor
-import io.github.smiley4.schemakenerator.reflection.processReflection
+import io.github.smiley4.schemakenerator.serialization.processKotlinxSerialization
 import io.github.smiley4.schemakenerator.swagger.compileInlining
 import io.github.smiley4.schemakenerator.swagger.data.TitleType
 import io.github.smiley4.schemakenerator.swagger.generateSwaggerSchema
@@ -44,7 +44,7 @@ fun Application.installApiDoc() = install(SwaggerUI)
 
     schemas {
         generator = {
-            it.processReflection()
+            it.processKotlinxSerialization()
                 .generateSwaggerSchema()
                 .withTitle(TitleType.SIMPLE)
                 .compileInlining()

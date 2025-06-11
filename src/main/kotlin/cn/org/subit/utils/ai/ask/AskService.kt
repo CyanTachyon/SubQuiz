@@ -13,7 +13,7 @@ abstract class AskService
     companion object
     {
         private const val OPTION_NAMES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        private val codeBlockRegex = Regex("```.*\\n?")
+        private val codeBlockRegex = Regex("```.*$", RegexOption.MULTILINE)
         private const val IMAGE_REGEX = "!\\[([^]]*)]\\(([^)\\s]+)(?:\\s+[\"']([^\"']*)[\"'])?\\)"
         private val imageMarkdownRegex = Regex(IMAGE_REGEX)
         private val imageSplitRegex = Regex("(?=$IMAGE_REGEX)|(?<=$IMAGE_REGEX)")
@@ -61,11 +61,11 @@ abstract class AskService
     }
 
     protected suspend fun makePrompt(
-        section: Section<Any, Any, String>,
+        section: Section<Any, Any, String>?,
         escapeImage: Boolean,
     ): Message
     {
-        if (section.questions.isEmpty()) throw IllegalArgumentException("Section must contain at least one question.")
+        if (section?.questions?.isEmpty() == true) error("Section must contain at least one question.")
         val sb = StringBuilder()
 
         sb.append(
@@ -80,7 +80,7 @@ abstract class AskService
 
         """.trimIndent())
 
-        if (section.questions.size == 1)
+        if (section?.questions?.size == 1)
         {
             sb.append("""
                 ## 题目 (${section.questions.first().type.questionTypeToString()})
@@ -121,7 +121,7 @@ abstract class AskService
                 }
             }
         }
-        else
+        else if (section != null)
         {
             sb.append("## 题目内容\n")
             section
@@ -199,7 +199,7 @@ abstract class AskService
             
             **接下来学生会向你提问，请开始你的辅导回答：**
         """.trimIndent())
-        if (escapeImage) return Message(Role.SYSTEM, sb.toString())
+        if (escapeImage || section == null) return Message(Role.SYSTEM, sb.toString())
 
         val res = sb.toString()
         val images = COS.getImages(section.id).map { "/$it" }.filter { it in res }
@@ -259,7 +259,7 @@ abstract class AskService
     }
 
     abstract suspend fun ask(
-        section: Section<Any, Any, String>,
+        section: Section<Any, Any, String>?,
         histories: List<Message>,
         content: String,
         onRecord: suspend (StreamAiResponse.Choice.Message) -> Unit,

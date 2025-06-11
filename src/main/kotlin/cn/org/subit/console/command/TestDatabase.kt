@@ -4,7 +4,6 @@ import cn.org.subit.console.SimpleAnsiColor.Companion.RED
 import cn.org.subit.console.command.TestDatabase.toStr
 import cn.org.subit.database.*
 import cn.org.subit.debug
-import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
 import cn.org.subit.plugin.contentNegotiation.showJson
 import kotlinx.serialization.InternalSerializationApi
@@ -22,7 +21,6 @@ import kotlin.reflect.full.memberFunctions
 
 object TestDatabase: Command, KoinComponent
 {
-    private val logger = SubQuizLogger.getLogger<TestDatabase>()
     override val description: String = "Call the database interface. ${RED.bright()}This command is for debugging only."
     override val args: String = "<table> <method> [args]..."
     override val aliases: List<String> = listOf("database", "db")
@@ -32,6 +30,7 @@ object TestDatabase: Command, KoinComponent
     private val database: Map<String, Pair<Any, KClass<*>>> by lazy()
     {
         mapOf(
+            "Chats" to dao<Chats>(),
             "Exams" to dao<Exams>(),
             "Histories" to dao<Histories>(),
             "KnowledgePoints" to dao<KnowledgePoints>(),

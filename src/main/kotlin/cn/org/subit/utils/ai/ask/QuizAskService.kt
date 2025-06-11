@@ -10,7 +10,7 @@ import cn.org.subit.utils.ai.sendAiStreamRequest
 object QuizAskService: AskService()
 {
     override suspend fun ask(
-        section: Section<Any, Any, String>,
+        section: Section<Any, Any, String>?,
         histories: List<AiRequest.Message>,
         content: String,
         onRecord: suspend (StreamAiResponse.Choice.Message)->Unit

@@ -1,19 +1,17 @@
 package cn.org.subit.config
 
+import cn.org.subit.logger.SubQuizLogger
+import cn.org.subit.workDir
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.serializer
 import net.mamoe.yamlkt.Yaml
 import net.mamoe.yamlkt.YamlElement
 import net.mamoe.yamlkt.YamlMap
-import cn.org.subit.logger.SubQuizLogger
-import cn.org.subit.workDir
-import kotlinx.serialization.builtins.serializer
 import java.io.File
 import java.lang.ref.WeakReference
-import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.KProperty
 import kotlin.reflect.KType
-import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.typeOf
 
 inline fun <reified T: Any> config(
@@ -74,7 +72,7 @@ class ConfigLoader<T: Any> private constructor(
          * @author nullaqua
          */
         private val configMap: MutableMap<String, ConfigLoader<*>> =
-            Collections.synchronizedMap(HashMap())
+            ConcurrentHashMap()
 
         fun configs() = configMap.keys
         fun reload(name: String) = getConfigLoader(name)?.reload()

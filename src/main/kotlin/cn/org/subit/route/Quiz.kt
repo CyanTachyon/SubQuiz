@@ -26,9 +26,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
-import java.util.Collections.synchronizedMap
+import java.util.concurrent.ConcurrentHashMap
 
-private val answerCheckingJobs = synchronizedMap(mutableMapOf<QuizId, Job>())
+private val answerCheckingJobs = ConcurrentHashMap<QuizId, Job>()
 private val answerCheckingScope = CoroutineScope(Dispatchers.Default)
 private val answerSubmitLock = Locks<UserId>()
 private val logger = SubQuizLogger.getLogger()

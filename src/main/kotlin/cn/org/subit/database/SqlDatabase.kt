@@ -131,6 +131,7 @@ object SqlDatabase: KoinComponent
 
             single { Database.connect(createHikariDataSource(url, driver, user, password)) }.bind<Database>()
 
+            singleOf(::Chats)
             singleOf(::Exams)
             singleOf(::Histories)
             singleOf(::KnowledgePoints)
@@ -151,6 +152,7 @@ object SqlDatabase: KoinComponent
             logger.info("${CYAN}Using database implementation: ${RED}sql${CYAN}, and ${RED}lazyInit${CYAN} is ${GREEN}false.")
             logger.info("${CYAN}It may take a while to initialize the database. Please wait patiently.")
 
+            get<Chats>().table
             get<Exams>().table
             get<Histories>().table
             get<KnowledgePoints>().table
@@ -221,3 +223,7 @@ fun Table.knowledgePointId(name: String) = registerColumn(name, KnowledgePointId
 // ExamId
 class ExamIdColumnType: WrapColumnType<Long, ExamId>(LongColumnType(), ::ExamId, ExamId::value)
 fun Table.examId(name: String) = registerColumn(name, ExamIdColumnType())
+
+// ChatId
+class ChatIdColumnType: WrapColumnType<Long, ChatId>(LongColumnType(), ::ChatId, ChatId::value)
+fun Table.chatId(name: String) = registerColumn(name, ChatIdColumnType())

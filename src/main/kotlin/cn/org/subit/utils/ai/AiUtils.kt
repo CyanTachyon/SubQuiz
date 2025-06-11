@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package cn.org.subit.utils.ai
 
 import cn.org.subit.config.aiConfig
@@ -170,13 +172,13 @@ data class AiRequest(
     val model: String,
     val messages: List<Message>,
     val stream: Boolean = false,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val maxTokens: Int? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val temperature: Double? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val topP: Double? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val frequencyPenalty: Double? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val presencePenalty: Double? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val responseFormat: ResponseFormat? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val stop: List<String>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("max_tokens") val maxTokens: Int? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("temperature") val temperature: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("top_p") val topP: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("frequency_penalty") val frequencyPenalty: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("presence_penalty") val presencePenalty: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("response_format") val responseFormat: ResponseFormat? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("stop") val stop: List<String>? = null,
 )
 {
     @Serializable
@@ -217,7 +219,7 @@ data class AiRequest(
         {
             private val serializer = ListSerializer(Content.serializer())
             @OptIn(InternalSerializationApi::class)
-            override val descriptor: SerialDescriptor = buildSerialDescriptor("kotlinx.serialization.json.JsonElement", PolymorphicKind.SEALED)
+            override val descriptor: SerialDescriptor = buildSerialDescriptor("AiRequest.Message.Content", PolymorphicKind.SEALED)
             {
                 element("simple", String.serializer().descriptor)
                 element("complex", serializer.descriptor)
@@ -226,7 +228,7 @@ data class AiRequest(
             override fun serialize(encoder: Encoder, value: List<Content>)
             {
                 if (value.all { it is TextContent })
-                    encoder.encodeString(value.joinToString(separator = "") { (it as Message.TextContent).text })
+                    encoder.encodeString(value.joinToString(separator = "") { (it as TextContent).text })
                 else
                     serializer.serialize(encoder, value)
             }
@@ -309,7 +311,7 @@ suspend fun sendAiRequest(
     }
     finally
     {
-        records.addRecord(body, res)
+        records.addRecord(url, body, res)
     }
 }
 
@@ -343,6 +345,7 @@ suspend fun sendAiStreamRequest(
 
     logger.config("发送AI流式请求: $url")
     val serializedBody = contentNegotiationJson.encodeToString(body)
+    val list = mutableListOf<StreamAiResponse>()
     runCatching()
     {
         sseClient.sse(url,{
@@ -357,10 +360,12 @@ suspend fun sendAiStreamRequest(
                 .mapNotNull { it.data }
                 .filterNot { it == "[DONE]" }
                 .map { contentNegotiationJson.decodeFromString<StreamAiResponse>(it) }
-                .collect(onRecord)
+                .collect()
+                {
+                    list.add(it)
+                    onRecord(it)
+                }
         }
-    }.onFailure()
-    {
-        logger.warning("发送AI流式请求请求失败: $serializedBody", it)
-    }
+    }.onFailure { logger.warning("发送AI流式请求请求失败: $serializedBody", it) }
+    records.addRecord(url, body, list)
 }
