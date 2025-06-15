@@ -6,7 +6,8 @@ import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
 import cn.org.subit.utils.ai.AiRequest
 import cn.org.subit.utils.ai.StreamAiResponse
-import cn.org.subit.utils.sseClient
+import cn.org.subit.utils.ai.sendAiStreamRequest
+import cn.org.subit.utils.ai.streamAiClient
 import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
 import io.ktor.http.*
@@ -45,7 +46,7 @@ object BdfzHelperAskService: AskService(), KoinComponent
         val serializedBody = contentNegotiationJson.encodeToString(body)
         runCatching()
         {
-            sseClient.sse(aiConfig.bdfzHelper, {
+            streamAiClient.sse(aiConfig.bdfzHelper, {
                 method = HttpMethod.Post
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Any)

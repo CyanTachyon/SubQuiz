@@ -20,7 +20,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
     object QuizTable: IdTable<QuizId>("quizzes")
     {
         override val id = quizId("id").autoIncrement().entityId()
-        val user = reference("user", Users.UsersTable).index()
+        val user = reference("user", Users.UserTable).index()
         val time = timestamp("time").defaultExpression(CurrentTimestamp).index()
         val duration = long("duration").nullable().default(null)
         val sections = jsonb<List<Section<Any, Any?, String>>>("sections", dataJson, dataJson.serializersModule.serializer())

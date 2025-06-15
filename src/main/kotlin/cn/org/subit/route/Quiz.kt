@@ -10,7 +10,7 @@ import cn.org.subit.plugin.rateLimit.RateLimit.NewQuiz
 import cn.org.subit.route.utils.*
 import cn.org.subit.utils.HttpStatus
 import cn.org.subit.utils.Locks
-import cn.org.subit.utils.ai.AI.checkAnswerAsync
+import cn.org.subit.utils.ai.AiGrading.checkAnswerAsync
 import cn.org.subit.utils.ai.AiResponse
 import cn.org.subit.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.get

@@ -49,7 +49,7 @@ dependencies {
 
     // ktor client
     implementation("io.ktor:ktor-client-core-jvm") // core
-    implementation("io.ktor:ktor-client-java")
+    implementation("io.ktor:ktor-client-cio")
     implementation("io.ktor:ktor-client-content-negotiation") // request/response时反序列化
 
     // ktor common

@@ -48,13 +48,14 @@ object COS: KoinComponent
     private fun getObject(filename: String): InputStream =
         cosClient.getObject(cosConfig.bucketName, filename).objectContent
 
-    private fun getObjects(folder: String): List<String> =
-        cosClient
+    private fun getObjects(folder: String): List<String>
+    {
+        val folder = folder.trim('/') + '/'
+        return cosClient
             .listObjects(cosConfig.bucketName, folder)
             .objectSummaries
-            .map { it.key }
-            .map { it.substring(folder.length) }
-            .filterNot { '/' in it }
+            .mapNotNull { it.key.substring(folder.length).takeIf { k -> '/' !in k } }
+    }
 
     fun getImageUrl(sectionId: SectionId, md5: String): String =
         if (sectionId.value < 0) getImageUrl(ExamId(-sectionId.value), md5)
@@ -100,11 +101,11 @@ object COS: KoinComponent
 
     fun getImages(sectionId: SectionId): List<String> =
         if (sectionId.value < 0) getImages(ExamId(-sectionId.value))
-        else getObjects("/section_images/$sectionId/")
+        else getObjects("section_images/$sectionId/")
 
     fun hasImage(sectionId: SectionId, md5: String): Boolean =
         if (sectionId.value < 0) hasImage(ExamId(-sectionId.value), md5)
-        else hasObject("/section_images/$sectionId/$md5")
+        else hasObject("section_images/$sectionId/$md5")
 
     suspend fun addImage(examId: ExamId, md5: String, type: ContentType): String? = withContext(Dispatchers.IO)
     {

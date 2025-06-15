@@ -36,6 +36,7 @@ data class Chat(
     val section: Section<@Contextual Any, @Contextual Any, String>?,
     val histories: List<ChatMessage>,
     val hash: String,
+    val banned: Boolean,
 )
 {
     companion object
@@ -53,7 +54,8 @@ data class Chat(
             user = UserId(1),
             section = Section.example,
             histories = emptyList(),
-            hash = "example-hash"
+            hash = "example-hash",
+            banned = false,
         )
     }
 }

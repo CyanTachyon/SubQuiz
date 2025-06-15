@@ -6,6 +6,7 @@ import cn.org.subit.utils.ai.AiRequest
 import cn.org.subit.utils.ai.Role
 import cn.org.subit.utils.ai.StreamAiResponse
 import cn.org.subit.utils.ai.sendAiStreamRequest
+import kotlinx.coroutines.Dispatchers
 
 object QuizAskService: AskService()
 {
@@ -19,12 +20,8 @@ object QuizAskService: AskService()
         val prompt = makePrompt(section, true)
         val messages = listOf(prompt) + histories + AiRequest.Message(Role.USER, content)
         sendAiStreamRequest(
-            url = aiConfig.chat.url,
-            key = aiConfig.chat.key.random(),
-            model = aiConfig.chat.model,
+            model = aiConfig.chat,
             messages = messages,
-            maxTokens = aiConfig.chat.maxTokens,
-            responseFormat = if (aiConfig.chat.useJsonOutput) AiRequest.ResponseFormat(AiRequest.ResponseFormat.Type.JSON) else null,
             onRecord = { it.choices.forEach { c -> onRecord(c.message) } },
         )
     }

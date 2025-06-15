@@ -25,10 +25,11 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
     object ChatTable: IdTable<ChatId>("chats")
     {
         override val id = chatId("id").autoIncrement().entityId()
-        val user = reference("user", Users.UsersTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
+        val user = reference("user", Users.UserTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
         val section = jsonb<Section<Any, Any, String>>("section", dataJson, dataJson.serializersModule.serializer()).nullable()
         val histories = jsonb<List<ChatMessage>>("histories", dataJson, dataJson.serializersModule.serializer())
         val hash = varchar("hash", 64).index()
+        val banned = bool("banned").default(false)
         override val primaryKey = PrimaryKey(id)
     }
 
@@ -39,6 +40,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             section = row[table.section],
             histories = row[table.histories],
             hash = row[table.hash],
+            banned = row[table.banned],
         )
 
     suspend fun createChat(
@@ -59,6 +61,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             section = section,
             histories = emptyList(),
             hash = hash,
+            banned = false,
         )
     }
 
@@ -76,7 +79,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
         count: Int,
     ): Slice<Chat> = query()
     {
-        select(id, table.user, section, hash)
+        select(table.columns - table.histories)
             .where { table.user eq user }
             .orderBy(table.id to SortOrder.DESC)
             .asSlice(begin, count)
@@ -86,27 +89,35 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
                     it[table.user].value,
                     it[table.section],
                     emptyList(),
-                    it[table.hash]
+                    it[table.hash],
+                    it[table.banned],
                 )
             }
     }
 
-    suspend fun addHistory(
+    suspend fun getHistory(
         chatId: ChatId,
-        message: ChatMessage,
-        newHash: String? = null,
-    ): Unit = query()
+    ): List<ChatMessage> = query()
     {
-        val histories = select(table.histories)
+        select(table.histories)
             .where { table.id eq chatId }
             .singleOrNull()
             ?.get(table.histories)
             ?: emptyList()
+    }
 
+    suspend fun updateHistory(
+        chatId: ChatId,
+        histories: List<ChatMessage>,
+        newHash: String? = null,
+        ban: Boolean = false,
+    ): Unit = query()
+    {
         update({ table.id eq chatId })
         {
-            it[table.histories] = histories + message
+            it[table.histories] = histories
             if (newHash != null) it[table.hash] = newHash
+            if (ban) it[table.banned] = true
         }
     }
 

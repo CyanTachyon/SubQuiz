@@ -1,371 +1,52 @@
-@file:Suppress("unused")
-
 package cn.org.subit.utils.ai
 
+import cn.org.subit.config.AiConfig
 import cn.org.subit.config.aiConfig
-import cn.org.subit.database.Records
 import cn.org.subit.logger.SubQuizLogger
-import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
-import cn.org.subit.utils.getKoin
-import cn.org.subit.utils.httpClient
-import cn.org.subit.utils.sseClient
-import io.ktor.client.call.*
-import io.ktor.client.plugins.sse.*
-import io.ktor.client.request.*
-import io.ktor.http.*
-import kotlinx.coroutines.flow.filterNot
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.*
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.descriptors.PolymorphicKind
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.descriptors.buildSerialDescriptor
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonDecoder
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 
-private val semaphore by lazy { Semaphore(aiConfig.maxConcurrency) }
 private val logger = SubQuizLogger.getLogger()
+private val judgeRegex = Regex(".*\"result\" *: *(true|false).*")
 
-@Serializable
-enum class Role
-{
-    @SerialName("user")
-    USER,
-
-    @SerialName("system")
-    SYSTEM,
-
-    @SerialName("assistant")
-    ASSISTANT,
-}
-
-@Serializable
-sealed interface AiResponse
-{
-    val id: String
-    val `object`: String
-    val model: String
-    val usage: Usage
-    val created: Long
-    val choices: List<Choice>
-
-    @Serializable
-    sealed interface Choice
-    {
-        val finishReason: FinishReason?
-        val index: Int
-        val message: Message
-
-        @Serializable
-        sealed interface Message
-        {
-            val content: String?
-            @SerialName("reasoning_content")
-            val reasoningContent: String?
-        }
-    }
-
-    @Serializable
-    enum class FinishReason
-    {
-        @SerialName("stop")
-        STOP,
-
-        @SerialName("length")
-        LENGTH,
-
-        @SerialName("content_filter")
-        CONTENT_FILTER,
-
-        @SerialName("tool_calls")
-        TOOL_CALLS,
-
-        @SerialName("insufficient_system_resource")
-        INSUFFICIENT_SYSTEM_RESOURCE,
-    }
-
-    @Serializable
-    data class Usage(
-        @SerialName("completion_tokens")
-        val completionTokens: Long = 0,
-        @SerialName("prompt_tokens")
-        val promptTokens: Long = 0,
-        @SerialName("total_tokens")
-        val totalTokens: Long = 0,
-    )
-    {
-        operator fun plus(other: Usage): Usage = Usage(
-            completionTokens + other.completionTokens,
-            promptTokens + other.promptTokens,
-            totalTokens + other.totalTokens,
-        )
-    }
-}
-
-@Serializable
-data class DefaultAiResponse(
-    override val id: String,
-    override val choices: List<Choice>,
-    override val created: Long,
-    override val model: String,
-    override val `object`: String,
-    override val usage: AiResponse.Usage,
-): AiResponse
-{
-    @Serializable
-    data class Choice(
-        @SerialName("finish_reason")
-        override val finishReason: AiResponse.FinishReason,
-        override val index: Int,
-        override val message: Message,
-    ): AiResponse.Choice
-    {
-        @Serializable
-        data class Message(
-            override val content: String,
-            @SerialName("reasoning_content")
-            override val reasoningContent: String?,
-        ): AiResponse.Choice.Message
-    }
-}
-
-@Serializable
-data class StreamAiResponse(
-    override val id: String,
-    override val `object`: String,
-    override val created: Long,
-    override val model: String,
-    override val choices: List<Choice>,
-    override val usage: AiResponse.Usage = AiResponse.Usage(),
-): AiResponse
-{
-    @Serializable
-    data class Choice(
-        override val index: Int,
-        @SerialName("finish_reason")
-        override val finishReason: AiResponse.FinishReason? = null,
-        @SerialName("delta")
-        override val message: Message,
-    ): AiResponse.Choice
-    {
-        @Serializable
-        data class Message(
-            override val content: String? = null,
-            @SerialName("reasoning_content")
-            override val reasoningContent: String? = null,
-        ): AiResponse.Choice.Message
-    }
-}
-
-@OptIn(ExperimentalSerializationApi::class)
-@Serializable
-data class AiRequest(
-    val model: String,
-    val messages: List<Message>,
-    val stream: Boolean = false,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("max_tokens") val maxTokens: Int? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("temperature") val temperature: Double? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("top_p") val topP: Double? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("frequency_penalty") val frequencyPenalty: Double? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("presence_penalty") val presencePenalty: Double? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("response_format") val responseFormat: ResponseFormat? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("stop") val stop: List<String>? = null,
+suspend fun sendJudgeRequest(
+    model: AiConfig.Model,
+    message: String,
+): Pair<Boolean, AiResponse.Usage> = sendJudgeRequest(
+    model = model,
+    messages = listOf(AiRequest.Message(Role.SYSTEM, message))
 )
-{
-    @Serializable
-    data class Message(
-        val role: Role,
-        @Serializable(ContentSerializer::class)
-        val content: List<Content> = listOf(Content("")),
-    )
-    {
-        constructor(role: Role, content: String): this(role, listOf(Content(content)))
 
-        @Serializable
-        sealed interface Content
-        {
-            val type: String
-            companion object
-            {
-                @JvmStatic operator fun invoke(content: String): Content = TextContent(content)
-                @JvmStatic fun text(content: String): Content = TextContent(content)
-                @JvmStatic fun image(image: String): Content = ImageContent(ImageContent.Image(image))
-            }
-        }
-
-        @Serializable
-        data class TextContent(val text: String): Content
-        {
-            override val type: String = "text"
-        }
-
-        @Serializable
-        data class ImageContent(@SerialName("image_url") val image: Image): Content
-        {
-            override val type: String = "image_url"
-            @Serializable data class Image(val url: String)
-        }
-
-        private class ContentSerializer: KSerializer<List<Content>>
-        {
-            private val serializer = ListSerializer(Content.serializer())
-            @OptIn(InternalSerializationApi::class)
-            override val descriptor: SerialDescriptor = buildSerialDescriptor("AiRequest.Message.Content", PolymorphicKind.SEALED)
-            {
-                element("simple", String.serializer().descriptor)
-                element("complex", serializer.descriptor)
-            }
-
-            override fun serialize(encoder: Encoder, value: List<Content>)
-            {
-                if (value.all { it is TextContent })
-                    encoder.encodeString(value.joinToString(separator = "") { (it as TextContent).text })
-                else
-                    serializer.serialize(encoder, value)
-            }
-
-            override fun deserialize(decoder: Decoder): List<Content>
-            {
-                val json = if (decoder is JsonDecoder) decoder.json else Json
-                val ele = JsonElement.serializer().deserialize(decoder)
-                if (ele is JsonPrimitive) return listOf(TextContent(ele.content))
-                else
-                {
-                    return json.decodeFromJsonElement(serializer, ele)
-                }
-            }
-        }
-    }
-
-    @Serializable
-    data class ResponseFormat(
-        val type: Type,
-    )
-    {
-        @Serializable
-        enum class Type
-        {
-            @SerialName("json_object")
-            JSON,
-
-            @SerialName("text")
-            TEXT,
-        }
-    }
-}
-
-private val records: Records by getKoin().inject()
-
-suspend fun sendAiRequest(
-    url: String,
-    key: String,
-    model: String,
+suspend fun sendJudgeRequest(
+    model: AiConfig.Model,
     messages: List<AiRequest.Message>,
-    maxTokens: Int? = null,
-    temperature: Double? = null,
-    topP: Double? = null,
-    frequencyPenalty: Double? = null,
-    presencePenalty: Double? = null,
-    responseFormat: AiRequest.ResponseFormat? = null,
-    stop: List<String>? = null,
-) = semaphore.withPermit()
+): Pair<Boolean, AiResponse.Usage>
 {
-    val body = AiRequest(
-        model = model,
-        messages = messages,
-        stream = false,
-        maxTokens = maxTokens,
-        temperature = temperature,
-        topP = topP,
-        frequencyPenalty = frequencyPenalty,
-        presencePenalty = presencePenalty,
-        responseFormat = responseFormat,
-        stop = stop,
-    )
-
-    var res: DefaultAiResponse? = null
-    try
+    var totalTokens = AiResponse.Usage()
+    val errors = mutableListOf<Throwable>()
+    repeat(aiConfig.retry)
     {
-        res = withTimeout(aiConfig.timeout)
+        try
         {
-            logger.config("发送AI请求: $url")
-            val res = httpClient.post(url)
+            val res = sendAiRequest(
+                model = model,
+                messages = messages,
+            )
+            totalTokens += res.usage
+            val content = res.choices[0].message.content
+            val matchResult = judgeRegex.findAll(content).toList()
+            if (matchResult.size == 1)
             {
-                bearerAuth(key)
-                contentType(ContentType.Application.Json)
-                accept(ContentType.Application.Json)
-                setBody(body)
+                val result = matchResult[0].groupValues[1]
+                return result.toBoolean() to totalTokens
             }
-            res.body<DefaultAiResponse>()
+            val error = AiResponseException(res)
+            errors.add(error)
+            logger.config("AI的响应无效", error)
         }
-        res
-    }
-    finally
-    {
-        records.addRecord(url, body, res)
-    }
-}
-
-suspend fun sendAiStreamRequest(
-    url: String,
-    key: String,
-    model: String,
-    messages: List<AiRequest.Message>,
-    maxTokens: Int? = null,
-    temperature: Double? = null,
-    topP: Double? = null,
-    frequencyPenalty: Double? = null,
-    presencePenalty: Double? = null,
-    responseFormat: AiRequest.ResponseFormat? = null,
-    stop: List<String>? = null,
-    onRecord: suspend (StreamAiResponse) -> Unit,
-)
-{
-    val body = AiRequest(
-        model = model,
-        messages = messages,
-        stream = true,
-        maxTokens = maxTokens,
-        temperature = temperature,
-        topP = topP,
-        frequencyPenalty = frequencyPenalty,
-        presencePenalty = presencePenalty,
-        responseFormat = responseFormat,
-        stop = stop,
-    )
-
-    logger.config("发送AI流式请求: $url")
-    val serializedBody = contentNegotiationJson.encodeToString(body)
-    val list = mutableListOf<StreamAiResponse>()
-    runCatching()
-    {
-        sseClient.sse(url,{
-            method = HttpMethod.Post
-            bearerAuth(key)
-            contentType(ContentType.Application.Json)
-            accept(ContentType.Any)
-            setBody(serializedBody)
-        })
+        catch (e: Throwable)
         {
-            incoming
-                .mapNotNull { it.data }
-                .filterNot { it == "[DONE]" }
-                .map { contentNegotiationJson.decodeFromString<StreamAiResponse>(it) }
-                .collect()
-                {
-                    list.add(it)
-                    onRecord(it)
-                }
+            errors.add(e)
+            logger.config("检查答案失败", e)
         }
-    }.onFailure { logger.warning("发送AI流式请求请求失败: $serializedBody", it) }
-    records.addRecord(url, body, list)
+    }
+    throw AiRetryFailedException(errors)
 }

@@ -5,18 +5,13 @@ package cn.org.subit.route.ai
 import cn.org.subit.dataClass.*
 import cn.org.subit.dataClass.ChatId.Companion.toChatIdOrNull
 import cn.org.subit.database.Chats
+import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.contentNegotiation.QuestionAnswerSerializer
 import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
 import cn.org.subit.route.utils.*
 import cn.org.subit.utils.HttpStatus
-import cn.org.subit.utils.ai.AiRequest
-import cn.org.subit.utils.ai.AiResponse
-import cn.org.subit.utils.ai.Role
+import cn.org.subit.utils.ai.AiChatsUtils
 import cn.org.subit.utils.ai.StreamAiResponse
-import cn.org.subit.utils.ai.ask.AskService
-import cn.org.subit.utils.ai.ask.BdfzHelperAskService
-import cn.org.subit.utils.ai.ask.QuizAskService
-import cn.org.subit.utils.getKoin
 import cn.org.subit.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
 import io.github.smiley4.ktorswaggerui.dsl.routing.post
@@ -28,13 +23,11 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.sse.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.serializer
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 
+private val logger = SubQuizLogger.getLogger()
 fun Route.ai() = route("/ai", {
     tags("ai")
 })
@@ -116,7 +109,7 @@ fun Route.ai() = route("/ai", {
                 }
             }
             response {
-                statuses<Message>(HttpStatus.OK, example = Message("content", "reasoning"))
+                statuses<StreamAiResponse.Choice.Message>(HttpStatus.OK, example = StreamAiResponse.Choice.Message("content", "reasoning"))
                 statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
             }
         })
@@ -127,88 +120,6 @@ fun Route.ai() = route("/ai", {
     }
 }
 
-private typealias Message = StreamAiResponse.Choice.Message
-private typealias ChatListener = suspend (Message) -> Unit
-
-private class ChatInfo(
-    val chat: Chat,
-    response: Message = Message(),
-    val listeners: MutableSet<ChatListener> = hashSetOf()
-)
-{
-    var response = response
-        private set
-    lateinit var job: Job
-    private val mutex = Mutex()
-    
-    fun merge(message: AiResponse.Choice.Message)
-    {
-        val content = 
-            if (message.content != null) (response.content ?: "") + message.content
-            else response.content
-        val reasoning =
-            if (message.reasoningContent != null) (response.reasoningContent ?: "") + message.reasoningContent
-            else response.reasoningContent
-        response = Message(content, reasoning)
-    }
-    
-    suspend fun putMessage(message: Message): Unit = mutex.withLock()
-    {
-        val disabledListeners = hashSetOf<ChatListener>()
-        for (listener in listeners)
-            runCatching { listener(message) }.onFailure { disabledListeners += listener }
-        listeners -= disabledListeners
-        merge(message)
-    }
-    
-    suspend fun putListener(listener: ChatListener) = mutex.withLock()
-    {
-        if (listener in listeners) return@withLock
-        listeners += listener
-        listener(response)
-    }
-}
-private val responseMap = ConcurrentHashMap<ChatId, ChatInfo>()
-@OptIn(DelicateCoroutinesApi::class)
-private val responseCoroutineScope = CoroutineScope(newFixedThreadPoolContext(10, "AiResponseCoroutineScope"))
-private suspend fun startRespond(content: String, chat: Chat, model: Model): String?
-{
-    val newHash: String = UUID.randomUUID().toString()
-    val info = ChatInfo(chat.copy(hash = newHash))
-    runCatching()
-    {
-        if (responseMap.putIfAbsent(chat.id, info) != null) return null
-        val chats: Chats by getKoin().inject()
-        if (!chats.checkHash(chat.id, chat.hash)) return null
-        chats.addHistory(chat.id, ChatMessage(Role.USER, content), newHash)
-        info.job = responseCoroutineScope.launch()
-        {
-            try
-            {
-                model.service.ask(
-                    chat.section,
-                    chat.histories.map { AiRequest.Message(it.role, it.content) },
-                    content,
-                    info::putMessage
-                )
-            }
-            finally
-            {
-                chats.addHistory(
-                    chat.id,
-                    ChatMessage(Role.ASSISTANT, info.response.content ?: "", info.response.reasoningContent ?: "")
-                )
-                responseMap.remove(chat.id)
-            }
-        }
-    }.onFailure()
-    {
-        responseMap.remove(chat.id)
-        throw it
-    }
-    return newHash
-}
-
 @OptIn(InternalSerializationApi::class, ExperimentalSerializationApi::class)
 private val ser = Section.serializer(
     QuestionAnswerSerializer,
@@ -216,20 +127,13 @@ private val ser = Section.serializer(
     String.serializer()
 )
 private class SectionSerializer: KSerializer<Section<Any, Any, String>> by ser
-@Serializable
-@Suppress("unused")
-private enum class Model(val service: AskService)
-{
-    BDFZ_HELPER(BdfzHelperAskService),
-    QUIZ_AI(QuizAskService);
-}
 
 @Serializable
 private data class CreateChatRequest(
     @Serializable(SectionSerializer::class)
     val section: Section<@Contextual Any, @Contextual Any, String>?,
     val content: String,
-    val model: Model,
+    val model: AiChatsUtils.Model,
 )
 
 private suspend fun Context.newChat(): Nothing
@@ -238,7 +142,7 @@ private suspend fun Context.newChat(): Nothing
     val body = call.receive<CreateChatRequest>()
     val chats = get<Chats>()
     val chat = chats.createChat(user.id, body.section)
-    val hash = startRespond(body.content, chat, body.model) ?: finishCall(HttpStatus.Conflict)
+    val hash = AiChatsUtils.startRespond(body.content, chat, body.model) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, chat.copy(hash = hash))
 }
 
@@ -246,7 +150,7 @@ private suspend fun Context.newChat(): Nothing
 private data class SendChatMessageRequest(
     val chatId: ChatId,
     val content: String,
-    val model: Model = Model.BDFZ_HELPER,
+    val model: AiChatsUtils.Model = AiChatsUtils.Model.BDFZ_HELPER,
     val hash: String,
 )
 
@@ -258,7 +162,7 @@ private suspend fun Context.sendChatMessage()
     val chat = chats.getChat(body.chatId) ?: finishCall(HttpStatus.NotFound)
     if (chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chat.hash != body.hash) finishCall(HttpStatus.Conflict)
-    val hash = startRespond(body.content, chat, body.model) ?: finishCall(HttpStatus.Conflict)
+    val hash = AiChatsUtils.startRespond(body.content, chat, body.model) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, hash)
 }
 private suspend fun Context.listenChat()
@@ -266,7 +170,7 @@ private suspend fun Context.listenChat()
     val loginUser = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val chatId = call.parameters["chat"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val hash = call.parameters["hash"] ?: finishCall(HttpStatus.BadRequest)
-    val chatInfo = responseMap[chatId] ?: finishCall(HttpStatus.OK)
+    val chatInfo = AiChatsUtils.getChatInfo(chatId) ?: finishCall(HttpStatus.OK)
     if (chatInfo.chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chatInfo.chat.hash != hash) finishCall(HttpStatus.Conflict)
 
@@ -280,9 +184,17 @@ private suspend fun Context.listenChat()
         heartbeat()
         chatInfo.putListener()
         {
-            send(data = contentNegotiationJson.encodeToString(it), event = "message")
+            when (it)
+            {
+                is AiChatsUtils.BannedEvent ->
+                    send(event = "banned")
+                is AiChatsUtils.FinishedEvent ->
+                    send(event = "finished")
+                is AiChatsUtils.MessageEvent ->
+                    send(event = "message", data = contentNegotiationJson.encodeToString(it.message))
+            }
         }
-        chatInfo.job.join()
+        runCatching { chatInfo.job.join() }
     }
     return call.respond(res)
 }

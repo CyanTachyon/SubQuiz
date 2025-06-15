@@ -1,10 +1,8 @@
 package cn.org.subit.database
 
 import cn.org.subit.dataClass.Permission
-import cn.org.subit.dataClass.PreparationGroup
 import cn.org.subit.dataClass.PreparationGroupId
 import cn.org.subit.dataClass.Slice
-import cn.org.subit.dataClass.SubjectId
 import cn.org.subit.dataClass.UserId
 import cn.org.subit.database.utils.asSlice
 import org.jetbrains.exposed.dao.id.CompositeIdTable
@@ -16,7 +14,7 @@ class Permissions: SqlDao<Permissions.PermissionTable>(PermissionTable)
 {
     object PermissionTable: CompositeIdTable("permissions")
     {
-        val user = reference("user", Users.UsersTable, ReferenceOption.CASCADE, ReferenceOption.CASCADE).index()
+        val user = reference("user", Users.UserTable, ReferenceOption.CASCADE, ReferenceOption.CASCADE).index()
         val group = reference("group", PreparationGroups.PreparationGroupTable, ReferenceOption.CASCADE, ReferenceOption.CASCADE).index()
         val permission = enumeration<Permission>("permission").default(Permission.NORMAL)
         override val primaryKey = PrimaryKey(user, group)

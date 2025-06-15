@@ -13,18 +13,18 @@ import org.koin.core.component.inject
 import kotlin.getValue
 
 @Suppress("unused")
-object AI: KoinComponent
+object AiGrading: KoinComponent
 {
-    private val logger = SubQuizLogger.getLogger<AI>()
+    private val logger = SubQuizLogger.getLogger<AiGrading>()
     private val subjects by inject<Subjects>()
     private val sectionTypes by inject<SectionTypes>()
     private val knowledgePoints by inject<KnowledgePoints>()
     private val preparationGroups by inject<PreparationGroups>()
-    @OptIn(DelicateCoroutinesApi::class)
-    private val checkAnswerCoroutineScope = CoroutineScope(newFixedThreadPoolContext(aiConfig.maxConcurrency, "checkAnswerDispatcher"))
+    private val coroutineScope = CoroutineScope(Dispatchers.IO)
 
     fun Section<Any, Any, *>.checkAnswerAsync(): Deferred<Pair<List<Boolean?>, AiResponse.Usage>> =
-        checkAnswerCoroutineScope.async { checkAnswer() }
+        coroutineScope.async { checkAnswer() }
+
     suspend fun Section<Any, Any, *>.checkAnswer(): Pair<List<Boolean?>, AiResponse.Usage>
     {
         val subject =
@@ -33,8 +33,10 @@ object AI: KoinComponent
                 ?.let { preparationGroups.getPreparationGroup(it) }?.subject
                 ?.let { subjects.getSubject(it) }
         var totalTokens = AiResponse.Usage()
-        val res = this.questions.mapIndexed { index, it ->
-            checkAnswerCoroutineScope.async {
+        val res = this.questions.mapIndexed()
+        { index, it ->
+            coroutineScope.async()
+            {
                 when (it)
                 {
                     is FillQuestion, is EssayQuestion -> runCatching {
@@ -65,51 +67,14 @@ object AI: KoinComponent
         return res to totalTokens
     }
 
-    private val answerRegex = Regex(".*\"result\" *: *(true|false).*")
     suspend fun checkAnswer(
         subjectName: String?,
         sectionDescription: String,
         questionDescription: String,
         userAnswer: String,
         standard: String,
-    ): Pair<Boolean, AiResponse.Usage>
-    {
-        val prompt = makePrompt(subjectName, sectionDescription, questionDescription, userAnswer, standard)
-        val messages = listOf(AiRequest.Message(Role.USER, listOf(AiRequest.Message.Content(prompt))))
-        var totalTokens = AiResponse.Usage()
-        val errors = mutableListOf<Throwable>()
-        repeat(aiConfig.retry)
-        {
-            try
-            {
-                val res = sendAiRequest(
-                    url = aiConfig.chat.url,
-                    key = aiConfig.chat.key.random(),
-                    messages = messages,
-                    model = aiConfig.chat.model,
-                    maxTokens = aiConfig.chat.maxTokens,
-                    responseFormat = if (aiConfig.chat.useJsonOutput) AiRequest.ResponseFormat(AiRequest.ResponseFormat.Type.JSON) else null,
-                )
-                totalTokens += res.usage
-                val content = res.choices[0].message.content
-                val matchResult = answerRegex.findAll(content).toList()
-                if (matchResult.size == 1)
-                {
-                    val result = matchResult[0].groupValues[1]
-                    return result.toBoolean() to totalTokens
-                }
-                val error = AiResponseException(res)
-                errors.add(error)
-                logger.config("AI的响应无效", error)
-            }
-            catch (e: Throwable)
-            {
-                errors.add(e)
-                logger.config("检查答案失败", e)
-            }
-        }
-        throw AiRetryFailedException(errors)
-    }
+    ): Pair<Boolean, AiResponse.Usage> =
+        sendJudgeRequest(aiConfig.answerChecker, makePrompt(subjectName, sectionDescription, questionDescription, userAnswer, standard))
 
     private val codeBlockRegex = Regex("```.*\\n?")
 

@@ -10,7 +10,7 @@ class Histories: SqlDao<Histories.HistoryTable>(HistoryTable)
 {
     object HistoryTable: CompositeIdTable("histories")
     {
-        val user = reference("user", Users.UsersTable).index()
+        val user = reference("user", Users.UserTable).index()
         val section = reference("section", Sections.SectionTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
         val score = double("score").index()
         override val primaryKey = PrimaryKey(user, section)

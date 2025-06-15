@@ -15,12 +15,12 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.json.extract
 import org.jetbrains.exposed.sql.json.jsonb
 
-class Users: SqlDao<Users.UsersTable>(UsersTable)
+class Users: SqlDao<Users.UserTable>(UserTable)
 {
     /**
      * 用户信息表
      */
-    object UsersTable: IdTable<UserId>("users")
+    object UserTable: IdTable<UserId>("users")
     {
         override val id = userId("id").entityId()
         val permission = enumeration<Permission>("permission").default(Permission.NORMAL)
@@ -29,20 +29,20 @@ class Users: SqlDao<Users.UsersTable>(UsersTable)
     }
 
     private fun deserialize(row: ResultRow) = DatabaseUser(
-        id = row[UsersTable.id].value,
-        permission = row[UsersTable.permission],
-        tokenUsage = row[UsersTable.tokenUsage],
+        id = row[UserTable.id].value,
+        permission = row[UserTable.permission],
+        tokenUsage = row[UserTable.tokenUsage],
     )
 
     suspend fun changePermission(id: UserId, permission: Permission): Boolean = query()
     {
-        update({ UsersTable.id eq id }) { it[UsersTable.permission] = permission } > 0
+        update({ UserTable.id eq id }) { it[UserTable.permission] = permission } > 0
     }
 
     suspend fun getOrCreateUser(id: UserId): DatabaseUser = query()
     {
-        insertIgnore { it[UsersTable.id] = id }
-        selectAll().where { UsersTable.id eq id }.single().let(::deserialize)
+        insertIgnore { it[UserTable.id] = id }
+        selectAll().where { UserTable.id eq id }.single().let(::deserialize)
     }
 
     suspend fun getAdmins(begin: Long, count: Int): Slice<Pair<UserId, Permission>> = query()
@@ -55,8 +55,8 @@ class Users: SqlDao<Users.UsersTable>(UsersTable)
 
     suspend fun addTokenUsage(id: UserId, usage: AiResponse.Usage): Boolean = query()
     {
-        val tokenUsage = select(tokenUsage).where { UsersTable.id eq id }.singleOrNull()?.get(tokenUsage) ?: return@query false
-        update({ UsersTable.id eq id }) { it[UsersTable.tokenUsage] = tokenUsage + usage } > 0
+        val tokenUsage = select(tokenUsage).where { UserTable.id eq id }.singleOrNull()?.get(tokenUsage) ?: return@query false
+        update({ UserTable.id eq id }) { it[UserTable.tokenUsage] = tokenUsage + usage } > 0
     }
 
     suspend fun getUserOrderByTokenUsage(begin: Long, count: Int): Slice<DatabaseUser> = query()

@@ -50,11 +50,8 @@ object AiImage
      * 图像转文字
      */
     suspend fun imageToMarkdown(imageUrl: String): DefaultAiResponse = sendAiRequest(
-        url = aiConfig.image.url,
-        key = aiConfig.image.key.random(),
-        model = aiConfig.image.model,
+        model = aiConfig.image,
         messages = listOf(AiRequest.Message(Role.USER, listOf(AiRequest.Message.Content.image(imageUrl), AiRequest.Message.Content(IMAGE_TO_MARKDOWN_PROMPT)))),
-        maxTokens = aiConfig.image.maxTokens,
         temperature = 0.1,
     )
 
@@ -62,11 +59,8 @@ object AiImage
      * 描述图像内容
      */
     suspend fun describeImage(imageUrl: String): DefaultAiResponse = sendAiRequest(
-        url = aiConfig.image.url,
-        key = aiConfig.image.key.random(),
-        model = aiConfig.image.model,
+        model = aiConfig.image,
         messages = listOf(AiRequest.Message(Role.USER, listOf(AiRequest.Message.Content.image(imageUrl), AiRequest.Message.Content(DESCRIBE_IMAGE_PROMPT)))),
-        maxTokens = aiConfig.image.maxTokens,
         temperature = 0.1,
     )
 
