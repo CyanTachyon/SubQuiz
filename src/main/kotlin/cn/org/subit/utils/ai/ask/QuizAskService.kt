@@ -6,7 +6,6 @@ import cn.org.subit.utils.ai.AiRequest
 import cn.org.subit.utils.ai.Role
 import cn.org.subit.utils.ai.StreamAiResponse
 import cn.org.subit.utils.ai.sendAiStreamRequest
-import kotlinx.coroutines.Dispatchers
 
 object QuizAskService: AskService()
 {
@@ -22,7 +21,8 @@ object QuizAskService: AskService()
         sendAiStreamRequest(
             model = aiConfig.chat,
             messages = messages,
-            onRecord = { it.choices.forEach { c -> onRecord(c.message) } },
+            record = false,
+            onReceive = { it.choices.forEach { c -> onRecord(c.message) } },
         )
     }
 }

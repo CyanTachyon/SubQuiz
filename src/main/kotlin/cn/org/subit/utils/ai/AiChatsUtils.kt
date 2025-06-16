@@ -21,6 +21,8 @@ import java.util.*
 private typealias Message = StreamAiResponse.Choice.Message
 typealias ChatListener = suspend (AiChatEvent)->Unit
 
+private const val CHECK_LENGTH = 500
+
 object AiChatsUtils: KoinComponent
 {
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
@@ -86,7 +88,7 @@ object AiChatsUtils: KoinComponent
                 if (message.reasoningContent != null) (response.reasoningContent ?: "") + message.reasoningContent
                 else response.reasoningContent
             response = Message(content, reasoning)
-            if (content != null && content.length - checked >= 1000) check()
+            if (content != null && content.length - checked >= CHECK_LENGTH) check()
         }
 
         suspend fun putMessage(message: Message): Unit = withLock()

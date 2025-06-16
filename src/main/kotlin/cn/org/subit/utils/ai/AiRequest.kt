@@ -8,7 +8,6 @@ import cn.org.subit.database.Records
 import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.plugin.contentNegotiation.contentNegotiationJson
 import cn.org.subit.utils.getKoin
-import cn.org.subit.utils.httpClient
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.CIO
@@ -17,12 +16,10 @@ import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.netty.Netty
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.newFixedThreadPoolContext
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.*
@@ -302,6 +299,7 @@ suspend fun sendAiRequest(
     presencePenalty: Double? = null,
     responseFormat: AiRequest.ResponseFormat? = null,
     stop: List<String>? = null,
+    record: Boolean = true,
 ) = model.semaphore.withPermit()
 {
     val url = model.url
@@ -338,7 +336,7 @@ suspend fun sendAiRequest(
     }
     finally
     {
-        records.addRecord(url, body, res)
+        if (record) records.addRecord(url, body, res)
     }
 }
 
@@ -351,7 +349,8 @@ suspend fun sendAiStreamRequest(
     presencePenalty: Double? = null,
     responseFormat: AiRequest.ResponseFormat? = null,
     stop: List<String>? = null,
-    onRecord: suspend (StreamAiResponse) -> Unit,
+    record: Boolean = true,
+    onReceive: suspend (StreamAiResponse) -> Unit,
 ) = model.semaphore.withPermit()
 {
     val url = model.url
@@ -388,9 +387,9 @@ suspend fun sendAiStreamRequest(
                 .collect()
                 {
                     list.add(it)
-                    onRecord(it)
+                    onReceive(it)
                 }
         }
     }.onFailure { logger.warning("发送AI流式请求请求失败: $serializedBody", it) }
-    records.addRecord(url, body, list)
+    if (record) records.addRecord(url, body, list)
 }
