@@ -153,10 +153,14 @@ object AiChatsUtils: KoinComponent
         if (chat.banned) return null
         val newHash: String = UUID.randomUUID().toString()
         val info = ChatInfo(chat.copy(hash = newHash), content)
+        if (responseMap.putIfAbsent(chat.id, info) != null) return null
         runCatching()
         {
-            if (responseMap.putIfAbsent(chat.id, info) != null) return null
-            if (!chats.checkHash(chat.id, chat.hash)) return null
+            if (!chats.checkHash(chat.id, chat.hash))
+            {
+                responseMap.remove(chat.id)
+                return null
+            }
             chats.updateHistory(chat.id, chat.histories + ChatMessage(Role.USER, content), newHash)
             info.job = coroutineScope.launch()
             {
