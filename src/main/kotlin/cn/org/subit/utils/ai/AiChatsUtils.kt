@@ -4,6 +4,7 @@ import cn.org.subit.dataClass.Chat
 import cn.org.subit.dataClass.ChatId
 import cn.org.subit.dataClass.ChatMessage
 import cn.org.subit.database.Chats
+import cn.org.subit.logger.SubQuizLogger
 import cn.org.subit.utils.Locks
 import cn.org.subit.utils.ai.AiChatsUtils.AiChatEvent
 import cn.org.subit.utils.ai.ask.AskService
@@ -25,6 +26,8 @@ private const val CHECK_LENGTH = 500
 
 object AiChatsUtils: KoinComponent
 {
+    const val BANNED_MESSAGE = "对不起，该聊天无法继续"
+    private val logger = SubQuizLogger.getLogger<AiChatsUtils>()
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
     private val chats: Chats by inject()
 
@@ -121,10 +124,9 @@ object AiChatsUtils: KoinComponent
                 if (banned) for (listener in listeners) runCatching { listener(BannedEvent) }
                 else for (listener in listeners) runCatching { listener(FinishedEvent) }
             }
-            runCatching { listeners.clear() }
             val message =
                 if (!banned) ChatMessage(Role.ASSISTANT, response.content ?: "", response.reasoningContent ?: "")
-                else ChatMessage(Role.ASSISTANT, "对不起，该聊天无法继续", "")
+                else ChatMessage(Role.ASSISTANT, BANNED_MESSAGE, "")
             runCatching()
             {
                 chats.updateHistory(

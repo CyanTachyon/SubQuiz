@@ -162,6 +162,7 @@ private suspend fun Context.sendChatMessage()
     val chat = chats.getChat(body.chatId) ?: finishCall(HttpStatus.NotFound)
     if (chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chat.hash != body.hash) finishCall(HttpStatus.Conflict)
+    if (chat.banned) finishCall(HttpStatus.Forbidden.copy(message = AiChatsUtils.BANNED_MESSAGE))
     val hash = AiChatsUtils.startRespond(body.content, chat, body.model) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, hash)
 }
@@ -187,9 +188,9 @@ private suspend fun Context.listenChat()
             when (it)
             {
                 is AiChatsUtils.BannedEvent ->
-                    send(event = "banned")
+                    send(event = "banned", data = "chat is banned, you can not continue this chat")
                 is AiChatsUtils.FinishedEvent ->
-                    send(event = "finished")
+                    send(event = "finished", data = "chat finish normally")
                 is AiChatsUtils.MessageEvent ->
                     send(event = "message", data = contentNegotiationJson.encodeToString(it.message))
             }
