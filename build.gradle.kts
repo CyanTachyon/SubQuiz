@@ -55,7 +55,7 @@ dependencies {
     // ktor common
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm") // json on request/response
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1") // json on request/response
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1") // 协程
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2") // 协程
 
     // utils
     implementation("io.github.smiley4:ktor-swagger-ui:$swagger_ui_version") // 创建api页面
