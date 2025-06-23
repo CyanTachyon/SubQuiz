@@ -1,7 +1,7 @@
 ktor:
   application:
     modules:
-      - cn.org.subit.SubQuizKt.init
+      - moe.tachyon.quiz.SubQuizKt.init
     id: "SubQuiz"
 
 # 通过gradle的插件处理, 会自动替换为当前项目的版本号

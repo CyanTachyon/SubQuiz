@@ -1,5 +1,5 @@
 <configuration>
-    <appender name="CUSTOM" class="cn.org.subit.logger.LogbackAppender"/>
+    <appender name="CUSTOM" class="moe.tachyon.quiz.logger.LogbackAppender"/>
     <root level="all">
         <appender-ref ref="CUSTOM"/>
     </root>

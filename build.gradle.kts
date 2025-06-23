@@ -14,11 +14,11 @@ plugins {
     id("io.ktor.plugin") version "3.1.3"
 }
 
-group = "cn.org.subit"
-version = "2.2.0"
+group = "moe.tachyon.quiz"
+version = "2.3.0"
 
 application {
-    mainClass.set("cn.org.subit.SubQuizKt")
+    mainClass.set("moe.tachyon.quiz.SubQuizKt")
     val isDevelopment: Boolean = project.ext.has("development")
     applicationDefaultJvmArgs = listOf("-Dio.ktor.development=$isDevelopment")
 }

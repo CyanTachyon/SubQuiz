@@ -5,12 +5,12 @@ ktor:
 
 # 服务端地址, 该项决定了API文档中的请求地址
 serverUrl:
-  - 'https://sub.subit.org.cn'
+  - 'https://quiz.tachyon.moe'
 
 # 服务器host, 该项决定了CORS策略中的允许请求地址
-# 允许使用通配符例如*.subit.org.cn
+# 允许使用通配符例如*.tachyon.moe
 serverHost:
-  - '*.subit.org.cn'
+  - '*.tachyon.moe'
 database:
   # 数据库实现, 可选值: sql, memory
   impl: sql
