@@ -207,7 +207,19 @@ private suspend fun Context.getAnalysis(): Nothing
     if (answerCheckingJobs[id] != null) finishCall(HttpStatus.QuestionMarking)
     val quizzes: Quizzes = get()
     val q = quizzes.getQuiz(id) ?: finishCall(HttpStatus.NotFound)
-    if (q.user != user.id) finishCall(HttpStatus.NotFound)
+    if (q.user != user.id)
+    {
+        if (q.exam == null) finishCall(HttpStatus.NotFound)
+        val exams = get<Exams>()
+        val exam = exams.getExam(q.exam) ?: finishCall(HttpStatus.NotFound)
+        val classes = get<Classes>()
+        val clazz = classes.getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
+        val group = clazz.group
+        if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, group).isAdmin())
+            finishCall(HttpStatus.NotFound)
+        if (clazz.withMembers().members.all { it.user != user.id })
+            finishCall(HttpStatus.NotFound)
+    }
     val finished = q.checkFinished() ?: finishCall(HttpStatus.NotAcceptable.subStatus("该测试还未结束", 1))
     finishCall(HttpStatus.OK, finished)
 }

@@ -120,10 +120,28 @@ fun Route.exam() = route("/exam", {
             description = "获取一个考试的成绩列表"
             response()
             {
-                statuses<List<Pair<ClassMember, List<List<Boolean?>>?>>>(HttpStatus.OK, example = listOf(Pair(ClassMember.example, listOf(listOf(true, false)))))
+                statuses<List<Exams.ExamScore>>(HttpStatus.OK, example = listOf(Exams.ExamScore.example))
                 statuses(HttpStatus.Forbidden, HttpStatus.NotFound)
             }
         }, Context::getExamScores)
+
+        get("/student/{student}", {
+            summary = "获取学生考试"
+            description = "获取一个学生的考试结果"
+            request()
+            {
+                pathParameter<String>("student")
+                {
+                    required = true
+                    description = "学生学号"
+                }
+            }
+            response()
+            {
+                statuses<Quiz<Any, Any, String>>(HttpStatus.OK, example = Quiz.example)
+                statuses(HttpStatus.Forbidden, HttpStatus.NotFound, HttpStatus.NotAcceptable.subStatus("该学生未完成考试"))
+            }
+        }, Context::getStudentExam)
     }
 }
 
@@ -221,5 +239,25 @@ private suspend fun Context.getExamScores(): Nothing
     val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
         finishCall(HttpStatus.Forbidden)
-    finishCall(HttpStatus.OK, get<Exams>().getExamScores(examId))
+    get<Exams>().getExamScores(examId)?.let {
+        finishCall(HttpStatus.OK, it)
+    }
+    finishCall(HttpStatus.NotFound)
+}
+
+private suspend fun Context.getStudentExam()
+{
+    val examId = call.pathParameters["id"]?.toExamIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+    val studentId = call.parameters["student"] ?: finishCall(HttpStatus.BadRequest)
+    val exam = get<Exams>().getExam(examId) ?: finishCall(HttpStatus.NotFound)
+    val clazz = get<Classes>().getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
+    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
+        finishCall(HttpStatus.Forbidden)
+    val userId = clazz.withMembers().members.find { it.seiue.studentId == studentId }?.user
+        ?: finishCall(HttpStatus.NotFound.subStatus("未找到该学生", 1))
+    val quizzes: Quizzes = get()
+    val quiz = quizzes.getQuiz(userId, examId) ?: finishCall(HttpStatus.NotFound.subStatus("该学生未参加考试", 2))
+    if (!quiz.finished) finishCall(HttpStatus.NotAcceptable.subStatus("该学生未完成考试", 3))
+    finishCall(HttpStatus.OK, quiz)
 }

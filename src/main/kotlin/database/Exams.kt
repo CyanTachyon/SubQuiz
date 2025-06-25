@@ -1,13 +1,20 @@
 package moe.tachyon.quiz.database
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.serializer
 import moe.tachyon.quiz.dataClass.*
+import moe.tachyon.quiz.dataClass.UserId.Companion.toUserId
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
+import org.intellij.lang.annotations.Language
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.json.jsonb
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.koin.core.component.inject
 
 class Exams: SqlDao<Exams.ExamTable>(ExamTable)
@@ -27,9 +34,6 @@ class Exams: SqlDao<Exams.ExamTable>(ExamTable)
             uniqueIndex(clazz, name)
         }
     }
-
-    private val quizzes: Quizzes by inject()
-    private val classMembers: ClassMembers by inject()
 
     private fun deserialize(row: ResultRow) = Exam(
         id = row[table.id].value,
@@ -87,25 +91,121 @@ class Exams: SqlDao<Exams.ExamTable>(ExamTable)
         table.deleteWhere { table.id eq id } > 0
     }
 
-    suspend fun getExamScores(exam: ExamId): List<Pair<ClassMember, List<List<Boolean?>>?>> = query()
+    // 作答信息
+    @Serializable
+    data class ExamScore(
+        val member: ClassMember,
+        val sections: List<SectionScore>,
+    )
     {
-        classMembers.table
-            .join(quizzes.table, JoinType.LEFT, classMembers.table.user, quizzes.table.user)
-            .select(classMembers.table.columns + quizzes.table.correct)
-            .andWhere { classMembers.table.user.isNotNull() }
-            .andWhere { quizzes.table.exam eq exam }
-            .orderBy(classMembers.table.studentId to SortOrder.ASC)
-            .toList()
-            .map {
-                val member = ClassMember(
-                    user = it[classMembers.table.user]?.value,
+        @Serializable
+        data class SectionScore(
+            val id: SectionId,
+            val questions: List<QuestionScore>,
+        )
+        {
+            @Serializable
+            data class QuestionScore(
+                val answer: JsonElement,
+                val correct: Boolean?,
+            )
+        }
+
+        companion object
+        {
+            val example = ExamScore(
+                member = ClassMember(
+                    user = UserId(1),
                     seiue = SsoUserFull.Seiue(
-                        studentId = it[classMembers.table.studentId].value,
-                        realName = it[classMembers.table.realName].value,
+                        realName = "张三",
+                        studentId = "123456",
                         archived = false,
+                    ),
+                ),
+                sections = listOf(
+                    SectionScore(
+                        id = SectionId(1),
+                        questions = listOf(
+                            SectionScore.QuestionScore(JsonPrimitive(0), true),
+                            SectionScore.QuestionScore(JsonArray(listOf(1, 2).map(::JsonPrimitive)), false),
+                        )
                     )
                 )
-                member to it[quizzes.table.correct]
+            )
+        }
+    }
+
+    suspend fun getExamScores(exam: ExamId): List<ExamScore>? = query()
+    {
+        @Suppress("SqlConstantExpression")
+        @Language("SQL")
+        val q = """
+        select 
+            class_members."user"     as "user",
+            class_members.student_id as "student_id",
+            class_members.real_name  as "name",
+            jsonb_agg(
+                jsonb_build_object(
+                    'questions', 
+                    coalesce(
+                        (select jsonb_agg(jsonb_build_object('answer', e -> 'userAnswer', 'correct', e1))
+                        from 
+                            jsonb_array_elements(section_elem -> 'questions') with ordinality as section_elems1(e, idx) 
+                            inner join
+                            jsonb_array_elements(correct_elem) with ordinality as correct_elems1(e1, idx1)
+                            on idx = idx1)
+                    , '[]'::jsonb),
+                    'id', 
+                    section_elem -> 'id'
+                   )
+               )                        as "answer",
+               id
+        
+        from 
+            class_members 
+            left join 
+            quizzes 
+            on quizzes."user" = class_members."user",
+            
+            lateral jsonb_array_elements(sections) with ordinality as section_elems(section_elem, section_idx)
+            inner join
+            lateral jsonb_array_elements("correct") with ordinality as correct_elems(correct_elem, correct_idx)
+            on section_idx = correct_idx
+        
+        where 1=1
+            and class_members."user" is not null
+            and "exam" = $exam
+            and quizzes.finished = true
+            and "correct" is not null
+        
+        group by "id", class_members."class", class_members."student_id"
+        order by "id"
+        """.trimIndent()
+
+        val result = TransactionManager.current().exec(q)
+        {
+            val res = mutableListOf<ExamScore>()
+            while (it.next())
+            {
+                val user = it.getInt("user").toUserId()
+                val studentId = it.getString("student_id")
+                val name = it.getString("name")
+                val answer = it.getString("answer")
+                res += ExamScore(
+                    member = ClassMember(
+                        user = user,
+                        seiue = SsoUserFull.Seiue(
+                            realName = name,
+                            studentId = studentId,
+                            archived = false,
+                        ),
+                    ),
+                    sections = dataJson.decodeFromString(answer)
+                )
             }
+            res
+        }
+
+        result
     }
 }

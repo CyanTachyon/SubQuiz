@@ -9,9 +9,9 @@ val swagger_ui_version: String by project
 val schema_kenerator_version: String by project
 
 plugins {
-    kotlin("jvm") version "2.2.0-RC2"
-    kotlin("plugin.serialization") version "2.2.0-RC2"
-    id("io.ktor.plugin") version "3.1.3"
+    kotlin("jvm") version "2.2.0"
+    kotlin("plugin.serialization") version "2.2.0"
+    id("io.ktor.plugin") version "3.2.0"
 }
 
 group = "moe.tachyon.quiz"
@@ -112,6 +112,8 @@ kotlin {
     compilerOptions {
         freeCompilerArgs.add("-Xmulti-dollar-interpolation")
         freeCompilerArgs.add("-Xcontext-parameters")
+        freeCompilerArgs.add("-Xcontext-sensitive-resolution")
+        freeCompilerArgs.add("-Xnested-type-aliases")
     }
 }
 
