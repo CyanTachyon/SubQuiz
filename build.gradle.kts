@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "moe.tachyon.quiz"
-version = "2.3.0"
+version = "3.0.1"
 
 application {
     mainClass.set("moe.tachyon.quiz.SubQuizKt")

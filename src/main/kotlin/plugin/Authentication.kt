@@ -13,6 +13,7 @@ import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
+import moe.tachyon.quiz.dataClass.SsoUserFull
 import moe.tachyon.quiz.utils.SSO
 
 /**
@@ -58,7 +59,8 @@ fun Application.installAuthentication() = install(Authentication)
             if (user == null) return@authenticate null
 
             if (user.permission < Permission.NORMAL) finishCall(HttpStatus.Prohibit)
-            if (user.seiue.isEmpty()) finishCall(HttpStatus.RealNameRequired, user)
+            if (user.seiue.isEmpty() || user.seiue.all(SsoUserFull.Seiue::archived))
+                finishCall(HttpStatus.RealNameRequired, user)
 
             user
         }
