@@ -3,8 +3,8 @@ package moe.tachyon.quiz
 import io.ktor.server.application.*
 import io.ktor.server.netty.*
 import moe.tachyon.quiz.console.AnsiEffect
+import moe.tachyon.quiz.console.Console.startConsoleCommandHandler
 import moe.tachyon.quiz.console.SimpleAnsiColor
-import moe.tachyon.quiz.console.command.CommandSet.startCommandThread
 import moe.tachyon.quiz.database.SqlDatabase
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.apiDocs.installApiDoc
@@ -131,7 +131,7 @@ fun Application.init()
     installKoin()
 
     // start command thread
-    startCommandThread()
+    startConsoleCommandHandler()
 
     // install other plugins
     installApiDoc()

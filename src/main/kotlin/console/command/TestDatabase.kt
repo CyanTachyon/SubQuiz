@@ -106,7 +106,7 @@ object TestDatabase: Command, KoinComponent
         }
     }
 
-    override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+    override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
     {
         if (!debug)
         {

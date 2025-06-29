@@ -38,7 +38,7 @@ object Config: TreeCommand(Get, Set)
             }
         }
 
-        override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+        override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
             if (args.size < 2) return false
             @Suppress("UNCHECKED_CAST")
@@ -130,7 +130,7 @@ object Config: TreeCommand(Get, Set)
             }
         }
 
-        override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+        override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
             if (args.isEmpty())
             {

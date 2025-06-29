@@ -19,7 +19,7 @@ object Logger : TreeCommand(Level, Filter, ShowLoggerName)
         override val description = "Set/get logger level."
         override val args = "[level]"
 
-        override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+        override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
             if (args.isEmpty())
             {
@@ -64,7 +64,7 @@ object Logger : TreeCommand(Level, Filter, ShowLoggerName)
             override val args = "<pattern>"
 
             override suspend fun execute(
-                sender: CommandSet.CommandSender,
+                sender: CommandSender,
                 args: kotlin.collections.List<String>
             ): Boolean
             {
@@ -89,7 +89,7 @@ object Logger : TreeCommand(Level, Filter, ShowLoggerName)
             override val aliases = listOf("rm")
 
             override suspend fun execute(
-                sender: CommandSet.CommandSender,
+                sender: CommandSender,
                 args: kotlin.collections.List<String>
             ): Boolean
             {
@@ -122,7 +122,7 @@ object Logger : TreeCommand(Level, Filter, ShowLoggerName)
             override val aliases = listOf("ls")
 
             override suspend fun execute(
-                sender: CommandSet.CommandSender,
+                sender: CommandSender,
                 args: kotlin.collections.List<String>
             ): Boolean
             {
@@ -144,7 +144,7 @@ object Logger : TreeCommand(Level, Filter, ShowLoggerName)
             override val args = "[mode]"
 
             override suspend fun execute(
-                sender: CommandSet.CommandSender,
+                sender: CommandSender,
                 args: kotlin.collections.List<String>
             ): Boolean
             {
@@ -192,7 +192,7 @@ object Logger : TreeCommand(Level, Filter, ShowLoggerName)
         override val description = "Set/get show logger name."
         override val args = "[true/false]"
 
-        override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+        override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
             if (args.isEmpty())
             {

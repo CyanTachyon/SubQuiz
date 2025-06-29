@@ -26,7 +26,7 @@ object Help: Command
         return command
     }
 
-    override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+    override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
     {
         if (args.isEmpty()) // 直接使用help命令的话打印所有命令列表
         {

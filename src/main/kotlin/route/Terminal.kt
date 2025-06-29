@@ -2,14 +2,6 @@
 
 package moe.tachyon.quiz.route.terminal
 
-import moe.tachyon.quiz.Loader
-import moe.tachyon.quiz.config.loggerConfig
-import moe.tachyon.quiz.console.command.CommandSet
-import moe.tachyon.quiz.dataClass.Permission
-import moe.tachyon.quiz.dataClass.UserFull
-import moe.tachyon.quiz.logger.SubQuizLogger
-import moe.tachyon.quiz.logger.ToConsoleHandler
-import moe.tachyon.quiz.route.terminal.Type.*
 import io.github.smiley4.ktorswaggerui.dsl.routing.route
 import io.ktor.http.*
 import io.ktor.server.auth.*
@@ -22,6 +14,15 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import moe.tachyon.quiz.Loader
+import moe.tachyon.quiz.config.loggerConfig
+import moe.tachyon.quiz.console.command.CommandSender
+import moe.tachyon.quiz.console.command.invokeTabCompleteToStrings
+import moe.tachyon.quiz.dataClass.Permission
+import moe.tachyon.quiz.dataClass.UserFull
+import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.logger.ToConsoleHandler
+import moe.tachyon.quiz.route.terminal.Type.*
 import java.util.logging.Handler
 import java.util.logging.LogRecord
 
@@ -68,9 +69,8 @@ fun Route.terminal() = route("/terminal", {
 
         val job = launch { sharedFlow.collect(::sendSerialized) }
 
-        class WebSocketCommandSender(user: UserFull): CommandSet.CommandSender
+        class WebSocketCommandSender(user: UserFull): CommandSender("WebSocket('${user.username}' (id: ${user.id}))")
         {
-            override val name: String = "WebSocket('${user.username}' (id: ${user.id}))"
             override suspend fun out(line: String) = sendSerialized(Packet(MESSAGE, parseLine(line, false)))
             override suspend fun err(line: String) = sendSerialized(Packet(MESSAGE, parseLine(line, true)))
             override suspend fun clear() = sendSerialized(Packet(CLEAR, null))
@@ -84,8 +84,8 @@ fun Route.terminal() = route("/terminal", {
                 val packet = receiveDeserialized<Packet<String>>()
                 when (packet.type)
                 {
-                    COMMAND -> CommandSet.invokeCommand(sender, packet.data)
-                    TAB -> sendSerialized(Packet(TAB, CommandSet.invokeTabComplete(packet.data)))
+                    COMMAND -> sender.invokeCommand(packet.data)
+                    TAB -> sendSerialized(Packet(TAB, sender.invokeTabCompleteToStrings(packet.data)))
                     MESSAGE, CLEAR -> Unit
                 }
             }

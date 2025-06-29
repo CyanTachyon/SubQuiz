@@ -11,7 +11,7 @@ object Color: TreeCommand(Test, Mode, Effect)
     object Test: Command
     {
         override val description = "Test color display. If you appear garbled, you can adjust the color settings."
-        override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+        override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
             val sb = StringBuilder().append("")
                 .append("If certain colors or effects are not supported, ")
@@ -61,7 +61,7 @@ object Color: TreeCommand(Test, Mode, Effect)
         object RGB: Command
         {
             override val description = "Use RGB and simple color"
-            override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+            override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
             {
                 Console.ansiColorMode = ColorDisplayMode.RGB
                 loggerConfig = loggerConfig.copy(color = ColorDisplayMode.RGB)
@@ -73,7 +73,7 @@ object Color: TreeCommand(Test, Mode, Effect)
         object Simple: Command
         {
             override val description = "Use simple color"
-            override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+            override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
             {
                 Console.ansiColorMode = ColorDisplayMode.SIMPLE
                 loggerConfig = loggerConfig.copy(color = ColorDisplayMode.SIMPLE)
@@ -85,7 +85,7 @@ object Color: TreeCommand(Test, Mode, Effect)
         object None: Command
         {
             override val description = "Disable color"
-            override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+            override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
             {
                 Console.ansiColorMode = ColorDisplayMode.NONE
                 loggerConfig = loggerConfig.copy(color = ColorDisplayMode.NONE)
@@ -102,7 +102,7 @@ object Color: TreeCommand(Test, Mode, Effect)
         object On: Command
         {
             override val description = "Enable color effect"
-            override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+            override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
             {
                 Console.ansiEffectMode = EffectDisplayMode.ON
                 loggerConfig = loggerConfig.copy(effect = true)
@@ -114,7 +114,7 @@ object Color: TreeCommand(Test, Mode, Effect)
         object Off: Command
         {
             override val description = "Disable color effect"
-            override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+            override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
             {
                 Console.ansiEffectMode = EffectDisplayMode.OFF
                 loggerConfig = loggerConfig.copy(effect = false)

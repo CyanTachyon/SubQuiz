@@ -5,6 +5,8 @@ import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.CYAN
 import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.PURPLE
 import moe.tachyon.quiz.logger.SubQuizLogger
 import io.ktor.server.application.*
+import io.ktor.utils.io.InternalAPI
+import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import kotlin.system.exitProcess
 
@@ -26,7 +28,8 @@ object Power: KoinComponent
         {
             monitor.raise(ApplicationStopPreparing, environment)
             engine.stop()
-            this.dispose()
+            @OptIn(InternalAPI::class)
+            runBlocking { this@shutdown.disposeAndJoin() }
             logger.info("Ktor is stopped.")
         }.onFailure {
             logger.warning("Failed to stop Ktor: ${it.message}")

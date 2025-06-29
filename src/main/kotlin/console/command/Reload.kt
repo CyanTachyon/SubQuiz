@@ -10,7 +10,7 @@ object Reload: Command
 {
     override val description = "Reload configs."
 
-    override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+    override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
     {
         if (args.isEmpty()) ConfigLoader.reloadAll()
         else if (args.size == 1) ConfigLoader.reload(args[0])

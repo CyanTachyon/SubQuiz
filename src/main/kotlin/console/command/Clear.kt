@@ -7,7 +7,7 @@ object Clear: Command
 {
     override val description = "Clear screen"
     override val log = false
-    override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+    override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
     {
         sender.clear()
         return true

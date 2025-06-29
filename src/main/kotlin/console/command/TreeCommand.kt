@@ -73,7 +73,7 @@ abstract class TreeCommand(): Command
     /**
      * 执行命令
      */
-    override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+    override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
     {
         if (args.isEmpty()) return false // 参数过短
         val command = map[args[0]] // 获取命令对象

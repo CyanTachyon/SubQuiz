@@ -8,6 +8,6 @@ import moe.tachyon.quiz.utils.Power
 object Stop: Command
 {
     override val description = "Stop the server."
-    override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean =
+    override suspend fun execute(sender: CommandSender, args: List<String>): Boolean =
         Power.shutdown(0, "stop command executed.")
 }

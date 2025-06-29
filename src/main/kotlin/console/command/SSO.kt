@@ -12,7 +12,7 @@ object SSO: TreeCommand(GetUser, GetUserStatus)
     {
         override val args: String get() = "<id>"
         override val description: String get() = "Get user information"
-        override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+        override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
             if (args.size != 1)
             {
@@ -41,7 +41,7 @@ object SSO: TreeCommand(GetUser, GetUserStatus)
     {
         override val args: String get() = "<id>"
         override val description: String get() = "Get user status"
-        override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+        override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
             if (args.size != 1)
             {

@@ -22,7 +22,7 @@ object About: Command
         "https://github.com/CyanTachyon",
     )
 
-    override suspend fun execute(sender: CommandSet.CommandSender, args: List<String>): Boolean
+    override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
     {
         Loader.getResource(Loader.SUB_QUIZ_LOGO)
             ?.bufferedReader()

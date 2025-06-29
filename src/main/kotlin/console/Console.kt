@@ -1,12 +1,21 @@
 package moe.tachyon.quiz.console
 
-import moe.tachyon.quiz.console.command.CommandSet
-import moe.tachyon.quiz.dataDir
-import moe.tachyon.quiz.logger.SubQuizLogger.nativeOut
-import moe.tachyon.quiz.utils.Power
+import io.ktor.server.application.*
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import moe.tachyon.quiz.console.AnsiStyle.Companion.RESET
+import moe.tachyon.quiz.console.Console.historyFile
+import moe.tachyon.quiz.console.command.CommandSender
+import moe.tachyon.quiz.dataDir
+import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.logger.SubQuizLogger.nativeOut
+import moe.tachyon.quiz.utils.Power.shutdown
+import org.jline.reader.EndOfFileException
 import org.jline.reader.LineReader
 import org.jline.reader.LineReaderBuilder
+import org.jline.reader.UserInterruptException
 import org.jline.reader.impl.LineReaderImpl
 import org.jline.terminal.Terminal
 import org.jline.terminal.TerminalBuilder
@@ -20,6 +29,7 @@ import java.io.File
  */
 object Console
 {
+    private val logger = SubQuizLogger.getLogger<Console>()
     /**
      * 终端对象
      */
@@ -36,13 +46,13 @@ object Console
     var ansiEffectMode: EffectDisplayMode = EffectDisplayMode.ON
 
     /**
-     * 命令行读取器,命令补全为[CommandSet.CommandCompleter],命令历史保存在[historyFile]中
+     * 命令行读取器,命令历史保存在[historyFile]中
      */
     val lineReader: LineReader?
 
     init
     {
-        Signal.handle(Signal("INT")) { onUserInterrupt(CommandSet.ConsoleCommandSender) }
+        Signal.handle(Signal("INT")) { onUserInterrupt(ConsoleCommandSender) }
         var terminal: Terminal? = null
         var lineReader: LineReader? = null
         try
@@ -56,7 +66,10 @@ object Console
             }
             lineReader = LineReaderBuilder.builder()
                 .terminal(terminal)
-                .completer(CommandSet.CommandCompleter)
+                .completer()
+                { _, line, candidates ->
+                    candidates?.addAll(runBlocking { ConsoleCommandSender.invokeTabComplete(line.line()) })
+                }
                 .variable(LineReader.HISTORY_FILE, historyFile)
                 .build()
 
@@ -76,7 +89,7 @@ object Console
         this.lineReader = lineReader
     }
 
-    fun onUserInterrupt(sender: CommandSet.CommandSender): Nothing = runBlocking()
+    fun onUserInterrupt(sender: CommandSender): Nothing = runBlocking()
     {
         sender.err("You might have pressed Ctrl+C or performed another operation to stop the server.")
         sender.err(
@@ -84,7 +97,7 @@ object Console
             "it should only be used when a command-line system error prevents the program from closing."
         )
         sender.err("If you want to stop the server, please use the \"stop\" command.")
-        Power.shutdown(0, "User interrupt")
+        shutdown(0, "User interrupt")
     }
 
     /**
@@ -92,6 +105,44 @@ object Console
      */
     private val historyFile: File
         get() = File(dataDir, "command_history.txt")
+
+    private var success = true
+    private fun parsePrompt(prompt: String): String =
+        "${if (success) SimpleAnsiColor.CYAN.bright() else SimpleAnsiColor.RED.bright()}$prompt${RESET}"
+    private val prompt: String get() = parsePrompt("SubQuiz > ")
+    private val rightPrompt: String get() = parsePrompt("<| POWERED BY TACHYON |>")
+
+    object ConsoleCommandSender: CommandSender("Console")
+    {
+        override suspend fun out(line: String) = println(parseLine(line, false))
+        override suspend fun err(line: String) = println(parseLine(line, true))
+        override suspend fun clear() = Console.clear()
+    }
+
+    @OptIn(DelicateCoroutinesApi::class)
+    fun Application.startConsoleCommandHandler() = GlobalScope.launch()
+    {
+        if (lineReader == null) return@launch
+        var line: String?
+        while (true)
+        {
+            try
+            {
+                line = lineReader.readLine(prompt, rightPrompt, null as Char?, null)
+            }
+            catch (_: UserInterruptException)
+            {
+                onUserInterrupt(ConsoleCommandSender)
+            }
+            catch (_: EndOfFileException)
+            {
+                logger.warning("Console is closed")
+                shutdown(0, "Console is closed")
+            }
+            if (line == null) continue
+            success = ConsoleCommandSender.invokeCommand(line)
+        }
+    }.start()
 
     /**
      * 在终端上打印一行, 会自动换行并下移命令提升符和已经输入的命令
