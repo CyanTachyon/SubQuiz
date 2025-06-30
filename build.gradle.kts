@@ -90,8 +90,8 @@ dependencies {
     implementation("io.insert-koin:koin-ktor")
     implementation("io.insert-koin:koin-logger-slf4j")
 
-    implementation("me.nullaqua:BluestarAPI-kotlin:4.3.3")
-    implementation("me.nullaqua:BluestarAPI-kotlin-reflect:4.3.3")
+    implementation("me.nullaqua:BluestarAPI-kotlin:4.3.6")
+    implementation("me.nullaqua:BluestarAPI-kotlin-reflect:4.3.6")
 
     // tencent cloud object storage
     implementation("com.qcloud:cos_api:5.6.244")

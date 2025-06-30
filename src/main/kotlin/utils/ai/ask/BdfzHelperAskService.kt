@@ -43,7 +43,7 @@ object BdfzHelperAskService: AskService(), KoinComponent
 
         logger.config("发送问答助手请求: ${section?.id} - ${content.take(50)}")
         val serializedBody = contentNegotiationJson.encodeToString(body)
-        runCatching()
+        logger.warning("发送问答助手请求失败: $serializedBody")
         {
             streamAiClient.sse(aiConfig.bdfzHelper, {
                 method = HttpMethod.Post
@@ -58,6 +58,6 @@ object BdfzHelperAskService: AskService(), KoinComponent
                     .map { contentNegotiationJson.decodeFromString<StreamAiResponse>(it) }
                     .collect { it.choices.forEach { it1 -> onRecord(it1.message) } }
             }
-        }.onFailure { logger.warning("发送问答助手请求失败: $serializedBody", it) }
+        }
     }
 }

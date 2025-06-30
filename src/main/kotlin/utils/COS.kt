@@ -123,8 +123,9 @@ object COS: KoinComponent
         if (!hasImage(sectionId, md5)) return null
         if (!hasObject(filename)) return null
 
-        return runCatching {
+        return logger.warning("获取图片描述失败:")
+        {
             getObject(filename).use { String(it.readBytes(), Charsets.UTF_8) }
-        }.onFailure { logger.warning("获取图片描述失败: $it") }.getOrNull()
+        }.getOrNull()
     }
 }

@@ -24,16 +24,13 @@ object Power: KoinComponent
     {
         logger.warning("${PURPLE}Server is shutting down: ${CYAN}$cause${RESET}")
         // 尝试主动结束Ktor, 这一过程不一定成功, 例如Ktor本来就在启动过程中出错将关闭失败
-        if (this != null) runCatching()
+        if (this != null) logger.warning("Failed to stop Ktor: ")
         {
             monitor.raise(ApplicationStopPreparing, environment)
             engine.stop()
             @OptIn(InternalAPI::class)
             runBlocking { this@shutdown.disposeAndJoin() }
             logger.info("Ktor is stopped.")
-        }.onFailure {
-            logger.warning("Failed to stop Ktor: ${it.message}")
-            it.printStackTrace(SubQuizLogger.err)
         }
         else logger.warning("Application is null")
         // 无论是否成功关闭, 都强制退出

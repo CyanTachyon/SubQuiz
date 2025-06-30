@@ -78,23 +78,15 @@ abstract class CommandSender(val name: String)
 
     var handler: CommandHandler = CommandSet
 
-    suspend fun invokeCommand(line: String): Boolean
+    suspend fun invokeCommand(line: String): Boolean = logger.severe("An error occurred while processing the command: $line")
     {
-        logger.severe("An error occurred while processing the command: $line")
-        {
-            return handler.handleCommandInvoke(this, line)
-        }
-        return true
-    }
+        handler.handleCommandInvoke(this, line)
+    }.getOrElse { true }
 
-    suspend fun invokeTabComplete(line: String): List<Candidate> = runCatching()
+    suspend fun invokeTabComplete(line: String): List<Candidate> = logger.severe("An error occurred while processing the command tab: $line")
     {
         handler.handleTabComplete(this, line)
-    }.onFailure {
-        logger.severe("An error occurred while processing the command tab: $line", it)
-    }.getOrElse {
-        emptyList()
-    }
+    }.getOrElse { emptyList() }
 
     fun parseLine(line: String, err: Boolean): String
     {

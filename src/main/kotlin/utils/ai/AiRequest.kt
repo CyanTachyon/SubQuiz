@@ -370,7 +370,7 @@ suspend fun sendAiStreamRequest(
     logger.config("发送AI流式请求: $url")
     val serializedBody = contentNegotiationJson.encodeToString(body)
     val list = mutableListOf<StreamAiResponse>()
-    runCatching()
+    logger.warning("发送AI流式请求请求失败: $serializedBody")
     {
         streamAiClient.sse(url,{
             method = HttpMethod.Post
@@ -390,6 +390,6 @@ suspend fun sendAiStreamRequest(
                     onReceive(it)
                 }
         }
-    }.onFailure { logger.warning("发送AI流式请求请求失败: $serializedBody", it) }
+    }
     if (record) records.addRecord(url, body, list)
 }
