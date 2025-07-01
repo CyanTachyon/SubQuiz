@@ -13,6 +13,8 @@ import io.ktor.server.routing.*
 import io.ktor.server.sse.*
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.serializer
+import moe.tachyon.quiz.config.AiConfig
+import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.ChatId.Companion.toChatIdOrNull
 import moe.tachyon.quiz.database.Chats
@@ -22,6 +24,7 @@ import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.AiChatsUtils
 import moe.tachyon.quiz.utils.ai.StreamAiResponse
+import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.statuses
 
 fun Route.ai() = route("/ai", {
@@ -62,6 +65,15 @@ fun Route.ai() = route("/ai", {
                 statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest, HttpStatus.Conflict)
             }
         }, Context::sendChatMessage)
+
+        get("/models", {
+            description = "获取AI聊天模型列表"
+            response()
+            {
+                statuses<List<AiConfig.ChatModel>>(HttpStatus.OK, example = listOf(AiConfig.ChatModel("bdfz-helper")))
+                statuses(HttpStatus.Unauthorized)
+            }
+        }, Context::getChatModels)
 
         get({
             description = "获取AI聊天列表"
@@ -129,7 +141,7 @@ private data class CreateChatRequest(
     @Serializable(SectionSerializer::class)
     val section: Section<@Contextual Any, @Contextual Any, String>?,
     val content: String,
-    val model: AiChatsUtils.Model,
+    val model: String,
 )
 
 private suspend fun Context.newChat(): Nothing
@@ -138,7 +150,8 @@ private suspend fun Context.newChat(): Nothing
     val body = call.receive<CreateChatRequest>()
     val chats = get<Chats>()
     val chat = chats.createChat(user.id, body.section)
-    val hash = AiChatsUtils.startRespond(body.content, chat, body.model) ?: finishCall(HttpStatus.Conflict)
+    val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest, "model not found")
+    val hash = AiChatsUtils.startRespond(body.content, chat, service) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, chat.copy(hash = hash))
 }
 
@@ -146,7 +159,7 @@ private suspend fun Context.newChat(): Nothing
 private data class SendChatMessageRequest(
     val chatId: ChatId,
     val content: String,
-    val model: AiChatsUtils.Model = AiChatsUtils.Model.BDFZ_HELPER,
+    val model: String,
     val hash: String,
 )
 
@@ -159,9 +172,17 @@ private suspend fun Context.sendChatMessage()
     if (chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chat.hash != body.hash) finishCall(HttpStatus.Conflict)
     if (chat.banned) finishCall(HttpStatus.Forbidden.copy(message = AiChatsUtils.BANNED_MESSAGE))
-    val hash = AiChatsUtils.startRespond(body.content, chat, body.model) ?: finishCall(HttpStatus.Conflict)
+    val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest, "model not found")
+    val hash = AiChatsUtils.startRespond(body.content, chat, service) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, hash)
 }
+
+private fun Context.getChatModels()
+{
+    call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    finishCall(HttpStatus.OK, aiConfig.chats)
+}
+
 private suspend fun Context.listenChat()
 {
     val loginUser = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)

@@ -113,8 +113,12 @@ abstract class AskService
                 
                 请输出JSON：
             """.trimIndent()
-            return sendJudgeRequest(aiConfig.check, checkPrompt)
+            return sendJudgeRequest(aiConfig.checkModel, checkPrompt)
         }
+
+        fun getService(model: String): AskService? =
+            if (model == BdfzHelperAskService.MODEL_NAME) BdfzHelperAskService
+            else QuizAskService.getService(model)
     }
 
     protected suspend fun makePrompt(

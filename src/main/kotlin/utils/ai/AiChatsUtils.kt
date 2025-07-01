@@ -8,14 +8,11 @@ import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.AiChatsUtils.AiChatEvent
 import moe.tachyon.quiz.utils.ai.ask.AskService
-import moe.tachyon.quiz.utils.ai.ask.BdfzHelperAskService
-import moe.tachyon.quiz.utils.ai.ask.QuizAskService
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.*
@@ -36,14 +33,6 @@ object AiChatsUtils: KoinComponent
     data object BannedEvent: AiChatEvent
     data object FinishedEvent: AiChatEvent
     data class MessageEvent(val message: Message): AiChatEvent
-
-    @Serializable
-    @Suppress("unused")
-    enum class Model(val service: AskService)
-    {
-        BDFZ_HELPER(BdfzHelperAskService),
-        QUIZ_AI(QuizAskService);
-    }
 
     private val chatInfoLocks = Locks<ChatId>()
     class ChatInfo(
@@ -67,7 +56,7 @@ object AiChatsUtils: KoinComponent
 
         private suspend inline fun<T> withLock(block: () -> T): T = chatInfoLocks.withLock(chat.id, block)
 
-        suspend fun start(model: Model): Unit = withLock()
+        suspend fun start(service: AskService): Unit = withLock()
         {
             if (finished || banned) return
 
@@ -75,7 +64,7 @@ object AiChatsUtils: KoinComponent
             {
                 runCatching()
                 {
-                    model.service.ask(
+                    service.ask(
                         chat.section,
                         chat.histories.map { AiRequest.Message(it.role, it.content) },
                         content,
@@ -181,7 +170,7 @@ object AiChatsUtils: KoinComponent
 
     fun getChatInfo(chatId: ChatId): ChatInfo? = responseMap[chatId]
 
-    suspend fun startRespond(content: String, chat: Chat, model: Model): String? = chatInfoLocks.withLock(chat.id)
+    suspend fun startRespond(content: String, chat: Chat, service: AskService): String? = chatInfoLocks.withLock(chat.id)
     {
         if (chat.banned) return null
         val newHash: String = UUID.randomUUID().toString()
@@ -195,7 +184,7 @@ object AiChatsUtils: KoinComponent
                 return null
             }
             chats.updateHistory(chat.id, chat.histories + ChatMessage(Role.USER, content), newHash)
-            info.start(model)
+            info.start(service)
         }.onFailure()
         {
             responseMap.remove(chat.id)

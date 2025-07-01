@@ -12,19 +12,29 @@ data class AiConfig(
     val retry: Int = 3,
     @Comment("BDFZ HELPER的API地址")
     val bdfzHelper: String = "http://localhost:8000",
-    val answerChecker: Model = Model(),
-    val chat: Model = Model(model = "deepseek-reasoner"),
-    val image: Model = Model(url = "https://api.siliconflow.cn/v1/chat/completions", model = "Qwen/Qwen2.5-VL-72B-Instruct", maxTokens = 4096),
-    val check: Model = Model(url = "https://api.siliconflow.cn/v1/chat/completions", model = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B", maxTokens = 8192),
+    val answerChecker: String = "ds-r1",
+    val chats: List<ChatModel> = listOf(ChatModel("ds-r1")),
+    val image: String = "qwen-vl",
+    val check: String = "ds-r1-qwen3-8b",
+    val models: Map<String, Model> = mapOf(
+        "ds-r1" to Model(model = "deepseek-reasoner"),
+        "qwen-vl" to Model(url = "https://api.siliconflow.cn/v1/chat/completions", model = "Qwen/Qwen2.5-VL-72B-Instruct", maxTokens = 4096, imageable = true),
+        "ds-r1-qwen3-8b" to Model(url = "https://api.siliconflow.cn/v1/chat/completions", model = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B", maxTokens = 8192),
+    ),
 )
 {
+    val answerCheckerModel get() = models[answerChecker]!!
+    val imageModel get() = models[image]!!
+    val checkModel get() = models[check]!!
+
     @Serializable
     data class Model(
         val url: String = "https://api.deepseek.com/chat/completions",
-        val key: List<String> = listOf("your api key"),
         val model: String = "deepseek-reasoner",
         val maxTokens: Int = 16384,
         val maxConcurrency: Int = 10,
+        val imageable: Boolean = false,
+        val key: List<String> = listOf("your api key"),
     )
     {
         val semaphore by lazy { Semaphore(maxConcurrency) }
@@ -36,11 +46,61 @@ data class AiConfig(
         }
     }
 
+    @Serializable
+    data class ChatModel(
+        val model: String,
+        val displayName: String = model,
+        val description: String = model,
+    )
+
     init
     {
         require(timeout > 0) { "timeout must be greater than 0" }
         require(retry > 0) { "retry must be greater than 0" }
+        require(answerChecker in models) { "answerChecker model not found in models" }
+        require(chats.isNotEmpty()) { "chats must not be empty" }
+        require(chats.all { it.model in models }) { "some chat models not found in models" }
+        require(image in models) { "image model not found in models" }
+        require(check in models) { "check model not found in models" }
+        require(models.all { (key, value) -> key != "bdfzHelper" }) { "bdfzHelper should not be in models" }
     }
 }
 
 var aiConfig: AiConfig by config("ai.yml", AiConfig())
+
+/*
+# AI请求的超时时间，单位为毫秒，仅限非流式请求
+timeout: 180000
+# AI服务的重试次数
+retry: 3
+# BDFZ HELPER的API地址
+bdfzHelper: 'http://8.141.87.127:8000/api/questions/follow-up'
+answerChecker:
+  url: 'https://api.deepseek.com/chat/completions'
+  key:
+    - 'sk-25e61f15dcaa4494a801fab95d2d03ec'
+  model: 'deepseek-reasoner'
+  maxTokens: 16384
+  maxConcurrency: 100
+chat:
+  url: 'https://api.deepseek.com/chat/completions'
+  key:
+    - 'sk-25e61f15dcaa4494a801fab95d2d03ec'
+  model: 'deepseek-reasoner'
+  maxTokens: 16384
+  maxConcurrency: 100
+image:
+  url: 'https://api.siliconflow.cn/v1/chat/completions'
+  key:
+    - 'sk-pwhlkrbmdqimqxeotpeyndgfbplrxeurrpnuunuiwhjqmktz'
+  model: 'Qwen/Qwen2.5-VL-72B-Instruct'
+  maxTokens: 4096
+  maxConcurrency: 100
+check:
+  url: 'https://api.siliconflow.cn/v1/chat/completions'
+  key:
+    - 'sk-pwhlkrbmdqimqxeotpeyndgfbplrxeurrpnuunuiwhjqmktz'
+  model: 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B'
+  maxTokens: 8192
+  maxConcurrency: 100#
+ */

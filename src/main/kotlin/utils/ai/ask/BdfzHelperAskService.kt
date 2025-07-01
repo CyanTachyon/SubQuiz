@@ -21,6 +21,7 @@ import org.koin.core.component.KoinComponent
  */
 object BdfzHelperAskService: AskService(), KoinComponent
 {
+    const val MODEL_NAME = "bdfz-helper"
     private val logger = SubQuizLogger.getLogger<BdfzHelperAskService>()
 
     @Serializable
