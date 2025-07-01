@@ -11,6 +11,7 @@ import moe.tachyon.quiz.dataClass.PreparationGroupId.Companion.toPreparationGrou
 import moe.tachyon.quiz.dataClass.UserId.Companion.toUserIdOrNull
 import moe.tachyon.quiz.database.ClassMembers
 import moe.tachyon.quiz.database.Classes
+import moe.tachyon.quiz.database.PreparationGroups
 import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.statuses
@@ -164,7 +165,7 @@ private suspend fun Context.getClassList(): Nothing
     val userId = call.request.queryParameters["userId"]?.toUserIdOrNull()
     val group = call.request.queryParameters["group"]?.toPreparationGroupIdOrNull()
     val (begin, count) = call.getPage()
-    val user = if (!loginUser.hasGlobalAdmin()) loginUser.id else userId
+    val user = if (!loginUser.hasGlobalAdmin()) loginUser.id else if (userId?.value == 0) loginUser.id else userId
     val classes =
         if (user == null) get<Classes>().getClasses(group, begin, count)
         else get<ClassMembers>().getUserClasses(user, group, begin, count)
@@ -177,7 +178,8 @@ private suspend fun Context.createClass(): Nothing
     val classData = call.receive<Class>()
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     if (!loginUser.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
-    val clazz = get<Classes>().createClass(classData.name, classData.group) ?: finishCall(HttpStatus.Conflict, "班级已存在")
+    val group = get<PreparationGroups>().getPreparationGroup(classData.group) ?: finishCall(HttpStatus.NotFound)
+    val clazz = get<Classes>().createClass(classData.name, group.id) ?: finishCall(HttpStatus.Conflict, "班级已存在")
     finishCall(HttpStatus.OK, clazz)
 }
 
