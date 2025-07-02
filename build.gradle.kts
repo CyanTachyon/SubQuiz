@@ -1,5 +1,9 @@
 @file:Suppress("PropertyName", "LocalVariableName")
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.TimeZone
+
 val logback_version: String by project
 val exposed_version: String by project
 val hikaricp_version: String by project
@@ -14,8 +18,15 @@ plugins {
     id("io.ktor.plugin") version "3.2.0"
 }
 
+fun getCurrentDateTime(): String
+{
+    val dateFormat = SimpleDateFormat("yyMMddHHmmss")
+    dateFormat.timeZone = TimeZone.getTimeZone("GMT+8")
+    return dateFormat.format(Date())
+}
+
 group = "moe.tachyon.quiz"
-version = "3.0.2"
+version = "3.0.2-${getCurrentDateTime()}"
 
 application {
     mainClass.set("moe.tachyon.quiz.SubQuizKt")

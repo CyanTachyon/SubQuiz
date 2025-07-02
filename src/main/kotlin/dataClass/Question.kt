@@ -38,13 +38,16 @@ sealed interface Question<out Answer, out UserAnswer, out Analysis: String?>
         } as Question<Answer, UA, Analysis>
     }
 
-    fun check() = if (this is SingleChoiceQuestion<*, *, *> || this is MultipleChoiceQuestion<*, *, *>)
+    fun check(): Boolean
     {
-        if (this.options.isNullOrEmpty()) false
-        else if ((this.answer as? Int) !in (this.options?.indices ?: 0..<0)) false
+        if (this.options.isNullOrEmpty()) return false
+        val answers = (this.answer as? Int)?.let(::listOf) ?: (this.answer as? List<*>) ?: emptyList()
+        val userAnswers = (this.userAnswer as? Int)?.let(::listOf) ?: (this.userAnswer as? List<*>) ?: emptyList()
+        val options1 = (this.options?.indices ?: 0..<0).toList()
+        return if (!options1.containsAll(answers) || !options1.containsAll(userAnswers)) false
+        else if (answers.isEmpty()) false
         else true
     }
-    else true
 
     companion object
     {

@@ -76,13 +76,14 @@ class Exams: SqlDao<Exams.ExamTable>(ExamTable)
 
     suspend fun updateExam(exam: Exam): Boolean = query()
     {
-        val (id, clazz, name, description, sections) = exam
+        val (id, clazz, name, description, sections, available) = exam
         update({ table.id eq id })
         {
             it[table.clazz] = clazz
             it[table.name] = name
             it[table.description] = description
             it[table.sections] = sections
+            it[table.available] = available
         } > 0
     }
 
