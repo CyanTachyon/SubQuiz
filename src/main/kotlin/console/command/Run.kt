@@ -12,13 +12,14 @@ object Run: Command
     private class RunHandler(val process: Process): CommandHandler
     {
         private val o = process.outputWriter()
-        override suspend fun handleTabComplete(sender: CommandSender, line: String): List<Candidate>
+        override suspend fun handleTabComplete(sender: CommandSender, line: ParsedLine): List<Candidate>
         {
-            if (' ' in line)
+            val rawLine = line.rawLine
+            if (' ' in rawLine)
             {
-                if (line.startsWith("/cmd "))
+                if (rawLine.startsWith("/cmd "))
                 {
-                    return CommandSet.handleTabComplete(sender, line.substring(5))
+                    return CommandSet.handleTabComplete(sender, rawLine.substring(5))
                 }
                 return emptyList()
             }
@@ -29,28 +30,29 @@ object Run: Command
                 Candidate("/close"),
             )
         }
-        override suspend fun handleCommandInvoke(sender: CommandSender, line: String): Boolean
+        override suspend fun handleCommandInvoke(sender: CommandSender, line: ParsedLine): Boolean
         {
-            if (line.startsWith("/"))
+            val rawLine = line.rawLine
+            if (rawLine.startsWith("/"))
             {
-                if (line.startsWith("/i "))
+                if (rawLine.startsWith("/i "))
                 {
-                    o.write(line.substring(3) + "\n")
+                    o.write(rawLine.substring(3) + "\n")
                     o.flush()
                 }
-                else if (line.startsWith("/cmd "))
+                else if (rawLine.startsWith("/cmd "))
                 {
-                    return CommandSet.handleCommandInvoke(sender, line.substring(5))
+                    return CommandSet.handleCommandInvoke(sender, rawLine.substring(5))
                 }
-                else if (line == "/i")
+                else if (rawLine == "/i")
                 {
                     sender.err("Please use /i <input> to send input to the process.")
                 }
-                else if (line == "/exit")
+                else if (rawLine == "/exit")
                 {
                     process.destroyForcibly().destroyForcibly().destroyForcibly()
                 }
-                else if (line == "/close")
+                else if (rawLine == "/close")
                 {
                     o.close()
                     sender.out("Process input stream closed. You can no longer send input to the process.")
@@ -63,7 +65,7 @@ object Run: Command
             }
             else
             {
-                o.write(line + "\n")
+                o.write(rawLine + "\n")
                 o.flush()
             }
             return true

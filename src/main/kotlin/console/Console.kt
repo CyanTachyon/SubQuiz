@@ -8,6 +8,8 @@ import kotlinx.coroutines.runBlocking
 import moe.tachyon.quiz.console.AnsiStyle.Companion.RESET
 import moe.tachyon.quiz.console.Console.historyFile
 import moe.tachyon.quiz.console.command.CommandSender
+import moe.tachyon.quiz.console.command.LineParser
+import moe.tachyon.quiz.console.command.ParsedLine
 import moe.tachyon.quiz.dataDir
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.logger.SubQuizLogger.nativeOut
@@ -48,13 +50,13 @@ object Console
     /**
      * 命令行读取器,命令历史保存在[historyFile]中
      */
-    val lineReader: LineReader?
+    val lineReader: LineReaderImpl?
 
     init
     {
         Signal.handle(Signal("INT")) { onUserInterrupt(ConsoleCommandSender) }
         var terminal: Terminal? = null
-        var lineReader: LineReader? = null
+        var lineReader: LineReaderImpl? = null
         try
         {
             terminal = TerminalBuilder.builder().jansi(true).build()
@@ -66,14 +68,14 @@ object Console
             }
             lineReader = LineReaderBuilder.builder()
                 .terminal(terminal)
+                .parser(LineParser)
                 .completer()
                 { _, line, candidates ->
-                    candidates?.addAll(runBlocking { ConsoleCommandSender.invokeTabComplete(line.line()) })
+                    line as ParsedLine
+                    candidates?.addAll(runBlocking { ConsoleCommandSender.invokeTabComplete(line) })
                 }
                 .variable(LineReader.HISTORY_FILE, historyFile)
-                .build()
-
-            // 自动配对(小括号/中括号/大括号/引号等)
+                .build() as LineReaderImpl
             val autopairWidgets = AutopairWidgets(lineReader, true)
             autopairWidgets.enable()
             // 根据历史记录建议
@@ -123,12 +125,13 @@ object Console
     fun Application.startConsoleCommandHandler() = GlobalScope.launch()
     {
         if (lineReader == null) return@launch
-        var line: String?
+        var line: String
         while (true)
         {
             try
             {
-                line = lineReader.readLine(prompt, rightPrompt, null as Char?, null)
+                lineReader.readLine(prompt, rightPrompt, null as Char?, null)
+                line = (lineReader.parsedLine as ParsedLine).rawLine
             }
             catch (_: UserInterruptException)
             {
@@ -139,7 +142,6 @@ object Console
                 logger.warning("Console is closed")
                 shutdown(0, "Console is closed")
             }
-            if (line == null) continue
             success = ConsoleCommandSender.invokeCommand(line)
         }
     }.start()
@@ -149,14 +151,9 @@ object Console
      */
     fun println(o: Any)
     {
-        if (lineReader != null)
-        {
-            if (lineReader.isReading)
-                lineReader.printAbove("\r$o")
-            else
-                terminal!!.writer().println(o)
-        }
-        else nativeOut.println(o)
+        if (lineReader != null && lineReader.isReading)
+            return lineReader.printAbove("\r$o")
+        terminal?.writer()?.println(o) ?: nativeOut.println(o)
     }
 
     /**
@@ -165,7 +162,7 @@ object Console
     fun clear()
     {
         nativeOut.print("\u001bc")
-        if (lineReader is LineReaderImpl && lineReader.isReading)
+        if (lineReader != null && lineReader.isReading)
             lineReader.redrawLine()
     }
 }

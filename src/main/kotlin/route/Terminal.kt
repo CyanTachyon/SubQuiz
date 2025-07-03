@@ -17,7 +17,6 @@ import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.Loader
 import moe.tachyon.quiz.config.loggerConfig
 import moe.tachyon.quiz.console.command.CommandSender
-import moe.tachyon.quiz.console.command.invokeTabCompleteToStrings
 import moe.tachyon.quiz.dataClass.Permission
 import moe.tachyon.quiz.dataClass.UserFull
 import moe.tachyon.quiz.logger.SubQuizLogger
@@ -101,7 +100,7 @@ fun Route.terminal() = route("/terminal", {
         val html = Loader.getResource("terminal.html")!!
             .readAllBytes()
             .decodeToString()
-            .replace("\${root}", application.rootPath)
+            .replace($$"${root}", application.rootPath)
         call.respondBytes(html.toByteArray(), ContentType.Text.Html, HttpStatusCode.OK)
     }
 
