@@ -73,7 +73,7 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
         )
     }
 
-    fun check(): Boolean = questions.all { it.check() }
+    fun checkOnCreate(): String? = questions.firstNotNullOfOrNull { it.checkOnCreate() } ?: "题目不能为空".takeIf { questions.isEmpty() && available }
 
     companion object
     {

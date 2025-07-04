@@ -38,15 +38,22 @@ sealed interface Question<out Answer, out UserAnswer, out Analysis: String?>
         } as Question<Answer, UA, Analysis>
     }
 
-    fun check(): Boolean
+    /**
+     * 出题时用于检查题目是否合法
+     * @return null if the question is not a choice question, or if the question is valid. Else a string describing the error.
+     */
+    fun checkOnCreate(): String?
     {
-        if (this.options.isNullOrEmpty()) return false
+        if (this !is SingleChoiceQuestion<*,*,*> && this !is MultipleChoiceQuestion<*,*,*>)
+            return null
+        if (this.options.isNullOrEmpty()) return "选择题目不能没有选项"
         val answers = (this.answer as? Int)?.let(::listOf) ?: (this.answer as? List<*>) ?: emptyList()
         val userAnswers = (this.userAnswer as? Int)?.let(::listOf) ?: (this.userAnswer as? List<*>) ?: emptyList()
         val options1 = (this.options?.indices ?: 0..<0).toList()
-        return if (!options1.containsAll(answers) || !options1.containsAll(userAnswers)) false
-        else if (answers.isEmpty()) false
-        else true
+        if (!options1.containsAll(answers)) return "答案不在选项中"
+        if (!options1.containsAll(userAnswers)) return "用户选择的选项不在选项中"
+        if (answers.isEmpty()) return "答案不能为空"
+        return null
     }
 
     companion object

@@ -273,10 +273,9 @@ fun Route.sectionImage() = route("/image", {})
     }, Context::getSectionImages)
 }
 
-private suspend fun Context.newSection(section: Section<Any, Nothing?, String>): Nothing
+private suspend fun <T> Context.createOrUpdateSection(section: Section<Any, Nothing?, String>, block: suspend Sections.(Section<Any, Nothing?, String>) -> T): T
 {
-    if (section.questions.isEmpty() && section.available) finishCall(HttpStatus.BadRequest.subStatus("题目不能为空", 1))
-    if (!section.check()) finishCall(HttpStatus.BadRequest.subStatus("题目不合法", 1))
+    section.checkOnCreate()?.let { finishCall(HttpStatus.BadRequest.subStatus(it, 1)) }
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val sectionType = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
     val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
@@ -285,8 +284,12 @@ private suspend fun Context.newSection(section: Section<Any, Nothing?, String>):
         finishCall(HttpStatus.Forbidden)
 
     val sections = get<Sections>()
-    val res = sections.newSection(section)
-    finishCall(HttpStatus.OK, res)
+    return sections.block(section)
+}
+
+private suspend fun Context.newSection(section: Section<Any, Nothing?, String>): Nothing
+{
+    finishCall(HttpStatus.OK, createOrUpdateSection(section, Sections::newSection))
 }
 
 private suspend fun Context.getSection(): Nothing
@@ -303,15 +306,8 @@ private suspend fun Context.getSection(): Nothing
 
 private suspend fun Context.updateSection(section: Section<Any, Nothing?, String>): Nothing
 {
-    if (section.questions.isEmpty() && section.available) finishCall(HttpStatus.BadRequest.subStatus("题目不能为空", 1))
-    if (!section.check()) finishCall(HttpStatus.BadRequest.subStatus("题目不合法", 1))
-    val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val sectionType = get<SectionTypes>().getSectionType(section.type) ?: finishCall(HttpStatus.NotFound)
-    val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
-    if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
-        finishCall(HttpStatus.Forbidden)
-    val sections = get<Sections>()
-    sections.updateSection(section)
+    if (!createOrUpdateSection(section, Sections::updateSection))
+        finishCall(HttpStatus.NotFound)
     finishCall(HttpStatus.OK)
 }
 
