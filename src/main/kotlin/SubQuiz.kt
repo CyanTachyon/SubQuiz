@@ -81,6 +81,8 @@ fun main(args: Array<String>)
     // 初始化配置文件加载器, 会加载所有配置文件
     moe.tachyon.quiz.config.ConfigLoader.init()
 
+    Power.startMonitoring()
+
     Loader.getResource(Loader.SUB_QUIZ_LOGO)
         ?.bufferedReader()
         ?.forEachLine { println("${SimpleAnsiColor.CYAN}${AnsiEffect.BOLD}$it") }

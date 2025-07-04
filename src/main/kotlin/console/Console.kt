@@ -54,7 +54,6 @@ object Console
 
     init
     {
-        Signal.handle(Signal("INT")) { onUserInterrupt(ConsoleCommandSender) }
         var terminal: Terminal? = null
         var lineReader: LineReaderImpl? = null
         try
@@ -66,6 +65,14 @@ object Console
                 terminal = null
                 throw IllegalStateException("Unsupported terminal type: dumb")
             }
+
+            Signal.handle(Signal("INT")) { onUserInterrupt(ConsoleCommandSender) }
+            Signal.handle(Signal("TSTP")) { onUserInterrupt(ConsoleCommandSender) }
+            Signal.handle(Signal("WINCH")) { Console.lineReader?.redrawLine() }
+            terminal.handle(Terminal.Signal.INT) { onUserInterrupt(ConsoleCommandSender) }
+            terminal.handle(Terminal.Signal.TSTP) { onUserInterrupt(ConsoleCommandSender) }
+            terminal.handle(Terminal.Signal.WINCH) { Console.lineReader?.redrawLine() }
+
             lineReader = LineReaderBuilder.builder()
                 .terminal(terminal)
                 .parser(LineParser)
@@ -91,7 +98,7 @@ object Console
         this.lineReader = lineReader
     }
 
-    fun onUserInterrupt(sender: CommandSender): Nothing = runBlocking()
+    fun onUserInterrupt(sender: CommandSender) = runBlocking()
     {
         sender.err("You might have pressed Ctrl+C or performed another operation to stop the server.")
         sender.err(
@@ -99,7 +106,6 @@ object Console
             "it should only be used when a command-line system error prevents the program from closing."
         )
         sender.err("If you want to stop the server, please use the \"stop\" command.")
-        shutdown(0, "User interrupt")
     }
 
     /**
@@ -136,6 +142,7 @@ object Console
             catch (_: UserInterruptException)
             {
                 onUserInterrupt(ConsoleCommandSender)
+                continue
             }
             catch (_: EndOfFileException)
             {
