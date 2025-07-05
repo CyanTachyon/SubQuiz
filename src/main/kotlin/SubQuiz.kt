@@ -1,7 +1,9 @@
 package moe.tachyon.quiz
 
+import com.charleskorn.kaml.Yaml
 import io.ktor.server.application.*
 import io.ktor.server.netty.*
+import kotlinx.serialization.encodeToString
 import moe.tachyon.quiz.console.AnsiEffect
 import moe.tachyon.quiz.console.Console.startConsoleCommandHandler
 import moe.tachyon.quiz.console.SimpleAnsiColor
@@ -20,7 +22,6 @@ import moe.tachyon.quiz.plugin.statusPages.installStatusPages
 import moe.tachyon.quiz.plugin.webSockets.installWebSockets
 import moe.tachyon.quiz.route.router
 import moe.tachyon.quiz.utils.Power
-import net.mamoe.yamlkt.Yaml
 import java.io.File
 import kotlin.properties.Delegates
 
@@ -81,7 +82,7 @@ fun main(args: Array<String>)
     // 初始化配置文件加载器, 会加载所有配置文件
     moe.tachyon.quiz.config.ConfigLoader.init()
 
-    Power.startMonitoring()
+    Power.init()
 
     Loader.getResource(Loader.SUB_QUIZ_LOGO)
         ?.bufferedReader()
@@ -112,7 +113,7 @@ fun main(args: Array<String>)
     val customConfig = configFile.inputStream()
     val resConfig = Loader.mergeConfigs(defaultConfig, customConfig)
     val tempFile = File.createTempFile("resConfig", ".yaml")
-    tempFile.writeText(Yaml.encodeToString(resConfig))
+    tempFile.writeText(Yaml.default.encodeToString(resConfig))
     val resArgs = args1 + "-config=${tempFile.absolutePath}"
     EngineMain.main(resArgs)
     SubQuizLogger.getLogger().info("main thread finished")

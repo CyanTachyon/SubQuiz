@@ -42,8 +42,10 @@ val contentNegotiationJson = Json()
     decodeEnumsCaseInsensitive = true
     allowTrailingComma = true
     classDiscriminatorMode = ClassDiscriminatorMode.NONE
+    allowComments = true
 
-    serializersModule = SerializersModule {
+    serializersModule = SerializersModule()
+    {
         @OptIn(InternalSerializationApi::class)
         contextual(Any::class, QuestionAnswerSerializer)
     }

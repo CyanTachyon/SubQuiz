@@ -77,7 +77,7 @@ dependencies {
     implementation("io.swagger.parser.v3:swagger-parser:2.1.22")
     implementation("com.sun.mail:javax.mail:1.6.2") // 邮件发送
     implementation("ch.qos.logback:logback-classic:$logback_version") // 日志
-    implementation("net.mamoe.yamlkt:yamlkt:0.13.0") // yaml for kotlin on read/write file
+    implementation("com.charleskorn.kaml:kaml:0.80.0") // yaml for kotlin on read/write file
     implementation("io.ktor:ktor-server-config-yaml-jvm") // yaml on read application.yaml
     implementation("org.fusesource.jansi:jansi:2.4.1") // 终端颜色码
     implementation("org.jline:jline:$jline_version") // 终端打印、命令等
@@ -101,8 +101,8 @@ dependencies {
     implementation("io.insert-koin:koin-ktor")
     implementation("io.insert-koin:koin-logger-slf4j")
 
-    implementation("me.nullaqua:BluestarAPI-kotlin:4.3.6")
-    implementation("me.nullaqua:BluestarAPI-kotlin-reflect:4.3.6")
+    implementation("me.nullaqua:BluestarAPI-kotlin:4.3.7")
+    implementation("me.nullaqua:BluestarAPI-kotlin-reflect:4.3.7")
 
     // tencent cloud object storage
     implementation("com.qcloud:cos_api:5.6.244")

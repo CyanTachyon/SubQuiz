@@ -1,5 +1,12 @@
 package moe.tachyon.quiz.logger
 
+import kotlinx.datetime.Clock
+import kotlinx.datetime.toKotlinInstant
+import me.nullaqua.api.kotlin.reflect.KallerSensitive
+import me.nullaqua.api.kotlin.reflect.getCallerClass
+import me.nullaqua.api.kotlin.reflect.getCallerClasses
+import me.nullaqua.api.kotlin.utils.LoggerUtil
+import me.nullaqua.api.reflect.CallerSensitive
 import moe.tachyon.quiz.config.loggerConfig
 import moe.tachyon.quiz.console.AnsiStyle.Companion.RESET
 import moe.tachyon.quiz.console.Console
@@ -7,16 +14,11 @@ import moe.tachyon.quiz.console.SimpleAnsiColor
 import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.CYAN
 import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.PURPLE
 import moe.tachyon.quiz.logger.SubQuizLogger.getLevelName
-import moe.tachyon.quiz.logger.SubQuizLogger.safe
-import moe.tachyon.quiz.workDir
-import kotlinx.datetime.Clock
-import kotlinx.datetime.toKotlinInstant
-import me.nullaqua.api.reflect.CallerSensitive
-import me.nullaqua.api.kotlin.reflect.KallerSensitive
-import me.nullaqua.api.kotlin.reflect.getCallerClass
-import me.nullaqua.api.kotlin.reflect.getCallerClasses
-import me.nullaqua.api.kotlin.utils.LoggerUtil
 import moe.tachyon.quiz.logger.SubQuizLogger.parseLoggerName
+import moe.tachyon.quiz.logger.SubQuizLogger.safe
+import moe.tachyon.quiz.utils.LineOutputStream
+import moe.tachyon.quiz.utils.LinePrintStream
+import moe.tachyon.quiz.workDir
 import java.io.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -24,7 +26,6 @@ import java.util.logging.*
 import java.util.logging.Formatter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import kotlin.jvm.optionals.getOrDefault
 import kotlin.reflect.KClass
 import kotlin.reflect.jvm.jvmName
 import kotlin.time.Duration
@@ -64,12 +65,12 @@ object SubQuizLogger
      * 日志输出流
      */
     @Suppress("MemberVisibilityCanBePrivate")
-    val out: PrintStream = PrintStream(LoggerOutputStream(Level.INFO))
+    val out: PrintStream = LoggerPrintStream(Level.INFO)
 
     /**
      * 日志错误流
      */
-    val err: PrintStream = PrintStream(LoggerOutputStream(Level.SEVERE))
+    val err: PrintStream = LoggerPrintStream(Level.SEVERE)
     fun addFilter(pattern: String)
     {
         loggerConfig = loggerConfig.copy(matchers = loggerConfig.matchers + pattern)
@@ -123,37 +124,26 @@ object SubQuizLogger
         globalLogger.logger.addHandler(ToFileHandler)
     }
 
-    private class LoggerOutputStream(private val level: Level): OutputStream()
-    {
-        val arrayOutputStream = ByteArrayOutputStream()
-
-        @CallerSensitive
-        @OptIn(KallerSensitive::class)
-        override fun write(b: Int) = safe()
-        {
-            if (b == '\n'.code)
-            {
-                val str: String
-                synchronized(arrayOutputStream)
-                {
-                    str = arrayOutputStream.toString()
-                    arrayOutputStream.reset()
-                }
-                getCallerClasses().stream()
-                    .filter {
-                        !(it.packageName.startsWith("java") ||
-                          it.packageName.startsWith("kotlin") ||
-                          it.packageName.startsWith("jdk") ||
-                          it.packageName.startsWith("sun"))
-
-                    }
-                    .findFirst()
-                    .map(SubQuizLogger::getLogger)
-                    .getOrDefault(getLogger()).logger.log(level, str)
+    @OptIn(KallerSensitive::class)
+    private class LoggerPrintStream(private val level: Level): LinePrintStream({
+        getCallerClasses()
+            .asSequence()
+            .filter()
+            { c ->
+                !(c.packageName.startsWith("java") ||
+                  c.packageName.startsWith("kotlin") ||
+                  c.packageName.startsWith("jdk") ||
+                  c.packageName.startsWith("sun") ||
+                  c.name.startsWith(SubQuizLogger.javaClass.name) ||
+                  c.name.startsWith(LinePrintStream::class.java.name) ||
+                  c.name.startsWith(LineOutputStream::class.java.name))
             }
-            else synchronized(arrayOutputStream) { arrayOutputStream.write(b) }
-        }
-    }
+            .firstOrNull()
+            ?.let(SubQuizLogger::getLogger)
+            .let { l -> l ?: globalLogger }
+            .logger
+            .log(level, it)
+    })
 
     fun getLevelName(level: Level): String
     {

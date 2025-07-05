@@ -9,10 +9,20 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.serializer
 import org.jline.reader.Candidate
 
-object Config: TreeCommand(Get, Set)
+object Config: TreeCommand(
+    Get,
+    Reload,
+)
 {
     override val description: String get() = "Get/Set config."
 
+    /**
+     * 设置配置，但设置配置后，无法保留原配置的格式、注释等信息。
+     *
+     * 因此，该命令暂时禁用，若未来有更好的实现方式以在不丢失原配置格式、
+     * 注释等信息的情况下设置配置，则可以启用。
+     */
+    @Suppress("unused")
     object Set: Command
     {
         override val description: String get() = "Set config."
@@ -96,9 +106,11 @@ object Config: TreeCommand(Get, Set)
             runCatching {
                 setValue(showJson.decodeFromString<JsonElement>(args[args.size - 1]))
                 config.setValue(showJson.decodeFromJsonElement(showJson.serializersModule.serializer(config.type), JsonObject(rootMap))!!)
+                config.saveConfig()
             }.onFailure {
                 setValue(JsonPrimitive(args[args.size - 1]))
                 config.setValue(showJson.decodeFromJsonElement(showJson.serializersModule.serializer(config.type), JsonObject(rootMap))!!)
+                config.saveConfig()
             }
             sender.out("Set.")
             return true
@@ -164,5 +176,29 @@ object Config: TreeCommand(Get, Set)
             sender.out(showJson.encodeToString(obj))
             return true
         }
+    }
+
+    object Reload: Command
+    {
+        override val description = "Reload configs."
+
+        override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
+        {
+            runCatching()
+            {
+                if (args.isEmpty()) ConfigLoader.reloadAll()
+                else if (args.size == 1) ConfigLoader.reload(args[0])
+                else return false
+            }.onFailure()
+            { e ->
+
+                sender.err("Failed to reload config: ")
+                e.stackTraceToString().split("\n").forEach { sender.err(it) }
+            }
+            sender.out("Reloaded.")
+            return true
+        }
+
+        override suspend fun tabComplete(args: List<String>): List<Candidate> = ConfigLoader.configs().map(::Candidate)
     }
 }

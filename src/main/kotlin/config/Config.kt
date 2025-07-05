@@ -1,12 +1,14 @@
 package moe.tachyon.quiz.config
 
-import moe.tachyon.quiz.logger.SubQuizLogger
-import moe.tachyon.quiz.workDir
+import com.charleskorn.kaml.AnchorsAndAliases
+import com.charleskorn.kaml.SequenceStyle
+import com.charleskorn.kaml.Yaml
+import com.charleskorn.kaml.YamlConfiguration
+import kotlinx.io.files.FileNotFoundException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.serializer
-import net.mamoe.yamlkt.Yaml
-import net.mamoe.yamlkt.YamlElement
-import net.mamoe.yamlkt.YamlMap
+import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.workDir
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
@@ -17,13 +19,15 @@ import kotlin.reflect.typeOf
 inline fun <reified T: Any> config(
     filename: String,
     default: T,
+    readonly: Boolean = true,
     vararg listeners: (T, T)->Unit
 ): ConfigLoader<T> =
-    ConfigLoader.createLoader(filename, default, typeOf<T>(), *listeners)
+    ConfigLoader.createLoader(filename, default, readonly, typeOf<T>(), *listeners)
 
 class ConfigLoader<T: Any> private constructor(
     private val default: T,
     private val filename: String,
+    private val readonly: Boolean,
     val type: KType,
     private var listeners: MutableSet<(T, T)->Unit> = mutableSetOf()
 )
@@ -31,7 +35,13 @@ class ConfigLoader<T: Any> private constructor(
     var config: T = default
         private set
 
-    fun setValue(value: T)
+    /**
+     * 设置配置值，会触发监听器，但不会保存配置文件。
+     *
+     * 可视为更新内存中的配置值。可能由修改配置引起，也可能由重新加载配置引起。
+     * 因此其只表示内存中的配置值变化，不会意味着修改配置文件。
+     */
+    private fun setValue0(value: T)
     {
         listeners.forEach {
             logger.warning("Error in config listener")
@@ -41,8 +51,25 @@ class ConfigLoader<T: Any> private constructor(
         }
         config = value
         logger.config("Config $filename changed to $value")
-        saveConfig(filename, value, type)
     }
+
+    /**
+     * 设置配置值，会触发监听器，并保存配置文件。
+     *
+     * 与[setValue0]的区别在于，[setValue0]表示更新内存中的配置值，而[setValue]表示修改配置文件。
+     * 另外，若配置文件前后的值没有变化，则不会无视发生。
+     *
+     * @throws IllegalStateException 如果配置是只读的
+     */
+    fun setValue(value: T)
+    {
+        if (readonly) error("Config $filename is readonly, cannot set value")
+        if (value == config) return // 如果值没有变化，则不触发监听器
+        setValue0(value)
+        saveConfig()
+    }
+
+    fun saveConfig() = saveConfig(filename, config, type)
 
     operator fun getValue(thisRef: Any?, property: KProperty<*>): T = config
     operator fun setValue(thisRef: Any?, property: KProperty<*>, value: T) = setValue(value)
@@ -51,16 +78,34 @@ class ConfigLoader<T: Any> private constructor(
     fun reload()
     {
         logger.config("Reloading config $filename")
-        logger.severe("Could not reload config $filename")
+
+        try
         {
-            setValue(getConfigOrCreate(filename, default as Any, type) as T)
+            setValue0(getConfig(filename, type) as T)
+        }
+        catch (_: FileNotFoundException)
+        {
+            setValue0(default)
+            saveConfig()
+        }
+        catch (e: Throwable)
+        {
+            throw e
         }
     }
 
     @Suppress("unused", "MemberVisibilityCanBePrivate")
     companion object
     {
-        private val logger by lazy { SubQuizLogger.getLogger() }
+        private val logger by lazy { SubQuizLogger.getLogger<ConfigLoader<*>>() }
+        val configSerializer = Yaml(
+            configuration = YamlConfiguration(
+                sequenceStyle = SequenceStyle.Flow,
+                strictMode = false,
+                anchorsAndAliases = AnchorsAndAliases.Permitted(null),
+
+            )
+        )
         fun init() // 初始化所有配置
         {
             listOf(aiConfig, apiDocsConfig, loggerConfig, systemConfig, cosConfig)
@@ -85,8 +130,8 @@ class ConfigLoader<T: Any> private constructor(
             configMap[loader.filename] = loader
         }
 
-        fun <T: Any> createLoader(filename: String, default: T, type: KType, vararg listeners: (T, T)->Unit) =
-            ConfigLoader(default, filename, type, listeners.toHashSet()).also(Companion::addLoader)
+        fun <T: Any> createLoader(filename: String, default: T, readonly: Boolean, type: KType, vararg listeners: (T, T)->Unit) =
+            ConfigLoader(default, filename, readonly, type, listeners.toHashSet()).also(Companion::addLoader)
 
         /// 配置文件加载 ///
 
@@ -98,27 +143,10 @@ class ConfigLoader<T: Any> private constructor(
          * @return 配置
          */
         inline fun <reified T> getConfig(filename: String): T =
-            Yaml.decodeFromString(getConfigFile(filename).readText())
+            configSerializer.decodeFromString(getConfigFile(filename).readText())
 
         fun getConfig(filename: String, type: KType): Any? =
-            Yaml.decodeFromString(serializer(type), getConfigFile(filename).readText())
-
-        /**
-         * 从配置文件中获取配置, 需要T是可序列化的,在读取失败时抛出错误
-         * @param filename 配置文件名
-         * @param path 配置路径
-         * @return 配置
-         */
-        inline fun <reified T> getConfig(filename: String, path: String): T
-        {
-            val m = Yaml.decodeYamlMapFromString(getConfigFile(filename).readText())
-            var e: YamlElement = m
-            path.split(".").forEach {
-                val map = e as? YamlMap ?: throw IllegalArgumentException("path $path not found")
-                e = map[it] ?: throw IllegalArgumentException("path $path not found")
-            }
-            return Yaml.decodeFromString(e.toString())
-        }
+            configSerializer.decodeFromString(configSerializer.serializersModule.serializer(type), getConfigFile(filename).readText())
 
         /**
          * 从配置文件中获取配置, 需要T是可序列化的,在读取失败时返回默认值
@@ -136,28 +164,10 @@ class ConfigLoader<T: Any> private constructor(
         /**
          * 从配置文件中获取配置, 需要T是可序列化的,在读取失败时返回null
          * @param filename 配置文件名
-         * @param path 配置路径
-         * @param default 默认值
-         * @return 配置
-         */
-        inline fun <reified T> getConfig(filename: String, path: String, default: T): T =
-            runCatching { getConfig<T>(filename, path) }.getOrDefault(default)
-
-        /**
-         * 从配置文件中获取配置, 需要T是可序列化的,在读取失败时返回null
-         * @param filename 配置文件名
          * @return 配置
          */
         inline fun <reified T> getConfigOrNull(filename: String): T? = getConfig(filename, null)
         fun getConfigOrNull(filename: String, type: KType): Any? = getConfig(filename, null, type)
-
-        /**
-         * 从配置文件中获取配置, 需要T是可序列化的,在读取失败时返回null
-         * @param filename 配置文件名
-         * @param path 配置路径
-         * @return 配置
-         */
-        inline fun <reified T> getConfigOrNull(filename: String, path: String): T? = getConfig(filename, path, null)
 
         /**
          * 从配置文件中获取配置, 需要T是可序列化的,在读取失败时返回默认值,并将默认值写入配置文件
@@ -177,10 +187,10 @@ class ConfigLoader<T: Any> private constructor(
          * @param config 配置
          */
         inline fun <reified T> saveConfig(filename: String, config: T) =
-            createConfigFile(filename).writeText(Yaml.encodeToString(config))
+            createConfigFile(filename).writeText(configSerializer.encodeToString(configSerializer.serializersModule.serializer(), config))
 
         fun saveConfig(filename: String, config: Any, type: KType) =
-            createConfigFile(filename).writeText(Yaml.encodeToString(serializer(type), config))
+            createConfigFile(filename).writeText(configSerializer.encodeToString(configSerializer.serializersModule.serializer(type), config))
 
         /**
          * 获取配置文件

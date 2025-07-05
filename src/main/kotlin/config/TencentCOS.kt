@@ -11,4 +11,4 @@ data class TencentCOS(
     val cdnUrl: String = "https://your-cdn-url.com/",
 )
 
-var cosConfig: TencentCOS by config("tencentCOS.yml", TencentCOS())
+val cosConfig: TencentCOS by config("tencentCOS.yml", TencentCOS())

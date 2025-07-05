@@ -1,16 +1,17 @@
 package moe.tachyon.quiz.config
 
+import com.charleskorn.kaml.YamlComment
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import net.mamoe.yamlkt.Comment
 
 @Serializable
 data class AiConfig(
-    @Comment("AI请求的超时时间，单位为毫秒，仅限非流式请求")
+    @YamlComment("AI请求的超时时间，单位为毫秒，仅限非流式请求")
     val timeout: Long = 2 * 60 * 1_000,
-    @Comment("AI服务的重试次数")
+    @YamlComment("AI服务的重试次数")
     val retry: Int = 3,
-    @Comment("BDFZ HELPER的API地址")
+    @YamlComment("BDFZ HELPER的API地址")
     val bdfzHelper: String = "http://localhost:8000",
     val answerChecker: String = "ds-r1",
     val chats: List<ChatModel> = listOf(ChatModel("ds-r1")),
@@ -32,8 +33,12 @@ data class AiConfig(
         val url: String = "https://api.deepseek.com/chat/completions",
         val model: String = "deepseek-reasoner",
         val maxTokens: Int = 16384,
-        val maxConcurrency: Int = 10,
+        val maxConcurrency: Int = 50,
         val imageable: Boolean = false,
+        val toolable: Boolean = false,
+        @YamlComment("思考预算，单位为token，null表示不设置")
+        @SerialName("thinking_budget")
+        val thinkingBudget: Int? = null,
         val key: List<String> = listOf("your api key"),
     )
     {
@@ -66,41 +71,4 @@ data class AiConfig(
     }
 }
 
-var aiConfig: AiConfig by config("ai.yml", AiConfig())
-
-/*
-# AI请求的超时时间，单位为毫秒，仅限非流式请求
-timeout: 180000
-# AI服务的重试次数
-retry: 3
-# BDFZ HELPER的API地址
-bdfzHelper: 'http://8.141.87.127:8000/api/questions/follow-up'
-answerChecker:
-  url: 'https://api.deepseek.com/chat/completions'
-  key:
-    - 'sk-25e61f15dcaa4494a801fab95d2d03ec'
-  model: 'deepseek-reasoner'
-  maxTokens: 16384
-  maxConcurrency: 100
-chat:
-  url: 'https://api.deepseek.com/chat/completions'
-  key:
-    - 'sk-25e61f15dcaa4494a801fab95d2d03ec'
-  model: 'deepseek-reasoner'
-  maxTokens: 16384
-  maxConcurrency: 100
-image:
-  url: 'https://api.siliconflow.cn/v1/chat/completions'
-  key:
-    - 'sk-pwhlkrbmdqimqxeotpeyndgfbplrxeurrpnuunuiwhjqmktz'
-  model: 'Qwen/Qwen2.5-VL-72B-Instruct'
-  maxTokens: 4096
-  maxConcurrency: 100
-check:
-  url: 'https://api.siliconflow.cn/v1/chat/completions'
-  key:
-    - 'sk-pwhlkrbmdqimqxeotpeyndgfbplrxeurrpnuunuiwhjqmktz'
-  model: 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B'
-  maxTokens: 8192
-  maxConcurrency: 100#
- */
+val aiConfig: AiConfig by config("ai.yml", AiConfig())

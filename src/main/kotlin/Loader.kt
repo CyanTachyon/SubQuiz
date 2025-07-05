@@ -1,8 +1,9 @@
 package moe.tachyon.quiz
 
-import net.mamoe.yamlkt.Yaml
-import net.mamoe.yamlkt.YamlElement
-import net.mamoe.yamlkt.YamlMap
+import com.charleskorn.kaml.Yaml
+import com.charleskorn.kaml.YamlMap
+import com.charleskorn.kaml.YamlNode
+import com.charleskorn.kaml.YamlScalar
 import java.io.File
 import java.io.InputStream
 
@@ -25,30 +26,30 @@ object Loader
 
     fun mergeConfigs(vararg configs: File) =
         configs.map { it.readText() }
-            .map { Yaml.decodeYamlFromString(it) }
+            .map { Yaml.default.parseToYamlNode(it) }
             .reduce { acc, element -> mergeConfig(acc, element) }
     /**
      * 合并多个配置文件(yaml)若有冲突以前者为准
      */
     fun mergeConfigs(vararg configs: InputStream) =
         configs.map { it.readAllBytes() }
-            .map { Yaml.decodeYamlFromString(it.decodeToString()) }
+            .map { Yaml.default.parseToYamlNode(it.decodeToString()) }
             .reduce { acc, element -> mergeConfig(acc, element) }
 
-    private fun mergeConfig(a: YamlElement, b: YamlElement): YamlElement
+    private fun mergeConfig(a: YamlNode, b: YamlNode): YamlNode
     {
         if (a is YamlMap && b is YamlMap)
         {
-            val map = mutableMapOf<YamlElement, YamlElement>()
+            val map = mutableMapOf<YamlScalar, YamlNode>()
             a.entries.forEach { (k, v) ->
-                val bk = b[k]
+                val bk = b.entries[k]
                 if (bk != null) map[k] = mergeConfig(v, bk)
                 else map[k] = v
             }
             b.entries.forEach { (k, v) ->
-                if (a[k] == null) map[k] = v
+                if (a.entries[k] == null) map[k] = v
             }
-            return YamlMap(map)
+            return YamlMap(map, a.path)
         }
         return a
     }

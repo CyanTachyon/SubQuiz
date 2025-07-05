@@ -6,7 +6,6 @@ import moe.tachyon.quiz.logger.SubQuizLogger
  * Command set.
  */
 object CommandSet: TreeCommand(
-    Reload,
     Config,
     Stop,
     Help,

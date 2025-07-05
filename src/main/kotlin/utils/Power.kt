@@ -57,8 +57,15 @@ object Power: KoinComponent
         hook.start()
     }
 
-    fun startMonitoring() = runCatching()
+    fun init() = runCatching()
     {
+        val javaVersion = System.getProperty("java.specification.version")
+        if (javaVersion != "17")
+        {
+            logger.severe("Java version is $javaVersion, but SubQuiz requires Java 17.")
+            shutdown(1, "Java version is $javaVersion, but SubQuiz requires Java 17.")
+        }
+
         val file = File(this.javaClass.protectionDomain.codeSource.location.toURI())
         val lst = file.lastModified()
         val thread = Thread()
