@@ -14,15 +14,25 @@ import kotlin.system.exitProcess
 @Suppress("unused")
 object Power: KoinComponent
 {
+    @JvmField
     val logger = SubQuizLogger.getLogger()
+    private var isShutdown: Int? = null
 
+    @JvmStatic
     fun shutdown(code: Int, cause: String = "unknown"): Nothing
     {
         val application = runCatching { getKoin().get<Application>() }.getOrNull()
         application.shutdown(code, cause)
     }
+
+    @JvmStatic
     fun Application?.shutdown(code: Int, cause: String = "unknown"): Nothing
     {
+        synchronized(Power)
+        {
+            if (isShutdown != null) exitProcess(isShutdown!!)
+            isShutdown = code
+        }
         logger.warning("${PURPLE}Server is shutting down: ${CYAN}$cause${RESET}")
         // 尝试主动结束Ktor, 这一过程不一定成功, 例如Ktor本来就在启动过程中出错将关闭失败
         if (this != null) logger.warning("Failed to stop Ktor: ")
@@ -38,6 +48,7 @@ object Power: KoinComponent
         exitProcess(code)
     }
 
+    @JvmStatic
     private fun startShutdownHook(code: Int)
     {
         val hook = Thread()
@@ -57,6 +68,7 @@ object Power: KoinComponent
         hook.start()
     }
 
+    @JvmStatic
     fun init() = runCatching()
     {
         val javaVersion = System.getProperty("java.specification.version")

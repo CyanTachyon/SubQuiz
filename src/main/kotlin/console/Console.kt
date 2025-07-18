@@ -89,10 +89,12 @@ object Console
             val autosuggestionWidgets = AutosuggestionWidgets(lineReader)
             autosuggestionWidgets.enable()
         }
-        catch (_: Throwable)
+        catch (e: Throwable)
         {
             terminal?.close()
-            println("Failed to initialize terminal, will use system console instead.")
+            println("Failed to initialize terminal")
+            e.printStackTrace()
+            shutdown(1, "Failed to initialize terminal.")
         }
         this.terminal = terminal
         this.lineReader = lineReader
