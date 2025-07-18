@@ -3,6 +3,7 @@ package moe.tachyon.quiz.utils.ai.ask
 import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
 import io.ktor.http.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
@@ -44,7 +45,7 @@ object BdfzHelperAskService: AskService(), KoinComponent
 
         logger.config("发送问答助手请求: ${section?.id} - ${content.take(50)}")
         val serializedBody = contentNegotiationJson.encodeToString(body)
-        logger.warning("发送问答助手请求失败: $serializedBody")
+        try
         {
             streamAiClient.sse(aiConfig.bdfzHelper, {
                 method = HttpMethod.Post
@@ -59,6 +60,14 @@ object BdfzHelperAskService: AskService(), KoinComponent
                     .map { contentNegotiationJson.decodeFromString<StreamAiResponse>(it) }
                     .collect { it.choices.forEach { it1 -> onRecord(it1.message) } }
             }
+        }
+        catch (_: CancellationException)
+        {
+            // do nothing, cancellation is expected
+        }
+        catch (e: Throwable)
+        {
+            logger.warning("发送问答助手请求失败: $serializedBody", e)
         }
     }
 }

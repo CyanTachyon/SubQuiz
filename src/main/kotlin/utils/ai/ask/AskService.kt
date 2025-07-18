@@ -10,9 +10,10 @@ import moe.tachyon.quiz.utils.ai.AiRequest.Message
 import moe.tachyon.quiz.utils.ai.AiResponse
 import moe.tachyon.quiz.utils.ai.Role
 import moe.tachyon.quiz.utils.ai.StreamAiResponse
-import moe.tachyon.quiz.utils.ai.sendJudgeRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import moe.tachyon.quiz.utils.ai.ResultType
+import moe.tachyon.quiz.utils.ai.sendAiRequestAndGetResult
 import org.koin.core.component.KoinComponent
 
 abstract class AskService
@@ -66,8 +67,13 @@ abstract class AskService
             }
         }
 
-        suspend fun check(content: String, response: String): Pair<Boolean, AiResponse.Usage>
+        fun getService(model: String): AskService? =
+            if (model == BdfzHelperAskService.MODEL_NAME) BdfzHelperAskService
+            else QuizAskService.getService(model)
+
+        suspend fun check(content: String, reasoning: String?, response: String?): Pair<Boolean, AiResponse.Usage>
         {
+            if (reasoning.isNullOrBlank() && response.isNullOrBlank()) return false to AiResponse.Usage()
             val checkPrompt = """
                 # 审查任务说明
                 你是一个AI回答审查系统，目前正在审查一个学习辅导AI的响应，必须严格按以下规则分析输入内容，仅输出JSON格式结果：
@@ -75,7 +81,8 @@ abstract class AskService
                 ## 输入数据结构
                 {
                   "student_question": "学生提问内容",
-                  "ai_response": "待审查的大模型回答",
+                  ${ if (!reasoning.isNullOrBlank()) "\"ai_reasoning\": \"待审查的大模型推理内容\"," else "" }
+                  ${ if (!response.isNullOrBlank()) "\"ai_response\": \"待审查的大模型回答\"," else "" }
                 }
                 
                 ## 审查规则（触发任意条件即返回{"result": true}）
@@ -107,18 +114,15 @@ abstract class AskService
                 ```json
                 {
                     "student_question": "${showJson.encodeToString(content)}",
-                    "ai_response": ${showJson.encodeToString(response)}
+                    ${ if (!reasoning.isNullOrBlank()) "\"ai_reasoning\": ${showJson.encodeToString(reasoning)}," else "" }
+                    ${ if (!response.isNullOrBlank()) "\"ai_response\": ${showJson.encodeToString(response)}," else "" }
                 }
                 ```
                 
                 请输出JSON：
             """.trimIndent()
-            return sendJudgeRequest(aiConfig.checkModel, checkPrompt)
+            return sendAiRequestAndGetResult(aiConfig.checkModel, checkPrompt, ResultType.BOOLEAN)
         }
-
-        fun getService(model: String): AskService? =
-            if (model == BdfzHelperAskService.MODEL_NAME) BdfzHelperAskService
-            else QuizAskService.getService(model)
     }
 
     protected suspend fun makePrompt(

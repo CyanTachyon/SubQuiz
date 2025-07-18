@@ -10,6 +10,7 @@ import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.map
@@ -263,11 +264,8 @@ data class AiRequest(
             {
                 val json = if (decoder is JsonDecoder) decoder.json else Json
                 val ele = JsonElement.serializer().deserialize(decoder)
-                if (ele is JsonPrimitive) return listOf(TextContent(ele.content))
-                else
-                {
-                    return json.decodeFromJsonElement(serializer, ele)
-                }
+                return if (ele is JsonPrimitive) listOf(TextContent(ele.content))
+                else json.decodeFromJsonElement(serializer, ele)
             }
         }
     }
@@ -372,7 +370,7 @@ suspend fun sendAiStreamRequest(
     logger.config("发送AI流式请求: $url")
     val serializedBody = contentNegotiationJson.encodeToString(body)
     val list = mutableListOf<StreamAiResponse>()
-    logger.warning("发送AI流式请求请求失败: $serializedBody")
+    try
     {
         streamAiClient.sse(url,{
             method = HttpMethod.Post
@@ -392,6 +390,14 @@ suspend fun sendAiStreamRequest(
                     onReceive(it)
                 }
         }
+    }
+    catch (_: CancellationException)
+    {
+        // do nothing, this is expected when the request is cancelled
+    }
+    catch (e: Throwable)
+    {
+        logger.warning("发送AI流式请求请求失败: $serializedBody", e)
     }
     if (record) records.addRecord(url, body, list)
 }

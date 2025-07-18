@@ -72,7 +72,11 @@ object AiGrading: KoinComponent
         userAnswer: String,
         standard: String,
     ): Pair<Boolean, AiResponse.Usage> =
-        sendJudgeRequest(aiConfig.answerCheckerModel, makePrompt(subjectName, sectionDescription, questionDescription, userAnswer, standard))
+        sendAiRequestAndGetResult(
+            aiConfig.answerCheckerModel,
+            makePrompt(subjectName, sectionDescription, questionDescription, userAnswer, standard),
+            ResultType.BOOLEAN
+        )
 
     private val codeBlockRegex = Regex("```.*\\n?")
 

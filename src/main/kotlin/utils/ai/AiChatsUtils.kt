@@ -51,7 +51,7 @@ object AiChatsUtils: KoinComponent
         private val job = SupervisorJob()
         suspend fun join() = job.join()
         private val coroutineScope = CoroutineScope(Dispatchers.IO + job + CoroutineExceptionHandler { _, throwable ->
-            logger.warning("ChatInfo job failed ${chat.id}", throwable)
+            if (!job.isCancelled) logger.warning("ChatInfo job failed ${chat.id}", throwable)
         })
 
         private suspend inline fun<T> withLock(block: () -> T): T = chatInfoLocks.withLock(chat.id, block)
@@ -96,14 +96,23 @@ object AiChatsUtils: KoinComponent
             finish(withBanned = true, error = false)
         }
 
-        suspend fun check(): Unit = withLock()
+        suspend fun check(onFinished: Boolean): Unit = withLock()
         {
-            val content = response.content ?: return
+            val reasoning = response.reasoningContent ?: ""
+            val content = response.content ?: ""
+            val len = reasoning.length + content.length
             val checked = this.checked
-            this.checked = content.length
+            if (banned || len <= checked || (!onFinished && len - checked < CHECK_LENGTH)) return
+            this.checked = len
+            val uncheckedReasoning =
+                if (checked < reasoning.length) reasoning.substring(checked)
+                else null
+            val uncheckedContent =
+                if (checked < reasoning.length) content
+                else content.substring(checked - reasoning.length)
             coroutineScope.launch()
             {
-                val illegal = AskService.check(this@ChatInfo.content, content.substring(checked)).first
+                val illegal = AskService.check(this@ChatInfo.content, uncheckedReasoning, uncheckedContent).first
                 if (illegal) return@launch banned()
             }
         }
@@ -117,7 +126,7 @@ object AiChatsUtils: KoinComponent
                 if (message.reasoningContent != null) (response.reasoningContent ?: "") + message.reasoningContent
                 else response.reasoningContent
             response = Message(content, reasoning)
-            if (content != null && content.length - checked >= CHECK_LENGTH) check()
+            check(false)
         }
 
         suspend fun putMessage(message: Message): Unit = withLock()
@@ -143,7 +152,7 @@ object AiChatsUtils: KoinComponent
             if (finished && !withBanned) return
             finished = true
             banned = banned || withBanned
-            if (!error && !banned && checked < content.length) runCatching { check() }
+            if (!error && !banned) runCatching { check(true) }
             job.complete()
             runCatching()
             {
