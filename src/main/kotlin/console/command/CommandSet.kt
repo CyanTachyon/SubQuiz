@@ -16,6 +16,7 @@ object CommandSet: TreeCommand(
     Run,
     SSO,
     TestDatabase,
+    Code,
 ), CommandHandler
 {
     private val logger = SubQuizLogger.getLogger()
