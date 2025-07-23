@@ -23,6 +23,7 @@ import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.AiChatsUtils
+import moe.tachyon.quiz.utils.ai.AiTranslate
 import moe.tachyon.quiz.utils.ai.StreamAiResponse
 import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.statuses
@@ -126,6 +127,27 @@ fun Route.ai() = route("/ai", {
             handle(Context::listenChat)
         }
     }
+
+    route("/translate", HttpMethod.Post, {
+        description = "翻译文本"
+        request()
+        {
+            body<Text>()
+            {
+                required = true
+                description = "需要翻译的文本"
+            }
+        }
+        response()
+        {
+            statuses<String>(HttpStatus.OK, example = "翻译后的文本")
+            statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
+        }
+    })
+    {
+        plugin(SSE)
+        handle(Context::translateText)
+    }
 }
 
 @OptIn(InternalSerializationApi::class, ExperimentalSerializationApi::class)
@@ -183,6 +205,14 @@ private fun Context.getChatModels()
     finishCall(HttpStatus.OK, aiConfig.chats)
 }
 
+private suspend fun Context.sseHeaders()
+{
+    call.response.header(HttpHeaders.ContentType, ContentType.Text.EventStream.toString())
+    call.response.header(HttpHeaders.CacheControl, "no-store")
+    call.response.header(HttpHeaders.Connection, "keep-alive")
+    call.response.header("X-Accel-Buffering", "no")
+}
+
 private suspend fun Context.listenChat()
 {
     val loginUser = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
@@ -192,10 +222,7 @@ private suspend fun Context.listenChat()
     if (chatInfo.chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chatInfo.chat.hash != hash) finishCall(HttpStatus.Conflict)
 
-    call.response.header(HttpHeaders.ContentType, ContentType.Text.EventStream.toString())
-    call.response.header(HttpHeaders.CacheControl, "no-store")
-    call.response.header(HttpHeaders.Connection, "keep-alive")
-    call.response.header("X-Accel-Buffering", "no")
+    sseHeaders()
 
     val res = SSEServerContent(call)
     {
@@ -234,4 +261,24 @@ private suspend fun Context.getChat()
     val chat = chats.getChat(chatId) ?: finishCall(HttpStatus.NotFound)
     if (chat.user != user.id) finishCall(HttpStatus.Forbidden)
     finishCall(HttpStatus.OK, chat)
+}
+
+@Serializable
+private data class Text(val text: String, )
+private suspend fun Context.translateText()
+{
+    call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val body = call.receive<Text>()
+
+    sseHeaders()
+
+    val res = SSEServerContent(call)
+    {
+        heartbeat()
+        AiTranslate.translate(body.text)
+        {
+            send(event = "message", data = contentNegotiationJson.encodeToString(Text(it)))
+        }
+    }
+    return call.respond(res)
 }

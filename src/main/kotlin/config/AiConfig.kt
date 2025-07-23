@@ -16,7 +16,8 @@ data class AiConfig(
     val answerChecker: String = "ds-r1",
     val chats: List<ChatModel> = listOf(ChatModel("ds-r1")),
     val image: String = "qwen-vl",
-    val check: String = "ds-r1-qwen3-8b",
+    val checker: String = "ds-r1-qwen3-8b",
+    val translator: String = "ds-r1-qwen3-8b",
     val models: Map<String, Model> = mapOf(
         "ds-r1" to Model(model = "deepseek-reasoner"),
         "qwen-vl" to Model(url = "https://api.siliconflow.cn/v1/chat/completions", model = "Qwen/Qwen2.5-VL-72B-Instruct", maxTokens = 4096, imageable = true),
@@ -26,7 +27,8 @@ data class AiConfig(
 {
     val answerCheckerModel get() = models[answerChecker]!!
     val imageModel get() = models[image]!!
-    val checkModel get() = models[check]!!
+    val checkModel get() = models[checker]!!
+    val translatorModel get() = models[translator]!!
 
     @Serializable
     data class Model(
@@ -66,7 +68,8 @@ data class AiConfig(
         require(chats.isNotEmpty()) { "chats must not be empty" }
         require(chats.all { it.model in models }) { "some chat models not found in models" }
         require(image in models) { "image model not found in models" }
-        require(check in models) { "check model not found in models" }
+        require(checker in models) { "check model not found in models" }
+        require(translator in models) { "translator model not found in models" }
         require(models.all { (key, value) -> key != "bdfzHelper" }) { "bdfzHelper should not be in models" }
     }
 }
