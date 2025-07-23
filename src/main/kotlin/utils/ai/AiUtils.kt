@@ -55,16 +55,26 @@ suspend fun <T> sendAiRequestAndGetResult(
 ): Pair<T, AiResponse.Usage>
 {
     var totalTokens = AiResponse.Usage()
-    val errors = mutableListOf<Throwable>()
+    val errors = mutableListOf<AiResponseException>()
     repeat(aiConfig.retry)
     {
+        val res: DefaultAiResponse
         try
         {
-            val res = sendAiRequest(
+            res = sendAiRequest(
                 model = model,
                 messages = messages,
             )
             totalTokens += res.usage
+        }
+        catch (e: Throwable)
+        {
+            errors.add(UnknownAiResponseException(e))
+            logger.config("发送AI请求失败", e)
+            return@repeat
+        }
+        try
+        {
             val content = res.choices.joinToString(separator = "") { it.message.content }.trim()
             if (content.startsWith("```") && content.endsWith("```"))
             {
@@ -75,14 +85,15 @@ suspend fun <T> sendAiRequestAndGetResult(
             {
                 return resultType.getValue(content) to totalTokens
             }
-            val error = AiResponseException(res)
+            val error = AiResponseFormatException(res)
             errors.add(error)
             logger.config("AI的响应无效", error)
         }
         catch (e: Throwable)
         {
-            errors.add(e)
-            logger.config("检查发送AI请求失败", e)
+            val error = AiResponseFormatException(res, e)
+            errors.add(error)
+            logger.config("检查AI响应格式失败", error)
         }
     }
     throw AiRetryFailedException(errors)

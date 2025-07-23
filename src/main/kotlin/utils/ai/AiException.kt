@@ -3,9 +3,9 @@ package moe.tachyon.quiz.utils.ai
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
 
 class AiRetryFailedException(
-    val exceptions: List<Throwable>
-): Exception("尝试次数达到上限仍未获取有效的答复: ${exceptions.joinToString("\n") { it.message.orEmpty() }}")
+    val exceptions: List<AiResponseException>
+): Exception("尝试次数达到上限仍未获取有效的答复: \n${exceptions.joinToString("\n") { it.message.orEmpty() }}")
 
-class AiResponseException(
-    val response: DefaultAiResponse
-): Exception("AI的响应无效: ${showJson.encodeToString(response)}")
+sealed class AiResponseException(msg: String, cause: Throwable? = null): Exception(msg, cause)
+class AiResponseFormatException(val response: DefaultAiResponse, cause: Throwable? = null): AiResponseException("AI的响应格式无效: ${showJson.encodeToString(response)}", cause)
+class UnknownAiResponseException(cause: Throwable? = null): AiResponseException("未知的AI响应", cause)
