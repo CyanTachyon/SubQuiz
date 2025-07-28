@@ -1,38 +1,44 @@
-package moe.tachyon.quiz.utils.ai
+@file:Suppress("PackageDirectoryMismatch")
 
+package moe.tachyon.quiz.utils.ai.chatUtils
+
+import kotlinx.coroutines.*
+import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
-import moe.tachyon.quiz.dataClass.ChatMessage
 import moe.tachyon.quiz.database.Chats
+import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.Locks
-import moe.tachyon.quiz.utils.ai.AiChatsUtils.AiChatEvent
+import moe.tachyon.quiz.utils.ai.ChatMessage
+import moe.tachyon.quiz.utils.ai.Role
+import moe.tachyon.quiz.utils.ai.StreamAiResponseSlice
 import moe.tachyon.quiz.utils.ai.ask.AskService
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.*
 
-private typealias Message = StreamAiResponse.Choice.Message
-typealias ChatListener = suspend (AiChatEvent)->Unit
+private typealias MessageSlice = StreamAiResponseSlice
+private typealias TextMessage = StreamAiResponseSlice.Message
+private typealias ToolCallMessage = StreamAiResponseSlice.ToolCall
+typealias ChatListener = suspend (AiChatsUtils.AiChatEvent)->Unit
 
 private const val CHECK_LENGTH = 500
 
 object AiChatsUtils: KoinComponent
 {
     const val BANNED_MESSAGE = "对不起，该聊天无法继续"
+    const val ERROR_MESSAGE = "系统错误，请联系管理员"
     private val logger = SubQuizLogger.getLogger<AiChatsUtils>()
     private val chats: Chats by inject()
+    private val users: Users by inject()
 
     sealed interface AiChatEvent
 
     data object BannedEvent: AiChatEvent
     data object FinishedEvent: AiChatEvent
-    data class MessageEvent(val message: Message): AiChatEvent
+    @Serializable data class MessageEvent(val message: MessageSlice): AiChatEvent
+    @Serializable data class NameChatEvent(val name: String): AiChatEvent
 
     private val chatInfoLocks = Locks<ChatId>()
     class ChatInfo(
@@ -40,8 +46,7 @@ object AiChatsUtils: KoinComponent
         val content: String,
     )
     {
-        var response = Message()
-            private set
+        private val response: MutableList<StreamAiResponseSlice> = mutableListOf()
         val listeners: MutableSet<ChatListener> = hashSetOf()
         var banned: Boolean = false
             private set
@@ -60,33 +65,36 @@ object AiChatsUtils: KoinComponent
         {
             if (finished || banned) return
 
+            job.invokeOnCompletion()
+            {
+                responseMap.remove(chat.id)
+            }
+
             coroutineScope.launch()
             {
                 runCatching()
                 {
                     service.ask(
                         chat.section,
-                        chat.histories.map { AiRequest.Message(it.role, it.content) },
+                        chat.histories,
+                        chat.user,
                         content,
                         this@ChatInfo::putMessage
                     )
                 }.onFailure()
                 {
                     logger.warning("ChatInfo ask failed ${chat.id}", it)
-                    if (!this@ChatInfo.response.content.isNullOrEmpty())
-                        putMessage(
-                            StreamAiResponse.Choice.Message(
-                                content = "\n\n --- \n\n"
-                            )
-                        )
-                    putMessage(StreamAiResponse.Choice.Message(
-                        content = "- 系统错误，请联系管理员"
-                    ))
+                    response.clear()
+                    putMessage(TextMessage(content = ERROR_MESSAGE))
                     finish(withBanned = false, error = true)
-                }.onSuccess {
-                    runCatching { finish(withBanned = false, error = false) }
+                }.onSuccess()
+                {
+                    logger.warning("error in add token usage")
+                    {
+                        users.addTokenUsage(chat.user, it.second)
+                    }
+                    finish(withBanned = false, error = false, it.first)
                 }
-                responseMap.remove(chat.id)
             }
         }
 
@@ -98,38 +106,81 @@ object AiChatsUtils: KoinComponent
 
         suspend fun check(onFinished: Boolean): Unit = withLock()
         {
-            val reasoning = response.reasoningContent ?: ""
-            val content = response.content ?: ""
-            val len = reasoning.length + content.length
-            val checked = this.checked
-            if (banned || len <= checked || (!onFinished && len - checked < CHECK_LENGTH)) return
-            this.checked = len
-            val uncheckedReasoning =
-                if (checked < reasoning.length) reasoning.substring(checked)
-                else null
-            val uncheckedContent =
-                if (checked < reasoning.length) content
-                else content.substring(checked - reasoning.length)
+            val uncheckedList = mutableListOf<TextMessage>()
+            var checked0 = this.checked
+            for (message in response)
+            {
+                if (message !is TextMessage) continue
+                if (message.content.length + message.reasoningContent.length <= checked0)
+                {
+                    checked0 -= message.content.length + message.reasoningContent.length
+                    continue
+                }
+                var content = message.content
+                var reasoning = message.reasoningContent
+                if (checked0 < reasoning.length)
+                {
+                    reasoning = reasoning.substring(checked0)
+                }
+                else
+                {
+                    checked0 -= reasoning.length
+                    content = content.substring(checked0)
+                }
+                checked0 = 0
+                uncheckedList += TextMessage(
+                    content = content,
+                    reasoningContent = reasoning
+                )
+            }
+
+            var count = 0
+            for (message in uncheckedList)
+                count += message.content.length + message.reasoningContent.length
+
+            if (!onFinished && count < CHECK_LENGTH) return
+            else this.checked += count
+
             coroutineScope.launch()
             {
-                val illegal = AskService.check(this@ChatInfo.content, uncheckedReasoning, uncheckedContent).first
-                if (illegal) return@launch banned()
+                val res = AskService.check(this@ChatInfo.content, uncheckedList)
+                users.addTokenUsage(chat.user, res.second)
+                if (res.first) return@launch banned()
             }
         }
 
-        suspend fun merge(message: AiResponse.Choice.Message): Unit = withLock()
+        private fun nameChat()
         {
-            val content =
-                if (message.content != null) (response.content ?: "") + message.content
-                else response.content
-            val reasoning =
-                if (message.reasoningContent != null) (response.reasoningContent ?: "") + message.reasoningContent
-                else response.reasoningContent
-            response = Message(content, reasoning)
+            val chat = this.chat.copy(histories = chat.histories + ChatMessage(Role.USER, content) + response.filterIsInstance<TextMessage>().map { ChatMessage(Role.ASSISTANT, it.content, it.reasoningContent) })
+            coroutineScope.launch()
+            {
+                val name = AskService.nameChat(chat)
+                for (listener in listeners)
+                    runCatching { listener(NameChatEvent(name)) }
+                runCatching { chats.updateName(chat.id, name) }
+            }
+        }
+
+        suspend fun merge(message: MessageSlice): Unit = withLock()
+        {
+            val lst = response.lastOrNull()
+            if (message !is TextMessage)
+            {
+                response += message
+                return
+            }
+            else if (lst !is TextMessage)
+            {
+                response += message
+                return
+            }
+            val content = lst.content + message.content
+            val reasoning = lst.reasoningContent + message.reasoningContent
+            response[response.lastIndex] = TextMessage(content = content, reasoningContent = reasoning)
             check(false)
         }
 
-        suspend fun putMessage(message: Message): Unit = withLock()
+        suspend fun putMessage(message: MessageSlice): Unit = withLock()
         {
             if (banned) return
             val disabledListeners = hashSetOf<ChatListener>()
@@ -144,29 +195,41 @@ object AiChatsUtils: KoinComponent
             if (banned) return listener(BannedEvent)
             if (listener in listeners) return
             listeners += listener
-            listener(MessageEvent(response))
+            response.forEach {
+                runCatching { listener(MessageEvent(it)) }
+            }
+            if (finished)
+            {
+                if (banned) for (listener in listeners) runCatching { listener(BannedEvent) }
+                else for (listener in listeners) runCatching { listener(FinishedEvent) }
+            }
         }
 
-        suspend fun finish(withBanned: Boolean, error: Boolean): Unit = withLock()
+        suspend fun finish(
+            withBanned: Boolean,
+            error: Boolean,
+            res: List<ChatMessage> =
+                if (withBanned) listOf(ChatMessage(Role.ASSISTANT, BANNED_MESSAGE))
+                else if (error) listOf(ChatMessage(Role.ASSISTANT, ERROR_MESSAGE))
+                else error("finish called without messages"),
+        ): Unit = withLock()
         {
             if (finished && !withBanned) return
             finished = true
             banned = banned || withBanned
-            if (!error && !banned) runCatching { check(true) }
+            if (!banned) runCatching { check(true) }
+            runCatching { nameChat() }
             job.complete()
             runCatching()
             {
                 if (banned) for (listener in listeners) runCatching { listener(BannedEvent) }
                 else for (listener in listeners) runCatching { listener(FinishedEvent) }
             }
-            val message =
-                if (!banned) ChatMessage(Role.ASSISTANT, response.content ?: "", response.reasoningContent ?: "")
-                else ChatMessage(Role.ASSISTANT, BANNED_MESSAGE, "")
             runCatching()
             {
                 chats.updateHistory(
                     chat.id,
-                    chat.histories + ChatMessage(Role.USER, content) + message,
+                    chat.histories + ChatMessage(Role.USER, content) + res,
                     chat.hash,
                     banned
                 )

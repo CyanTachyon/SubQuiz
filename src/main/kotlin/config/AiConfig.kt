@@ -11,13 +11,14 @@ data class AiConfig(
     val timeout: Long = 2 * 60 * 1_000,
     @YamlComment("AI服务的重试次数")
     val retry: Int = 3,
+    val webSearchKey: String = "your web search key",
     @YamlComment("BDFZ HELPER的API地址")
-    val bdfzHelper: String = "http://localhost:8000",
     val answerChecker: String = "ds-r1",
     val chats: List<ChatModel> = listOf(ChatModel("ds-r1")),
     val image: String = "qwen-vl",
     val checker: String = "ds-r1-qwen3-8b",
     val translator: String = "ds-r1-qwen3-8b",
+    val chatNamer: String = "ds-r1-qwen3-8b",
     val models: Map<String, Model> = mapOf(
         "ds-r1" to Model(model = "deepseek-reasoner"),
         "qwen-vl" to Model(url = "https://api.siliconflow.cn/v1/chat/completions", model = "Qwen/Qwen2.5-VL-72B-Instruct", maxTokens = 4096, imageable = true),
@@ -27,8 +28,9 @@ data class AiConfig(
 {
     val answerCheckerModel get() = models[answerChecker]!!
     val imageModel get() = models[image]!!
-    val checkModel get() = models[checker]!!
+    val checkerModel get() = models[checker]!!
     val translatorModel get() = models[translator]!!
+    val chatNamerModel get() = models[chatNamer]!!
 
     @Serializable
     data class Model(
@@ -57,7 +59,6 @@ data class AiConfig(
     data class ChatModel(
         val model: String,
         val displayName: String = model,
-        val description: String = model,
     )
 
     init
@@ -70,6 +71,7 @@ data class AiConfig(
         require(image in models) { "image model not found in models" }
         require(checker in models) { "check model not found in models" }
         require(translator in models) { "translator model not found in models" }
+        require(chatNamer in models) { "chatNamer model not found in models" }
         require(models.all { (key, value) -> key != "bdfzHelper" }) { "bdfzHelper should not be in models" }
     }
 }

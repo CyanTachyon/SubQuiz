@@ -21,14 +21,14 @@ object AiGrading: KoinComponent
     private val knowledgePoints by inject<KnowledgePoints>()
     private val preparationGroups by inject<PreparationGroups>()
 
-    suspend fun Section<Any, Any, *>.checkAnswer(): Pair<List<Boolean?>, AiResponse.Usage>
+    suspend fun Section<Any, Any, *>.checkAnswer(): Pair<List<Boolean?>, TokenUsage>
     {
         val subject =
             sectionTypes.getSectionType(type)?.knowledgePoint
                 ?.let { knowledgePoints.getKnowledgePoint(it) }?.group
                 ?.let { preparationGroups.getPreparationGroup(it) }?.subject
                 ?.let { subjects.getSubject(it) }
-        var totalTokens = AiResponse.Usage()
+        var totalTokens = TokenUsage()
         val job = SupervisorJob()
         val coroutineScope = CoroutineScope(Dispatchers.IO + job)
         val res = this.questions.mapIndexed()
@@ -71,12 +71,11 @@ object AiGrading: KoinComponent
         questionDescription: String,
         userAnswer: String,
         standard: String,
-    ): Pair<Boolean, AiResponse.Usage> =
-        sendAiRequestAndGetResult(
-            aiConfig.answerCheckerModel,
-            makePrompt(subjectName, sectionDescription, questionDescription, userAnswer, standard),
-            ResultType.BOOLEAN
-        )
+    ) = sendAiRequestAndGetResult(
+        aiConfig.answerCheckerModel,
+        makePrompt(subjectName, sectionDescription, questionDescription, userAnswer, standard),
+        ResultType.BOOLEAN
+    )
 
     private val codeBlockRegex = Regex("```.*\\n?")
 

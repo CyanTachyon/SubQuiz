@@ -3,28 +3,29 @@ package moe.tachyon.quiz.utils.ai.ask
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.Section
-import moe.tachyon.quiz.utils.ai.AiRequest
-import moe.tachyon.quiz.utils.ai.Role
-import moe.tachyon.quiz.utils.ai.StreamAiResponse
-import moe.tachyon.quiz.utils.ai.sendAiStreamRequest
-import java.util.WeakHashMap
+import moe.tachyon.quiz.dataClass.UserId
+import moe.tachyon.quiz.utils.ai.*
+import moe.tachyon.quiz.utils.ai.internal.sendAiStreamRequest
+import java.util.*
 
 class QuizAskService private constructor(val model: AiConfig.Model): AskService()
 {
     override suspend fun ask(
         section: Section<Any, Any, String>?,
-        histories: List<AiRequest.Message>,
+        histories: ChatMessages,
+        user: UserId,
         content: String,
-        onRecord: suspend (StreamAiResponse.Choice.Message)->Unit
-    )
+        onRecord: suspend (StreamAiResponseSlice)->Unit
+    ): Pair<ChatMessages, TokenUsage>
     {
-        val prompt = makePrompt(section, !model.imageable)
-        val messages = listOf(prompt) + histories + AiRequest.Message(Role.USER, content)
-        sendAiStreamRequest(
+        val prompt = makePrompt(section, !model.imageable, model.toolable)
+        val messages = listOf(prompt) + histories + ChatMessage(Role.USER, content)
+        return sendAiStreamRequest(
             model = model,
             messages = messages,
             record = false,
-            onReceive = { it.choices.forEach { c -> onRecord(c.message) } },
+            onReceive = onRecord,
+            tools = if (model.toolable) getTools(user) else emptyList(),
         )
     }
 

@@ -2,6 +2,7 @@
 
 package moe.tachyon.quiz.route.ai
 
+import io.github.smiley4.ktorswaggerui.dsl.routing.delete
 import io.github.smiley4.ktorswaggerui.dsl.routing.get
 import io.github.smiley4.ktorswaggerui.dsl.routing.post
 import io.github.smiley4.ktorswaggerui.dsl.routing.put
@@ -13,21 +14,24 @@ import io.ktor.server.routing.*
 import io.ktor.server.sse.*
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.serializer
-import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.ChatId.Companion.toChatIdOrNull
 import moe.tachyon.quiz.database.Chats
+import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
-import moe.tachyon.quiz.utils.ai.AiChatsUtils
+import moe.tachyon.quiz.utils.ai.AiImage
 import moe.tachyon.quiz.utils.ai.AiTranslate
-import moe.tachyon.quiz.utils.ai.StreamAiResponse
+import moe.tachyon.quiz.utils.ai.Role
+import moe.tachyon.quiz.utils.ai.StreamAiResponseSlice
 import moe.tachyon.quiz.utils.ai.ask.AskService
+import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.statuses
 
+private val logger = SubQuizLogger.getLogger()
 fun Route.ai() = route("/ai", {
     tags("ai")
 })
@@ -45,7 +49,7 @@ fun Route.ai() = route("/ai", {
             }
             response()
             {
-                statuses<Chat>(HttpStatus.OK, example = Chat.example)
+                statuses<ChatResponse>(HttpStatus.OK, example = ChatResponse.example)
                 statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
             }
         }, Context::newChat)
@@ -71,7 +75,7 @@ fun Route.ai() = route("/ai", {
             description = "获取AI聊天模型列表"
             response()
             {
-                statuses<List<AiConfig.ChatModel>>(HttpStatus.OK, example = listOf(AiConfig.ChatModel("bdfz-helper")))
+                statuses<List<ChatModelResponse>>(HttpStatus.OK)
                 statuses(HttpStatus.Unauthorized)
             }
         }, Context::getChatModels)
@@ -84,7 +88,7 @@ fun Route.ai() = route("/ai", {
             }
             response()
             {
-                statuses<Slice<Chat>>(HttpStatus.OK, example = sliceOf(Chat.example))
+                statuses<Slice<ChatResponse>>(HttpStatus.OK, example = sliceOf(ChatResponse.example))
                 statuses(HttpStatus.Unauthorized)
             }
         }, Context::getChatList)
@@ -99,10 +103,25 @@ fun Route.ai() = route("/ai", {
                 }
             }
             response {
-                statuses<Chat>(HttpStatus.OK, example = Chat.example)
+                statuses<ChatResponse>(HttpStatus.OK, example = ChatResponse.example)
                 statuses(HttpStatus.Unauthorized, HttpStatus.NotFound)
             }
         }, Context::getChat)
+
+        delete("/{id}", {
+            description = "删除一个AI聊天"
+            request {
+                pathParameter<ChatId>("id")
+                {
+                    required = true
+                    description = "聊天id"
+                }
+            }
+            response {
+                statuses(HttpStatus.OK, example = "删除成功")
+                statuses(HttpStatus.Unauthorized, HttpStatus.NotFound)
+            }
+        }, Context::deleteChat)
 
         route("/sse", HttpMethod.Get,{
             description = "获得AI回复"
@@ -117,8 +136,9 @@ fun Route.ai() = route("/ai", {
                     required = true
                 }
             }
-            response {
-                statuses<StreamAiResponse.Choice.Message>(HttpStatus.OK, example = StreamAiResponse.Choice.Message("content", "reasoning"))
+            response()
+            {
+                statuses<ChatSseMessage>(HttpStatus.OK, example = ChatSseMessage("content", "reasoning", ""))
                 statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
             }
         })
@@ -132,7 +152,7 @@ fun Route.ai() = route("/ai", {
         description = "翻译文本"
         request()
         {
-            body<Text>()
+            body<Translate>()
             {
                 required = true
                 description = "需要翻译的文本"
@@ -140,13 +160,34 @@ fun Route.ai() = route("/ai", {
         }
         response()
         {
-            statuses<String>(HttpStatus.OK, example = "翻译后的文本")
+            statuses<Text>(HttpStatus.OK, example = Text("翻译后的文本"))
             statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
         }
     })
     {
         plugin(SSE)
         handle(Context::translateText)
+    }
+
+    route("/imageToText", HttpMethod.Post, {
+        description = "图片转文本"
+        request()
+        {
+            body<ImageToTextRequest>()
+            {
+                required = true
+                description = "图片的base64编码"
+            }
+        }
+        response()
+        {
+            statuses<Text>(HttpStatus.OK, example = Text("转换后的文本"))
+            statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
+        }
+    })
+    {
+        plugin(SSE)
+        handle(Context::imageToText)
     }
 }
 
@@ -172,9 +213,13 @@ private suspend fun Context.newChat(): Nothing
     val body = call.receive<CreateChatRequest>()
     val chats = get<Chats>()
     val chat = chats.createChat(user.id, body.section)
-    val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest, "model not found")
-    val hash = AiChatsUtils.startRespond(body.content, chat, service) ?: finishCall(HttpStatus.Conflict)
-    finishCall(HttpStatus.OK, chat.copy(hash = hash))
+    val res = logger.warning("Failed to start chat for user ${user.id} with model ${body.model}")
+    {
+        val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest, "model not found")
+        val hash = AiChatsUtils.startRespond(body.content, chat, service) ?: finishCall(HttpStatus.Conflict)
+        ChatResponse(chat.copy(hash = hash))
+    }.onFailure { chats.deleteChat(chat.id, user.id) }.getOrThrow()
+    finishCall(HttpStatus.OK, res)
 }
 
 @Serializable
@@ -199,18 +244,121 @@ private suspend fun Context.sendChatMessage()
     finishCall(HttpStatus.OK, hash)
 }
 
+@Serializable
+data class ChatModelResponse(
+    val model: String,
+    val displayName: String,
+    val toolable: Boolean,
+)
+
 private fun Context.getChatModels()
 {
     call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    finishCall(HttpStatus.OK, aiConfig.chats)
+    finishCall(HttpStatus.OK, aiConfig.chats.map { ChatModelResponse(it.model, it.displayName, aiConfig.models[it.model]!!.toolable) })
 }
 
-private suspend fun Context.sseHeaders()
+private fun Context.sseHeaders()
 {
     call.response.header(HttpHeaders.ContentType, ContentType.Text.EventStream.toString())
     call.response.header(HttpHeaders.CacheControl, "no-store")
     call.response.header(HttpHeaders.Connection, "keep-alive")
     call.response.header("X-Accel-Buffering", "no")
+}
+
+@Serializable
+private data class ChatSseMessage(
+    val content: String,
+    @SerialName("reasoning_content")
+    val reasoningContent: String,
+    @SerialName("tool_call")
+    val toolCall: String,
+)
+
+@Serializable
+private data class ChatResponse(
+    val id: ChatId,
+    val user: UserId,
+    val title: String,
+    @Serializable(SectionSerializer::class)
+    val section: Section<@Contextual Any, @Contextual Any, String>?,
+    val histories: List<History>,
+    val hash: String,
+    val banned: Boolean,
+)
+{
+    @Serializable
+    data class History(
+        val role: Role,
+        val messages: List<ChatSseMessage>,
+    )
+
+    companion object
+    {
+        @OptIn(InternalSerializationApi::class)
+        private val ser = Section.serializer(
+            QuestionAnswerSerializer,
+            QuestionAnswerSerializer,
+            String.serializer()
+        )
+        private class SectionSerializer: KSerializer<Section<Any, Any, String>> by ser
+
+        val example = ChatResponse(
+            id = ChatId(1),
+            user = UserId(1),
+            title = "示例聊天",
+            section = Section.example,
+            histories = emptyList(),
+            hash = "example-hash",
+            banned = false,
+        )
+
+        operator fun invoke(chat: Chat): ChatResponse
+        {
+            val tools = AskService.getTools(chat.user)
+            val h = chat.histories.mapNotNull()
+            { msg ->
+                if (msg.role == Role.TOOL) return@mapNotNull null
+                if (msg.role == Role.USER)
+                    return@mapNotNull listOf(History(Role.USER, listOf(ChatSseMessage(msg.content.toText(), "", ""))))
+                val rc = msg.reasoningContent
+                val c  = msg.content.toText()
+                val calls = msg.toolCalls.mapNotNull calls@
+                { tc ->
+                    val tool = tools.firstOrNull { it.name == tc.name } ?: return@calls run()
+                    {
+                        logger.warning("Tool ${tc.name} not found in chat ${chat.id}, user ${chat.user}")
+                        null
+                    }
+                    tool.displayName
+                }.map()
+                { toolName ->
+                    History(
+                        Role.ASSISTANT,
+                        listOf(ChatSseMessage("", "",toolName))
+                    )
+                }
+                listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(c, rc, "")))) + calls
+            }
+            val list = h.flatten()
+            val res = mutableListOf<History>()
+            for (msg in list)
+            {
+                if (res.isEmpty() || res.last().role != msg.role)
+                    res.add(msg)
+                else
+                    res[res.lastIndex] = History(msg.role, res.last().messages + msg.messages)
+            }
+            return ChatResponse(
+                id = chat.id,
+                user = chat.user,
+                title = chat.title,
+                section = chat.section,
+                histories = res,
+                hash = chat.hash,
+                banned = chat.banned,
+            )
+        }
+    }
 }
 
 private suspend fun Context.listenChat()
@@ -235,13 +383,26 @@ private suspend fun Context.listenChat()
                     send(event = "banned", data = "chat is banned, you can not continue this chat")
                 is AiChatsUtils.FinishedEvent ->
                     send(event = "finished", data = "chat finish normally")
+                is AiChatsUtils.NameChatEvent ->
+                    send(event = "name", data = contentNegotiationJson.encodeToString(it))
                 is AiChatsUtils.MessageEvent ->
-                    send(event = "message", data = contentNegotiationJson.encodeToString(it.message))
+                {
+                    val msg =
+                        when(it.message)
+                        {
+                            is StreamAiResponseSlice.Message ->
+                                ChatSseMessage(it.message.content, it.message.reasoningContent, "")
+                            is StreamAiResponseSlice.ToolCall ->
+                                ChatSseMessage("", "", it.message.tool.displayName)
+                        }
+                    send(event = "message", data = contentNegotiationJson.encodeToString(msg))
+                }
             }
         }
         runCatching { chatInfo.join() }
+        send(event = "end", data = "truly end")
     }
-    return call.respond(res)
+    return call.respond(HttpStatusCode.OK, res)
 }
 
 private suspend fun Context.getChatList()
@@ -250,7 +411,7 @@ private suspend fun Context.getChatList()
     val chats = get<Chats>()
     val (begin, count) = call.getPage()
     val chatList = chats.getChats(user.id, begin, count)
-    finishCall(HttpStatus.OK, chatList)
+    finishCall(HttpStatus.OK, chatList.map(ChatResponse::invoke))
 }
 
 private suspend fun Context.getChat()
@@ -260,25 +421,78 @@ private suspend fun Context.getChat()
     val chats = get<Chats>()
     val chat = chats.getChat(chatId) ?: finishCall(HttpStatus.NotFound)
     if (chat.user != user.id) finishCall(HttpStatus.Forbidden)
-    finishCall(HttpStatus.OK, chat)
+    finishCall(HttpStatus.OK, ChatResponse(chat))
+}
+
+private suspend fun Context.deleteChat()
+{
+    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+    val chats = get<Chats>()
+    if (!chats.deleteChat(chatId, user.id))
+        finishCall(HttpStatus.NotFound, "聊天不存在或你没有权限删除")
+    finishCall(HttpStatus.OK, "删除成功")
 }
 
 @Serializable
-private data class Text(val text: String, )
+private data class Text(val text: String)
+@Serializable
+private data class Translate(
+    val text: String,
+    val lang0: String = "中文",
+    val lang1: String = "英文",
+    val twoWay: Boolean = true,
+)
 private suspend fun Context.translateText()
 {
     call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val body = call.receive<Text>()
+    val body = call.receive<Translate>()
 
     sseHeaders()
 
     val res = SSEServerContent(call)
     {
         heartbeat()
-        AiTranslate.translate(body.text)
+        logger.warning("error in translate")
         {
-            send(event = "message", data = contentNegotiationJson.encodeToString(Text(it)))
+            AiTranslate.translate(body.text, body.lang0, body.lang1, body.twoWay)
+            {
+                send(event = "message", data = contentNegotiationJson.encodeToString(Text(it)))
+            }
         }
     }
-    return call.respond(res)
+    return call.respond(HttpStatusCode.OK, res)
+}
+
+@Serializable
+data class ImageToTextRequest(
+    val markdown: Boolean,
+    val image: String,
+)
+
+private suspend fun Context.imageToText()
+{
+    call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val body = call.receive<ImageToTextRequest>()
+
+    sseHeaders()
+
+    val res = SSEServerContent(call)
+    {
+        heartbeat()
+        logger.warning("error in image to text")
+        {
+            if (body.markdown)
+                AiImage.imageToMarkdown(body.image)
+                {
+                    send(event = "message", data = contentNegotiationJson.encodeToString(Text(it)))
+                }
+            else
+                AiImage.imageToText(body.image)
+                {
+                    send(event = "message", data = contentNegotiationJson.encodeToString(Text(it)))
+                }
+        }
+    }
+    return call.respond(HttpStatusCode.OK, res)
 }

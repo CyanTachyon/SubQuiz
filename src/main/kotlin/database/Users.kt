@@ -1,5 +1,6 @@
 package moe.tachyon.quiz.database
 
+import kotlinx.serialization.serializer
 import moe.tachyon.quiz.dataClass.DatabaseUser
 import moe.tachyon.quiz.dataClass.Permission
 import moe.tachyon.quiz.dataClass.Slice
@@ -8,8 +9,7 @@ import moe.tachyon.quiz.database.utils.asSlice
 import moe.tachyon.quiz.database.utils.single
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
-import moe.tachyon.quiz.utils.ai.AiResponse
-import kotlinx.serialization.serializer
+import moe.tachyon.quiz.utils.ai.TokenUsage
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.json.extract
@@ -24,7 +24,7 @@ class Users: SqlDao<Users.UserTable>(UserTable)
     {
         override val id = userId("id").entityId()
         val permission = enumeration<Permission>("permission").default(Permission.NORMAL)
-        val tokenUsage = jsonb<AiResponse.Usage>("token_usage", dataJson, dataJson.serializersModule.serializer()).default(AiResponse.Usage())
+        val tokenUsage = jsonb<TokenUsage>("token_usage", dataJson, dataJson.serializersModule.serializer()).default(TokenUsage())
         override val primaryKey = PrimaryKey(id)
     }
 
@@ -53,7 +53,7 @@ class Users: SqlDao<Users.UserTable>(UserTable)
             .map { it[id].value to it[permission] }
     }
 
-    suspend fun addTokenUsage(id: UserId, usage: AiResponse.Usage): Boolean = query()
+    suspend fun addTokenUsage(id: UserId, usage: TokenUsage): Boolean = query()
     {
         val tokenUsage = select(tokenUsage).where { UserTable.id eq id }.singleOrNull()?.get(tokenUsage) ?: return@query false
         update({ UserTable.id eq id }) { it[UserTable.tokenUsage] = tokenUsage + usage } > 0

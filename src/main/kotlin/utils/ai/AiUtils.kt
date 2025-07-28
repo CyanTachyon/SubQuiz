@@ -5,6 +5,7 @@ import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
+import moe.tachyon.quiz.utils.ai.internal.sendAiRequest
 
 private val logger = SubQuizLogger.getLogger()
 
@@ -42,30 +43,30 @@ suspend fun <T> sendAiRequestAndGetResult(
     model: AiConfig.Model,
     message: String,
     resultType: ResultType<T>,
-): Pair<T, AiResponse.Usage> = sendAiRequestAndGetResult(
+): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
     model = model,
-    messages = listOf(AiRequest.Message(Role.SYSTEM, message)),
+    messages = ChatMessages(Role.SYSTEM, message),
     resultType = resultType,
 )
 
 suspend fun <T> sendAiRequestAndGetResult(
     model: AiConfig.Model,
-    messages: List<AiRequest.Message>,
+    messages: ChatMessages,
     resultType: ResultType<T>,
-): Pair<T, AiResponse.Usage>
+): Pair<T, TokenUsage>
 {
-    var totalTokens = AiResponse.Usage()
+    var totalTokens = TokenUsage()
     val errors = mutableListOf<AiResponseException>()
     repeat(aiConfig.retry)
     {
-        val res: DefaultAiResponse
+        val res: Pair<ChatMessage, TokenUsage>
         try
         {
             res = sendAiRequest(
                 model = model,
                 messages = messages,
             )
-            totalTokens += res.usage
+            totalTokens += res.second
         }
         catch (e: Throwable)
         {
@@ -75,7 +76,7 @@ suspend fun <T> sendAiRequestAndGetResult(
         }
         try
         {
-            val content = res.choices.joinToString(separator = "") { it.message.content }.trim()
+            val content = res.first.content.toText().trim()
             if (content.startsWith("```") && content.endsWith("```"))
             {
                 val jsonContent = content.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
@@ -85,13 +86,13 @@ suspend fun <T> sendAiRequestAndGetResult(
             {
                 return resultType.getValue(content) to totalTokens
             }
-            val error = AiResponseFormatException(res)
+            val error = AiResponseFormatException(res.first)
             errors.add(error)
             logger.config("AI的响应无效", error)
         }
         catch (e: Throwable)
         {
-            val error = AiResponseFormatException(res, e)
+            val error = AiResponseFormatException(res.first, e)
             errors.add(error)
             logger.config("检查AI响应格式失败", error)
         }

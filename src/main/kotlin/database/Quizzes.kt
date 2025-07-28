@@ -5,9 +5,9 @@ import moe.tachyon.quiz.dataClass.Slice
 import moe.tachyon.quiz.database.utils.asSlice
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
-import moe.tachyon.quiz.utils.ai.AiResponse
 import kotlinx.datetime.Clock
 import kotlinx.serialization.serializer
+import moe.tachyon.quiz.utils.ai.TokenUsage
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.json.extract
@@ -26,7 +26,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
         val sections = jsonb<List<Section<Any, Any?, String>>>("sections", dataJson, dataJson.serializersModule.serializer())
         val finished = bool("finished").default(false)
         val correct = jsonb<List<List<Boolean?>>>("correct", dataJson, dataJson.serializersModule.serializer()).nullable().default(null)
-        val tokenUsage = jsonb<AiResponse.Usage>("token_usage", dataJson, dataJson.serializersModule.serializer()).nullable().default(null)
+        val tokenUsage = jsonb<TokenUsage>("token_usage", dataJson, dataJson.serializersModule.serializer()).nullable().default(null)
         val exam = reference("exam", Exams.ExamTable, onDelete = ReferenceOption.SET_NULL, onUpdate = ReferenceOption.CASCADE).nullable().index()
         override val primaryKey = PrimaryKey(id)
 
@@ -117,7 +117,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
         }
     }
 
-    suspend fun updateQuizAnswerCorrect(id: QuizId, correct: List<List<Boolean?>>, tokenUsage: AiResponse.Usage)
+    suspend fun updateQuizAnswerCorrect(id: QuizId, correct: List<List<Boolean?>>, tokenUsage: TokenUsage)
     {
         val q = getQuiz(id) ?: return
         if (q.sections.size != correct.size) error("Sections size must be equal")

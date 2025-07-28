@@ -1,65 +1,50 @@
 package moe.tachyon.quiz.database
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.serializer
 import moe.tachyon.quiz.database.Records.RecordTable
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
-import moe.tachyon.quiz.utils.ai.AiRequest
-import moe.tachyon.quiz.utils.ai.DefaultAiResponse
-import moe.tachyon.quiz.utils.ai.StreamAiResponse
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.serializer
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.insertAndGetId
 import org.jetbrains.exposed.sql.json.jsonb
+import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp
+import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
 
 class Records: SqlDao<RecordTable>(RecordTable)
 {
-    @Serializable
-    sealed interface ResponseRecord
-    {
-        @Serializable
-        data class DefaultResponseRecord(val response: DefaultAiResponse): ResponseRecord
-        {
-            val type: String = "default"
-        }
-        @Serializable
-        data class StreamResponseRecord(val response: List<StreamAiResponse>): ResponseRecord
-        {
-            val type: String = "stream"
-        }
-    }
 
     object RecordTable: IdTable<Long>("records")
     {
         override val id = long("id").autoIncrement().entityId()
         val url = text("url").nullable().default(null)
-        val request = jsonb<AiRequest>("request", dataJson, dataJson.serializersModule.serializer())
-        val response = jsonb<ResponseRecord>("response", dataJson, dataJson.serializersModule.serializer()).nullable()
+        val request = jsonb<JsonElement>("request", dataJson, dataJson.serializersModule.serializer())
+        val response = jsonb<JsonElement>("response", dataJson, dataJson.serializersModule.serializer()).nullable()
+        val time = timestamp("time").defaultExpression(CurrentTimestamp)
         override val primaryKey = PrimaryKey(id)
     }
 
-    suspend fun addRecord(
+    suspend inline fun <reified T: Any, reified R> addRecord(
         url: String,
-        request: AiRequest,
-        response: DefaultAiResponse?,
-    ) = query()
-    {
-        insertAndGetId {
-            it[RecordTable.url] = url
-            it[RecordTable.request] = request
-            it[RecordTable.response] = response?.let(ResponseRecord::DefaultResponseRecord)
-        }
-    }
+        request: T,
+        response: R,
+    ) = addRecord(
+        url,
+        dataJson.encodeToJsonElement<T>(request),
+        response?.let { dataJson.encodeToJsonElement<R>(it) }
+    )
 
     suspend fun addRecord(
         url: String,
-        request: AiRequest,
-        response: List<StreamAiResponse>?,
+        request: JsonElement,
+        response: JsonElement?
     ) = query()
     {
-        insertAndGetId {
+        insertAndGetId()
+        {
             it[RecordTable.url] = url
             it[RecordTable.request] = request
-            it[RecordTable.response] = response?.let(ResponseRecord::StreamResponseRecord)
+            it[RecordTable.response] = response
         }
     }
 }

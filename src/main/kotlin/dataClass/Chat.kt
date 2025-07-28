@@ -1,9 +1,12 @@
 package moe.tachyon.quiz.dataClass
 
-import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
-import moe.tachyon.quiz.utils.ai.Role
-import kotlinx.serialization.*
+import kotlinx.serialization.Contextual
+import kotlinx.serialization.InternalSerializationApi
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
+import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
+import moe.tachyon.quiz.utils.ai.ChatMessages
 
 @Suppress("unused")
 @JvmInline
@@ -21,20 +24,13 @@ value class ChatId(val value: Long): Comparable<ChatId>
 }
 
 @Serializable
-data class ChatMessage(
-    val role: Role = Role.USER,
-    val content: String = "",
-    @SerialName("reasoning_content")
-    val reasoningContent: String = "",
-)
-
-@Serializable
 data class Chat(
     val id: ChatId,
     val user: UserId,
+    val title: String,
     @Serializable(SectionSerializer::class)
     val section: Section<@Contextual Any, @Contextual Any, String>?,
-    val histories: List<ChatMessage>,
+    val histories: ChatMessages,
     val hash: String,
     val banned: Boolean,
 )
@@ -52,6 +48,7 @@ data class Chat(
         val example = Chat(
             id = ChatId(1),
             user = UserId(1),
+            title = "示例聊天",
             section = Section.example,
             histories = emptyList(),
             hash = "example-hash",

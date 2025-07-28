@@ -2,7 +2,6 @@ package moe.tachyon.quiz.database
 
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
-import moe.tachyon.quiz.dataClass.ChatMessage
 import moe.tachyon.quiz.dataClass.Section
 import moe.tachyon.quiz.dataClass.Slice
 import moe.tachyon.quiz.dataClass.UserId
@@ -10,10 +9,14 @@ import moe.tachyon.quiz.database.utils.asSlice
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import kotlinx.serialization.serializer
+import moe.tachyon.quiz.utils.ai.ChatMessages
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SortOrder
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insertAndGetId
 import org.jetbrains.exposed.sql.json.jsonb
 import org.jetbrains.exposed.sql.selectAll
@@ -26,8 +29,9 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
     {
         override val id = chatId("id").autoIncrement().entityId()
         val user = reference("user", Users.UserTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
+        val title = varchar("title", 128).default("新建对话")
         val section = jsonb<Section<Any, Any, String>>("section", dataJson, dataJson.serializersModule.serializer()).nullable()
-        val histories = jsonb<List<ChatMessage>>("histories", dataJson, dataJson.serializersModule.serializer())
+        val histories = jsonb<ChatMessages>("histories", dataJson, dataJson.serializersModule.serializer())
         val hash = varchar("hash", 64).index()
         val banned = bool("banned").default(false)
         override val primaryKey = PrimaryKey(id)
@@ -37,6 +41,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
         Chat(
             id = row[table.id].value,
             user = row[table.user].value,
+            title = row[table.title],
             section = row[table.section],
             histories = row[table.histories],
             hash = row[table.hash],
@@ -58,6 +63,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
         Chat(
             id = id,
             user = user,
+            title = "新建对话",
             section = section,
             histories = emptyList(),
             hash = hash,
@@ -71,6 +77,11 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             .where { table.id eq id }
             .singleOrNull()
             ?.let(::deserialize)
+    }
+
+    suspend fun deleteChat(id: ChatId, user: UserId) = query()
+    {
+        deleteWhere { (table.id eq id) and (table.user eq user)  } > 0
     }
 
     suspend fun getChats(
@@ -87,7 +98,8 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
                 Chat(
                     it[table.id].value,
                     it[table.user].value,
-                    it[table.section],
+                    it[table.title],
+                    null,
                     emptyList(),
                     it[table.hash],
                     it[table.banned],
@@ -97,7 +109,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
 
     suspend fun getHistory(
         chatId: ChatId,
-    ): List<ChatMessage> = query()
+    ): ChatMessages = query()
     {
         select(table.histories)
             .where { table.id eq chatId }
@@ -108,7 +120,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
 
     suspend fun updateHistory(
         chatId: ChatId,
-        histories: List<ChatMessage>,
+        histories: ChatMessages,
         newHash: String? = null,
         ban: Boolean = false,
     ): Unit = query()
@@ -118,6 +130,17 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             it[table.histories] = histories
             if (newHash != null) it[table.hash] = newHash
             if (ban) it[table.banned] = true
+        }
+    }
+
+    suspend fun updateName(
+        chatId: ChatId,
+        name: String,
+    ): Unit = query()
+    {
+        update({ table.id eq chatId })
+        {
+            it[table.title] = name
         }
     }
 

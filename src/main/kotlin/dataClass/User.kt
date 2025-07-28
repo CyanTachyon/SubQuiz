@@ -1,7 +1,7 @@
 package moe.tachyon.quiz.dataClass
 
-import moe.tachyon.quiz.utils.ai.AiResponse
 import kotlinx.serialization.Serializable
+import moe.tachyon.quiz.utils.ai.TokenUsage
 
 @Serializable
 sealed interface NamedUser
@@ -62,7 +62,7 @@ data class SsoUserInfo(
 data class DatabaseUser(
     override val id: UserId,
     override val permission: Permission,
-    val tokenUsage: AiResponse.Usage,
+    val tokenUsage: TokenUsage,
 ): PermissionUser
 {
     companion object
@@ -70,7 +70,7 @@ data class DatabaseUser(
         val example = DatabaseUser(
             UserId(1),
             permission = Permission.NORMAL,
-            tokenUsage = AiResponse.Usage(),
+            tokenUsage = TokenUsage(),
         )
     }
 }
@@ -85,7 +85,7 @@ data class UserFull(
     val email: List<String>,
     val seiue: List<SsoUserFull.Seiue>,
     override val permission: Permission,
-    val tokenUsage: AiResponse.Usage,
+    val tokenUsage: TokenUsage,
 ): NamedUser, PermissionUser
 {
     fun toBasicUserInfo() = BasicUserInfo(id, username, registrationTime, email)
@@ -111,7 +111,7 @@ data class UserFull(
             listOf("email"),
             listOf(SsoUserFull.Seiue("studentId", "realName", false)),
             permission = Permission.NORMAL,
-            tokenUsage = AiResponse.Usage(),
+            tokenUsage = TokenUsage(),
         )
     }
 }

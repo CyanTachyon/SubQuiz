@@ -31,8 +31,12 @@ fun Application.installStatusPages() = install(StatusPages)
     exception<BadRequestException> { call, _ -> call.respond(HttpStatus.BadRequest) }
     exception<Throwable>
     { call, throwable ->
-        logger.warning("出现位置错误, 访问接口: ${call.request.path()}", throwable)
-        call.respond(HttpStatus.InternalServerError)
+        if (call.response.status() == null)
+        {
+            logger.warning("出现位置错误, 访问接口: ${call.request.path()}", throwable)
+            call.respond(HttpStatus.InternalServerError)
+        }
+        else logger.config("抛出错误，但状态码已设置, 访问接口: ${call.request.path()}", throwable)
     }
 
     status(HttpStatusCode.NotFound) { _ -> if (!call.hasResponseBody()) call.respond(HttpStatus.NotFound) }

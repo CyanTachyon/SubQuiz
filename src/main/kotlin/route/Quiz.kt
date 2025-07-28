@@ -20,7 +20,7 @@ import moe.tachyon.quiz.plugin.rateLimit.RateLimit.NewQuiz
 import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.AiGrading.checkAnswer
-import moe.tachyon.quiz.utils.ai.AiResponse
+import moe.tachyon.quiz.utils.ai.TokenUsage
 import moe.tachyon.quiz.utils.statuses
 import java.util.concurrent.ConcurrentHashMap
 
@@ -164,7 +164,7 @@ private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, String?>): Nothing
         {
             CoroutineScope(Dispatchers.IO + job).launch()
             {
-                var totalToken = AiResponse.Usage()
+                var totalToken = TokenUsage()
                 val res = q2.sections
                     .map { async { it.checkAnswer() } }
                     .map {

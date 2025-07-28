@@ -2,13 +2,24 @@ package moe.tachyon.quiz.utils.ai
 
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.SectionId
+import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.COS
+import moe.tachyon.quiz.utils.ai.internal.sendAiRequest
+import moe.tachyon.quiz.utils.ai.internal.sendAiStreamRequest
 
 object AiImage
 {
-    private const val  IMAGE_TO_MARKDOWN_PROMPT = $$$"""
-        请你复述图中内容，不要做任何额外的解释,仅复述图中内容,无需理会其内容是什么、是否正确,仅复述内容。
-        若图中有公式，请用Katex格式复述公式。行内公式用$符号包裹，行间公式用$$符号包裹。
+    private val logger = SubQuizLogger.getLogger<AiImage>()
+    private const val IMAGE_TO_MARKDOWN_PROMPT = $$$"""
+        请你复述图中内容，不要做任何额外的解释,仅使用中文复述图中内容,无需理会其内容是什么、是否正确,仅复述内容。
+        - 你的输出应当为Markdown格式（但不应使用```包裹，直接输出），如有公式，请用LaTeX格式复述公式。行内公式用$符号包裹，行间公式用$$符号包裹。
+        - 你的输出应当为中文
+    """
+
+    private const val IMAGE_TO_TEXT_PROMPT = $$$"""
+        请你复述图中内容，不要做任何额外的解释,仅使用中文复述图中内容,无需理会其内容是什么、是否正确,仅复述内容。
+        - 你的输出应当为纯文本格式。
+        - 你的输出应当为中文
     """
 
     private const val DESCRIBE_IMAGE_PROMPT = $$$"""
@@ -48,25 +59,49 @@ object AiImage
     /**
      * 图像转文字
      */
-    suspend fun imageToMarkdown(imageUrl: String): DefaultAiResponse = sendAiRequest(
+    suspend fun imageToMarkdown(imageUrl: String, onMessage: suspend (msg: String) -> Unit) = sendAiStreamRequest(
         model = aiConfig.imageModel,
-        messages = listOf(AiRequest.Message(Role.USER, listOf(AiRequest.Message.Content.image(imageUrl), AiRequest.Message.Content(IMAGE_TO_MARKDOWN_PROMPT)))),
+        messages = ChatMessages(Role.USER, Content(ContentNode.image(imageUrl), ContentNode(IMAGE_TO_MARKDOWN_PROMPT))),
         temperature = 0.1,
+        record = false,
     )
+    {
+        it as? StreamAiResponseSlice.Message ?: run()
+        {
+            logger.severe("Unexpected response slice: $it")
+            return@sendAiStreamRequest
+        }
+        onMessage(it.content)
+    }
+
+    suspend fun imageToText(imageUrl: String, onMessage: suspend (msg: String) -> Unit) = sendAiStreamRequest(
+        model = aiConfig.imageModel,
+        messages = ChatMessages(Role.USER, Content(ContentNode.image(imageUrl), ContentNode(IMAGE_TO_TEXT_PROMPT))),
+        temperature = 0.1,
+        record = false,
+    )
+    {
+        it as? StreamAiResponseSlice.Message ?: run()
+        {
+            logger.severe("Unexpected response slice: $it")
+            return@sendAiStreamRequest
+        }
+        onMessage(it.content)
+    }
 
     /**
      * 描述图像内容
      */
-    suspend fun describeImage(imageUrl: String): DefaultAiResponse = sendAiRequest(
+    suspend fun describeImage(imageUrl: String) = sendAiRequest(
         model = aiConfig.imageModel,
-        messages = listOf(AiRequest.Message(Role.USER, listOf(AiRequest.Message.Content.image(imageUrl), AiRequest.Message.Content(DESCRIBE_IMAGE_PROMPT)))),
+        messages = ChatMessages(Role.USER, Content(ContentNode.image(imageUrl), ContentNode(DESCRIBE_IMAGE_PROMPT))),
         temperature = 0.1,
     )
 
     suspend fun describeImage(sectionId: SectionId, imageHash: String): String
     {
         COS.getImageDescription(sectionId, imageHash)?.let { return it }
-        val res = describeImage(COS.getImageUrl(sectionId, imageHash)).choices.joinToString { it.message.content }
+        val res = describeImage(COS.getImageUrl(sectionId, imageHash)).first.content.toText()
         COS.putImageDescription(sectionId, imageHash, res)
         return res
     }

@@ -1,6 +1,5 @@
 package moe.tachyon.quiz.dataClass
 
-import moe.tachyon.quiz.utils.ai.AiResponse
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.nullable
@@ -9,6 +8,7 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.CompositeDecoder.Companion.DECODE_DONE
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import moe.tachyon.quiz.utils.ai.TokenUsage
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.minutes
 
@@ -25,7 +25,7 @@ data class Quiz<out Answer, out UserAnswer, out Analysis: String?>(
     val exam: ExamId? = null,
     val finished: Boolean,
     val correct: List<List<Boolean?>>?,
-    val tokenUsage: AiResponse.Usage?,
+    val tokenUsage: TokenUsage?,
 )
 {
     fun hideAnswer() = Quiz(
@@ -93,7 +93,7 @@ data class Quiz<out Answer, out UserAnswer, out Analysis: String?>(
             null,
             false,
             listOf(Section.example).map { it.questions.map { Random.nextBoolean() } },
-            AiResponse.Usage(1, 2, 3),
+            TokenUsage(1, 2, 3),
         )
     }
 
@@ -138,7 +138,7 @@ data class Quiz<out Answer, out UserAnswer, out Analysis: String?>(
             var exam: ExamId? = null
             var finished: Boolean? = null
             var correct: List<List<Boolean>>? = null
-            var tokenUsage: AiResponse.Usage? = null
+            var tokenUsage: TokenUsage? = null
 
             loop@ while (true)
             {
@@ -154,7 +154,7 @@ data class Quiz<out Answer, out UserAnswer, out Analysis: String?>(
                     examIndex -> exam = d.decodeSerializableElement(descriptor, examIndex, ExamId.serializer().nullable)
                     finishedIndex -> finished = d.decodeBooleanElement(descriptor, finishedIndex)
                     correctIndex -> correct = d.decodeSerializableElement(descriptor, correctIndex, ListSerializer(ListSerializer(Boolean.serializer())).nullable)
-                    tokenUsageIndex -> tokenUsage = d.decodeSerializableElement(descriptor, tokenUsageIndex, AiResponse.Usage.serializer().nullable)
+                    tokenUsageIndex -> tokenUsage = d.decodeSerializableElement(descriptor, tokenUsageIndex, TokenUsage.serializer().nullable)
                     else -> throw SerializationException("Unknown index $i")
                 }
                 bits = bits or (1 shl i)
@@ -185,7 +185,7 @@ data class Quiz<out Answer, out UserAnswer, out Analysis: String?>(
             c.encodeSerializableElement(descriptor, examIndex, ExamId.serializer().nullable, value.exam)
             c.encodeBooleanElement(descriptor, finishedIndex, value.finished)
             c.encodeSerializableElement(descriptor, correctIndex, ListSerializer(ListSerializer(Boolean.serializer().nullable)).nullable, value.correct)
-            c.encodeSerializableElement(descriptor, tokenUsageIndex, AiResponse.Usage.serializer().nullable, value.tokenUsage)
+            c.encodeSerializableElement(descriptor, tokenUsageIndex, TokenUsage.serializer().nullable, value.tokenUsage)
             c.endStructure(descriptor)
         }
     }
