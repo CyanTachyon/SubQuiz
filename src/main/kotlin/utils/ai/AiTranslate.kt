@@ -2,7 +2,7 @@ package moe.tachyon.quiz.utils.ai
 
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
-import moe.tachyon.quiz.utils.ai.internal.sendAiStreamRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.sendAiStreamRequest
 
 object AiTranslate
 {

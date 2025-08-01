@@ -4,8 +4,8 @@ import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.SectionId
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.COS
-import moe.tachyon.quiz.utils.ai.internal.sendAiRequest
-import moe.tachyon.quiz.utils.ai.internal.sendAiStreamRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.sendAiStreamRequest
 
 object AiImage
 {
@@ -13,13 +13,11 @@ object AiImage
     private const val IMAGE_TO_MARKDOWN_PROMPT = $$$"""
         请你复述图中内容，不要做任何额外的解释,仅使用中文复述图中内容,无需理会其内容是什么、是否正确,仅复述内容。
         - 你的输出应当为Markdown格式（但不应使用```包裹，直接输出），如有公式，请用LaTeX格式复述公式。行内公式用$符号包裹，行间公式用$$符号包裹。
-        - 你的输出应当为中文
     """
 
     private const val IMAGE_TO_TEXT_PROMPT = $$$"""
         请你复述图中内容，不要做任何额外的解释,仅使用中文复述图中内容,无需理会其内容是什么、是否正确,仅复述内容。
         - 你的输出应当为纯文本格式。
-        - 你的输出应当为中文
     """
 
     private const val DESCRIBE_IMAGE_PROMPT = $$$"""

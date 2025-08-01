@@ -5,7 +5,7 @@ import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
-import moe.tachyon.quiz.utils.ai.internal.sendAiRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
 
 private val logger = SubQuizLogger.getLogger()
 
@@ -40,7 +40,7 @@ interface ResultType<T>
 @Serializable private data class Result<T>(val result: T)
 
 suspend fun <T> sendAiRequestAndGetResult(
-    model: AiConfig.Model,
+    model: AiConfig.LlmModel,
     message: String,
     resultType: ResultType<T>,
 ): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
@@ -50,7 +50,7 @@ suspend fun <T> sendAiRequestAndGetResult(
 )
 
 suspend fun <T> sendAiRequestAndGetResult(
-    model: AiConfig.Model,
+    model: AiConfig.LlmModel,
     messages: ChatMessages,
     resultType: ResultType<T>,
 ): Pair<T, TokenUsage>

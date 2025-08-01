@@ -29,6 +29,7 @@ import moe.tachyon.quiz.utils.ai.Role
 import moe.tachyon.quiz.utils.ai.StreamAiResponseSlice
 import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
+import moe.tachyon.quiz.utils.ai.tools.AiTools
 import moe.tachyon.quiz.utils.statuses
 
 private val logger = SubQuizLogger.getLogger()
@@ -123,6 +124,17 @@ fun Route.ai() = route("/ai", {
             }
         }, Context::deleteChat)
 
+        post("/{id}/cancel", {
+            request()
+            {
+                pathParameter<ChatId>("id")
+                {
+                    required = true
+                    description = "聊天id"
+                }
+            }
+        }, Context::cancelChat)
+
         route("/sse", HttpMethod.Get,{
             description = "获得AI回复"
             request {
@@ -146,6 +158,20 @@ fun Route.ai() = route("/ai", {
             plugin(SSE)
             handle(Context::listenChat)
         }
+
+        get("/toolData", {
+            request()
+            {
+                queryParameter<String>("type")
+                {
+                    required = true
+                }
+                queryParameter<String>("path")
+                {
+                    required = true
+                }
+            }
+        }, Context::getToolData)
     }
 
     route("/translate", HttpMethod.Post, {
@@ -272,6 +298,7 @@ private data class ChatSseMessage(
     val reasoningContent: String,
     @SerialName("tool_call")
     val toolCall: String,
+    val type: AiTools.ToolData.Type? = null
 )
 
 @Serializable
@@ -314,12 +341,15 @@ private data class ChatResponse(
 
         operator fun invoke(chat: Chat): ChatResponse
         {
-            val tools = AskService.getTools(chat.user)
+            val tools = AiTools.getTools(chat.user)
             val h = chat.histories.mapNotNull()
             { msg ->
-                if (msg.role == Role.TOOL) return@mapNotNull null
+                if (msg.role == Role.TOOL)
+                    return@mapNotNull null
                 if (msg.role == Role.USER)
                     return@mapNotNull listOf(History(Role.USER, listOf(ChatSseMessage(msg.content.toText(), "", ""))))
+                if (msg.showingType != null)
+                    return@mapNotNull listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(msg.content.toText(), "", "", msg.showingType))))
                 val rc = msg.reasoningContent
                 val c  = msg.content.toText()
                 val calls = msg.toolCalls.mapNotNull calls@
@@ -394,6 +424,8 @@ private suspend fun Context.listenChat()
                                 ChatSseMessage(it.message.content, it.message.reasoningContent, "")
                             is StreamAiResponseSlice.ToolCall ->
                                 ChatSseMessage("", "", it.message.tool.displayName)
+                            is StreamAiResponseSlice.ShowingTool ->
+                                ChatSseMessage(it.message.content, "", "", it.message.showingType)
                         }
                     send(event = "message", data = contentNegotiationJson.encodeToString(msg))
                 }
@@ -432,6 +464,25 @@ private suspend fun Context.deleteChat()
     if (!chats.deleteChat(chatId, user.id))
         finishCall(HttpStatus.NotFound, "聊天不存在或你没有权限删除")
     finishCall(HttpStatus.OK, "删除成功")
+}
+
+private suspend fun Context.cancelChat()
+{
+    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+    val chat = get<Chats>().getChat(chatId) ?: finishCall(HttpStatus.NotFound)
+    if (chat.user != user.id) finishCall(HttpStatus.Forbidden)
+    AiChatsUtils.cancelChat(chatId)
+    finishCall(HttpStatus.OK)
+}
+
+private fun Context.getToolData()
+{
+    val type = call.request.queryParameters["type"] ?: finishCall(HttpStatus.BadRequest, "type is required")
+    val path = call.request.queryParameters["path"] ?: finishCall(HttpStatus.BadRequest, "path is required")
+    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val data = AiTools.getData(user.id, type, path)
+    finishCall(HttpStatus.OK, data ?: AiTools.ToolData(AiTools.ToolData.Type.TEXT, "资源不存在或无法访问"))
 }
 
 @Serializable

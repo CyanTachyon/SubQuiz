@@ -1,29 +1,27 @@
 package moe.tachyon.quiz.utils.ai.tools
 
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.accept
-import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
+import io.ktor.client.*
+import io.ktor.client.call.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.config.aiConfig
+import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
 import moe.tachyon.quiz.utils.ai.AiToolInfo
 import moe.tachyon.quiz.utils.ai.Content
-import kotlin.collections.plusAssign
 
 object WebSearch
 {
+    private val logger = SubQuizLogger.getLogger<WebSearch>()
     private const val SEARCH_URL = "https://api.tavily.com/search"
 
     private val client = HttpClient(CIO)
@@ -64,7 +62,11 @@ object WebSearch
             bearerAuth(aiConfig.webSearchKey)
             setBody(SearchRequest(query = key, count = count))
         }
-        res.body<Results<SearchResult>>().results
+        val body = res.bodyAsText()
+        logger.warning("failed to parse search response: $body")
+        {
+            contentNegotiationJson.decodeFromString<Results<SearchResult>>(body).results
+        }.getOrThrow()
     }
 
     private const val EXTRACT_URL = "https://api.tavily.com/extract"
@@ -81,7 +83,7 @@ object WebSearch
         val urls: String,
     )
 
-    suspend fun extract(url: String): ExtractResult = withContext(Dispatchers.IO)
+    suspend fun extract(url: String): List<ExtractResult> = withContext(Dispatchers.IO)
     {
         val res = client.post(EXTRACT_URL)
         {
@@ -90,43 +92,59 @@ object WebSearch
             bearerAuth(aiConfig.webSearchKey)
             setBody(ExtractRequest(urls = url))
         }
-        val list = res.body<Results<ExtractResult>>().results
-        assert(list.size == 1) { "Expected exactly one result, got ${list.size}" }
-        list.first()
+        res.body<Results<ExtractResult>>().results
     }
 
     @Serializable
-    data class AiSearchToolData(@AiToolInfo.Description("搜索关键字") val key: String)
+    data class AiSearchToolData(
+        @AiToolInfo.Description("搜索关键字")
+        val key: String,
+        @AiToolInfo.Description("返回结果数量，不得超过20, 不填默认为10")
+        val count: Int = 10,
+    )
     @Serializable
     data class AiExtractToolData(@AiToolInfo.Description("要请求的url") val url: String)
 
-    val tools: List<AiToolInfo<*>>
-
     init
     {
-        val tools = mutableListOf<AiToolInfo<*>>()
-        tools += AiToolInfo(
+        AiTools.registerTool(
             name = "web_search",
             displayName = "联网搜索",
-            description = "进行网络搜索，将返回若干相关的搜索结果及来源url等",
+            description = """
+                进行网络搜索，将返回若干相关的搜索结果及来源url等，如有需要可以再使用`web_extract`工具提取网页内容
+                
+                **注意**: 使用该工具获得的信息后，你需要添加信息来源标记，type为 `web`，path为网页url，例如:
+                <tool_data type="web" path="https://example.com">
+            """.trimIndent(),
         )
         { it: AiSearchToolData ->
             val data = it.key
-            if (data.isBlank()) Content("error: key must not be empty")
-            else Content(showJson.encodeToString(search(data)))
+            if (data.isBlank()) AiToolInfo.ToolResult(Content("error: key must not be empty"))
+            else AiToolInfo.ToolResult(Content(showJson.encodeToString(search(data, it.count.coerceIn(1, 20)))))
         }
 
-        tools += AiToolInfo(
+        AiTools.registerTool(
             name = "web_extract",
             displayName = "获取网页内容",
-            description = "提取网页内容，将读取指定url的内容并返回",
+            description = """
+                提取网页内容，将读取指定url的内容并返回
+                
+                **注意**: 使用该工具获得的信息后，你需要添加信息来源标记，type为 `web`，path为网页url，例如:
+                <tool_data type="web" path="https://example.com">
+            """.trimIndent(),
         )
         { it: AiExtractToolData ->
             val data = it.url
-            if (data.isBlank()) Content("error: url must not be empty")
-            else Content(showJson.encodeToString(extract(data)))
+            if (data.isBlank()) AiToolInfo.ToolResult(Content("error: url must not be empty"))
+            else AiToolInfo.ToolResult(Content(showJson.encodeToString(extract(data))))
         }
 
-        this.tools = tools
+        AiTools.registerToolDataGetter("web")
+        { _, path ->
+            AiTools.ToolData(
+                type = AiTools.ToolData.Type.URL,
+                value = path,
+            )
+        }
     }
 }

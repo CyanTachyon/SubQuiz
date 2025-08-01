@@ -14,6 +14,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import moe.tachyon.quiz.utils.ai.tools.AiTools
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
@@ -116,6 +117,11 @@ value class Content(@Serializable(ContentSerializer::class) val content: List<Co
         return content.joinToString(separator = "") { (it as? ContentNode.Text)?.text ?: "" }
     }
 
+    fun isEmpty(): Boolean
+    {
+        return content.isEmpty() || content.all { it is ContentNode.Text && it.text.isBlank() }
+    }
+
     private class ContentSerializer: KSerializer<List<ContentNode>>
     {
         private val serializer = ListSerializer(ContentNode.serializer())
@@ -148,7 +154,7 @@ data class AiToolInfo<T: Any>(
     val name: String,
     val displayName: String,
     val description: String,
-    val invoke: suspend (T) -> Content,
+    val invoke: suspend (T) -> ToolResult,
     val parms: Parameters,
     val type: KType,
 )
@@ -164,13 +170,19 @@ data class AiToolInfo<T: Any>(
     @Target(AnnotationTarget.FIELD, AnnotationTarget.PROPERTY)
     annotation class EnumValues(val values: Array<String>)
 
+    data class ToolResult(
+        val content: Content,
+        val showingContent: String? = null,
+        val showingContentType: AiTools.ToolData.Type = AiTools.ToolData.Type.MARKDOWN,
+    )
+
     companion object
     {
         inline operator fun <reified T: Any> invoke(
             name: String,
             displayName: String,
             description: String,
-            noinline block: suspend (T) -> Content
+            noinline block: suspend (T) -> ToolResult
         ): AiToolInfo<T>
         {
             val type = typeOf<T>()
@@ -185,10 +197,18 @@ data class AiToolInfo<T: Any>(
                 val elementDescriptor = descriptor.getElementDescriptor(i)
                 val property = when (elementDescriptor.kind)
                 {
-                    PrimitiveKind.STRING  -> Parameters.Property("string", elementDescription, elementEnumValues?.toList())
-                    PrimitiveKind.LONG    -> Parameters.Property("int", elementDescription)
-                    PrimitiveKind.DOUBLE  -> Parameters.Property("double", elementDescription)
-                    PrimitiveKind.BOOLEAN -> Parameters.Property("boolean", elementDescription)
+                    PrimitiveKind.STRING   -> Parameters.Property("string", elementDescription, elementEnumValues?.toList())
+
+                    PrimitiveKind.LONG,
+                    PrimitiveKind.INT,
+                    PrimitiveKind.BYTE,
+                    PrimitiveKind.SHORT    -> Parameters.Property("integer", elementDescription)
+
+                    PrimitiveKind.DOUBLE,
+                    PrimitiveKind.FLOAT    -> Parameters.Property("double", elementDescription)
+
+                    PrimitiveKind.BOOLEAN  -> Parameters.Property("boolean", elementDescription)
+
                     else -> throw SerializationException("Unsupported type: $elementDescriptor")
                 }
                 properties[elementName] = property
@@ -239,7 +259,8 @@ data class ChatMessage(
     @SerialName("tool_call_id")
     val toolCallId: String = "",
     @SerialName("tool_calls")
-    val toolCalls: List<ToolCall> = emptyList()
+    val toolCalls: List<ToolCall> = emptyList(),
+    val showingType: AiTools.ToolData.Type? = null
 )
 {
     constructor(role: Role, content: String, reasoningContent: String = "", toolCallId: String = ""):
@@ -262,7 +283,7 @@ data class ChatMessage(
 
     operator fun plus(other: ChatMessage): ChatMessage
     {
-        if (this.toolCallId.isNotEmpty() || other.toolCallId.isNotEmpty())
+        if (this.toolCallId.isNotEmpty() || other.toolCallId.isNotEmpty() || this.showingType != null || other.showingType != null)
         {
             error("Cannot combine messages with tool calls")
         }
@@ -306,5 +327,11 @@ sealed interface StreamAiResponseSlice
 
     data class ToolCall(
         val tool: AiToolInfo<*>,
+    ): StreamAiResponseSlice
+
+    @Serializable
+    data class ShowingTool(
+        val content: String,
+        val showingType: AiTools.ToolData.Type,
     ): StreamAiResponseSlice
 }

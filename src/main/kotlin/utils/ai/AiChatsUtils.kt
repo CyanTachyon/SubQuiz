@@ -10,10 +10,9 @@ import moe.tachyon.quiz.database.Chats
 import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.Locks
-import moe.tachyon.quiz.utils.ai.ChatMessage
-import moe.tachyon.quiz.utils.ai.Role
-import moe.tachyon.quiz.utils.ai.StreamAiResponseSlice
+import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ask.AskService
+import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.*
@@ -28,7 +27,7 @@ private const val CHECK_LENGTH = 500
 object AiChatsUtils: KoinComponent
 {
     const val BANNED_MESSAGE = "对不起，该聊天无法继续"
-    const val ERROR_MESSAGE = "系统错误，请联系管理员"
+    const val ERROR_MESSAGE = "系统错误，请重试或切换模型并重试。如果问题仍然存在，请联系管理员。"
     private val logger = SubQuizLogger.getLogger<AiChatsUtils>()
     private val chats: Chats by inject()
     private val users: Users by inject()
@@ -55,11 +54,14 @@ object AiChatsUtils: KoinComponent
         var checked = 0
         private val job = SupervisorJob()
         suspend fun join() = job.join()
+        private var askJob = Job()
         private val coroutineScope = CoroutineScope(Dispatchers.IO + job + CoroutineExceptionHandler { _, throwable ->
-            if (!job.isCancelled) logger.warning("ChatInfo job failed ${chat.id}", throwable)
+            if (!job.isCancelled) logger.warning("error in ChatInfo job ${chat.id}", throwable)
         })
 
         private suspend inline fun<T> withLock(block: () -> T): T = chatInfoLocks.withLock(chat.id, block)
+
+        fun cancel() = askJob.cancel()
 
         suspend fun start(service: AskService): Unit = withLock()
         {
@@ -72,28 +74,71 @@ object AiChatsUtils: KoinComponent
 
             coroutineScope.launch()
             {
-                runCatching()
+                var res0: StreamAiResult? = null
+                try
                 {
-                    service.ask(
-                        chat.section,
-                        chat.histories,
-                        chat.user,
-                        content,
-                        this@ChatInfo::putMessage
-                    )
-                }.onFailure()
-                {
-                    logger.warning("ChatInfo ask failed ${chat.id}", it)
-                    response.clear()
-                    putMessage(TextMessage(content = ERROR_MESSAGE))
-                    finish(withBanned = false, error = true)
-                }.onSuccess()
-                {
-                    logger.warning("error in add token usage")
+                    withContext(askJob)
                     {
-                        users.addTokenUsage(chat.user, it.second)
+                        res0 = service.ask(
+                            chat.section,
+                            chat.histories,
+                            chat.user,
+                            content,
+                            this@ChatInfo::putMessage
+                        )
                     }
-                    finish(withBanned = false, error = false, it.first)
+                }
+                catch (e: Throwable)
+                {
+                    if (res0 == null)
+                        res0 = StreamAiResult.UnknownError(emptyList(), TokenUsage(), e)
+                }
+                val res = res0 ?: StreamAiResult.UnknownError(emptyList(), TokenUsage(), IllegalStateException("no result from ask service"))
+                try
+                {
+                    users.addTokenUsage(chat.user, res.usage)
+                }
+                catch (_: CancellationException) {}
+                catch (e: Throwable)
+                {
+                    logger.warning("error in add token usage", e)
+                }
+
+                when (res)
+                {
+                    is StreamAiResult.Cancelled,
+                    is StreamAiResult.Success ->
+                    {
+                        finish(withBanned = false, res.messages)
+                    }
+
+                    is StreamAiResult.ServiceError,
+                    is StreamAiResult.TooManyRequests,
+                    is StreamAiResult.UnknownError ->
+                    {
+                        when (res)
+                        {
+                            is StreamAiResult.ServiceError    -> logger.warning("Got service error in chat ${chat.id}")
+                            is StreamAiResult.TooManyRequests -> logger.warning("Got too many requests in chat ${chat.id} use service $service")
+                            is StreamAiResult.UnknownError    -> logger.warning("Got unknown error in chat ${chat.id}", res.error)
+                            else -> {}
+                        }
+
+                        val endMsg = if (res.messages.isNotEmpty()) "\n---\n$ERROR_MESSAGE" else ERROR_MESSAGE
+                        runCatching { putMessage(TextMessage(endMsg)) }
+                        val resMsg = res.messages.toMutableList()
+                        if (resMsg.lastOrNull()?.role == Role.ASSISTANT)
+                        {
+                            resMsg[resMsg.lastIndex] = resMsg.last().copy(
+                                content = resMsg.last().content + Content(endMsg),
+                            )
+                        }
+                        else resMsg += ChatMessage(
+                            role = Role.ASSISTANT,
+                            content = endMsg
+                        )
+                        finish(withBanned = false, resMsg.toList())
+                    }
                 }
             }
         }
@@ -101,7 +146,7 @@ object AiChatsUtils: KoinComponent
         suspend fun banned(): Unit = withLock()
         {
             if (banned) return
-            finish(withBanned = true, error = false)
+            finish(withBanned = true, BANNED_MESSAGE)
         }
 
         suspend fun check(onFinished: Boolean): Unit = withLock()
@@ -205,14 +250,9 @@ object AiChatsUtils: KoinComponent
             }
         }
 
-        suspend fun finish(
-            withBanned: Boolean,
-            error: Boolean,
-            res: List<ChatMessage> =
-                if (withBanned) listOf(ChatMessage(Role.ASSISTANT, BANNED_MESSAGE))
-                else if (error) listOf(ChatMessage(Role.ASSISTANT, ERROR_MESSAGE))
-                else error("finish called without messages"),
-        ): Unit = withLock()
+        suspend fun finish(withBanned: Boolean, res: String, ): Unit =
+            finish(withBanned, listOf(ChatMessage(Role.ASSISTANT, res)))
+        suspend fun finish(withBanned: Boolean, res: List<ChatMessage>): Unit = withLock()
         {
             if (finished && !withBanned) return
             finished = true
@@ -233,14 +273,18 @@ object AiChatsUtils: KoinComponent
                     chat.hash,
                     banned
                 )
+                response.clear()
             }
-            if (banned || error) runCatching { job.cancel() }
+            if (banned) runCatching { job.cancel() }
         }
     }
 
     private val responseMap = hashMapOf<ChatId, ChatInfo>()
 
-    fun getChatInfo(chatId: ChatId): ChatInfo? = responseMap[chatId]
+    suspend fun getChatInfo(chat: ChatId): ChatInfo? = chatInfoLocks.withLock(chat)
+    {
+        return responseMap[chat]
+    }
 
     suspend fun startRespond(content: String, chat: Chat, service: AskService): String? = chatInfoLocks.withLock(chat.id)
     {
@@ -263,5 +307,10 @@ object AiChatsUtils: KoinComponent
             throw it
         }
         return newHash
+    }
+
+    suspend fun cancelChat(chat: ChatId): Unit = chatInfoLocks.withLock(chat)
+    {
+        responseMap[chat]?.cancel()
     }
 }

@@ -10,6 +10,7 @@ import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.CYAN
 import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.GREEN
 import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.RED
 import moe.tachyon.quiz.dataClass.*
+import moe.tachyon.quiz.database.rag.Rag
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.Power.shutdown
 import org.jetbrains.exposed.sql.*
@@ -37,12 +38,15 @@ abstract class SqlDao<T: Table>(table: T): KoinComponent
         }
 
     protected val database: Database by inject()
+    open fun Transaction.init() = Unit
 
     val table: T by lazy()
     {
         transaction(database)
         {
+            @Suppress("DEPRECATION")
             SchemaUtils.createMissingTablesAndColumns(table)
+            init()
         }
         table
     }
@@ -78,6 +82,8 @@ object SqlDatabase: KoinComponent
         SectionTypes::class,
         Subjects::class,
         Users::class,
+
+        Rag::class,
     )
 
     /**

@@ -1,6 +1,6 @@
-@file:Suppress("unused")
+@file:Suppress("unused", "PackageDirectoryMismatch")
 
-package moe.tachyon.quiz.utils.ai.internal
+package moe.tachyon.quiz.utils.ai.internal.llm
 
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -10,11 +10,10 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.*
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
@@ -218,8 +217,9 @@ private data class AiRequest(
     }
 }
 
-private fun ChatMessage.toRequestMessage(): AiRequest.Message
+private fun ChatMessage.toRequestMessage(): AiRequest.Message?
 {
+    if (this.showingType != null) return null
     return AiRequest.Message(
         role = this.role,
         content = this.content,
@@ -256,8 +256,17 @@ private val defaultAiClient = HttpClient(CIO)
 
 private val records: Records by getKoin().inject()
 
+sealed class StreamAiResult(val messages: List<ChatMessage>, val usage: TokenUsage)
+{
+    class Success(messages: List<ChatMessage>, usage: TokenUsage): StreamAiResult(messages, usage)
+    class TooManyRequests(messages: List<ChatMessage>, usage: TokenUsage) : StreamAiResult(messages, usage)
+    class ServiceError(messages: List<ChatMessage>, usage: TokenUsage) : StreamAiResult(messages, usage)
+    class Cancelled(messages: List<ChatMessage>, usage: TokenUsage) : StreamAiResult(messages, usage)
+    class UnknownError(messages: List<ChatMessage>, usage: TokenUsage, val error: Throwable) : StreamAiResult(messages, usage)
+}
+
 suspend fun sendAiRequest(
-    model: AiConfig.Model,
+    model: AiConfig.LlmModel,
     messages: List<ChatMessage>,
     temperature: Double? = null,
     topP: Double? = null,
@@ -271,7 +280,7 @@ suspend fun sendAiRequest(
 
     val body = AiRequest(
         model = model.model,
-        messages = messages.map(ChatMessage::toRequestMessage),
+        messages = messages.mapNotNull(ChatMessage::toRequestMessage),
         stream = false,
         maxTokens = model.maxTokens,
         thinkingBudget = model.thinkingBudget,
@@ -315,7 +324,7 @@ suspend fun sendAiRequest(
 }
 
 suspend fun sendAiStreamRequest(
-    model: AiConfig.Model,
+    model: AiConfig.LlmModel,
     messages: List<ChatMessage>,
     temperature: Double? = null,
     topP: Double? = null,
@@ -325,12 +334,12 @@ suspend fun sendAiStreamRequest(
     record: Boolean = true,
     tools: List<AiToolInfo<*>> = emptyList(),
     onReceive: suspend (StreamAiResponseSlice) -> Unit,
-) = model.semaphore.withPermit()
+): StreamAiResult = model.semaphore.withPermit()
 {
     val url = model.url
     val body = AiRequest(
         model = model.model,
-        messages = messages.map(ChatMessage::toRequestMessage),
+        messages = messages.mapNotNull(ChatMessage::toRequestMessage),
         stream = true,
         maxTokens = model.maxTokens,
         thinkingBudget = model.thinkingBudget,
@@ -355,11 +364,11 @@ suspend fun sendAiStreamRequest(
     val res = mutableListOf<ChatMessage>()
     var send = true
     var usage = TokenUsage()
+    var curMsg = ChatMessage(Role.ASSISTANT, "")
     try
     {
         while (send)
         {
-            var curMsg = ChatMessage(Role.ASSISTANT, "")
             val waitingTools = mutableMapOf<String, Pair<String, String>>()
             var lstToolId = ""
             streamAiClient.sse(url, {
@@ -367,7 +376,7 @@ suspend fun sendAiStreamRequest(
                 bearerAuth(model.key.random())
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Any)
-                setBody(contentNegotiationJson.encodeToString(body.copy(messages = body.messages + res.map(ChatMessage::toRequestMessage))))
+                setBody(contentNegotiationJson.encodeToString(body.copy(messages = body.messages + res.mapNotNull(ChatMessage::toRequestMessage))))
             })
             {
                 incoming
@@ -437,37 +446,54 @@ suspend fun sendAiStreamRequest(
                 )
             }
             res += curMsg
+            curMsg = ChatMessage(Role.ASSISTANT, "")
             if (waitingTools.isNotEmpty())
             {
-                res += parseToolCalls(waitingTools, tools)
+                val parseToolCalls = parseToolCalls(waitingTools, tools)
+                parseToolCalls.filter { it.showingType != null }.forEach()
+                {
+                    onReceive(StreamAiResponseSlice.ShowingTool(it.content.toText(), it.showingType!!))
+                }
+                res += parseToolCalls
             }
             else send = false
         }
     }
     catch (e: Throwable)
     {
-        logger.severe("AI流式请求失败: " + contentNegotiationJson.encodeToString(body.copy(messages = body.messages + res.map(ChatMessage::toRequestMessage))), e)
-        if (e is AiResponseException) throw e
-        else throw UnknownAiResponseException(e)
+        if (!curMsg.content.isEmpty() || !curMsg.reasoningContent.isEmpty()) res += curMsg
+        return when (e)
+        {
+            is CancellationException -> StreamAiResult.Cancelled(res.toList(), usage)
+            is SSEClientException if (e.response?.status?.value == 429) -> StreamAiResult.TooManyRequests(res.toList(), usage)
+            is SSEClientException if (e.response?.status?.value in listOf(500, 502, 504)) -> StreamAiResult.ServiceError(res.toList(), usage)
+            else -> StreamAiResult.UnknownError(res.toList(), usage, e)
+        }
     }
     finally
     {
-        if (record) records.addRecord(url, body, list)
+        if (record) runCatching()
+        {
+            withContext(NonCancellable)
+            {
+                records.addRecord(url, body, list)
+            }
+        }
     }
-    res.toList() to usage
+    StreamAiResult.Success(res.toList(), usage)
 }
 
 private suspend fun parseToolCalls(
     waitingTools: Map<String, Pair<String, String>>,
     tools: List<AiToolInfo<*>>
-): List<ChatMessage>
+): ChatMessages
 {
-    return waitingTools.map()
+    return waitingTools.flatMap()
     { (id, t) ->
         val (toolName, parm) = t
-        val tool = tools.firstOrNull { it.name == toolName } ?: return@map run()
+        val tool = tools.firstOrNull { it.name == toolName } ?: return@flatMap run()
         {
-            ChatMessage(
+            ChatMessages(
                 role = Role.TOOL,
                 content = "error: tool $toolName not found",
                 toolCallId = id
@@ -481,7 +507,7 @@ private suspend fun parseToolCalls(
         }
         catch (e: Throwable)
         {
-            return@map ChatMessage(
+            return@flatMap ChatMessages(
                 Role.TOOL,
                 "error: \n${e.stackTraceToString()}",
                 toolCallId = id
@@ -496,16 +522,23 @@ private suspend fun parseToolCalls(
         catch (e: Throwable)
         {
             logger.warning("Tool call failed for $toolName with parameters $parm", e)
-            return@map ChatMessage(
+            return@flatMap ChatMessages(
                 role = Role.TOOL,
                 content = "error: \n${e.stackTraceToString()}",
                 toolCallId = id
             )
         }
-        ChatMessage(
+        val toolCall = ChatMessage(
             role = Role.TOOL,
-            content = content,
+            content = content.content,
             toolCallId = id
         )
+        if (content.showingContent == null) return@flatMap ChatMessages(toolCall)
+        val showingContent = ChatMessage(
+            role = Role.ASSISTANT,
+            content = Content(content.showingContent),
+            showingType = content.showingContentType
+        )
+        return@flatMap listOf(toolCall, showingContent)
     }
 }

@@ -12,17 +12,18 @@ data class AiConfig(
     @YamlComment("AI服务的重试次数")
     val retry: Int = 3,
     val webSearchKey: String = "your web search key",
-    @YamlComment("BDFZ HELPER的API地址")
     val answerChecker: String = "ds-r1",
     val chats: List<ChatModel> = listOf(ChatModel("ds-r1")),
     val image: String = "qwen-vl",
     val checker: String = "ds-r1-qwen3-8b",
     val translator: String = "ds-r1-qwen3-8b",
     val chatNamer: String = "ds-r1-qwen3-8b",
-    val models: Map<String, Model> = mapOf(
-        "ds-r1" to Model(model = "deepseek-reasoner"),
-        "qwen-vl" to Model(url = "https://api.siliconflow.cn/v1/chat/completions", model = "Qwen/Qwen2.5-VL-72B-Instruct", maxTokens = 4096, imageable = true),
-        "ds-r1-qwen3-8b" to Model(url = "https://api.siliconflow.cn/v1/chat/completions", model = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B", maxTokens = 8192),
+    val embedding: Model = Model(),
+    val reranker: Model = Model(),
+    val models: Map<String, LlmModel> = mapOf(
+        "ds-r1" to LlmModel(model = "deepseek-reasoner"),
+        "qwen-vl" to LlmModel(url = "https://api.siliconflow.cn/v1/chat/completions", model = "Qwen/Qwen2.5-VL-72B-Instruct", maxTokens = 4096, imageable = true),
+        "ds-r1-qwen3-8b" to LlmModel(url = "https://api.siliconflow.cn/v1/chat/completions", model = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B", maxTokens = 8192),
     ),
 )
 {
@@ -33,7 +34,7 @@ data class AiConfig(
     val chatNamerModel get() = models[chatNamer]!!
 
     @Serializable
-    data class Model(
+    data class LlmModel(
         val url: String = "https://api.deepseek.com/chat/completions",
         val model: String = "deepseek-reasoner",
         val maxTokens: Int = 16384,
@@ -61,6 +62,23 @@ data class AiConfig(
         val displayName: String = model,
     )
 
+    @Serializable
+    data class Model(
+        val url: String = "your embedding/reranker url",
+        val model: String = "your embedding/reranker model",
+        val maxConcurrency: Int = 50,
+        val key: List<String> = listOf("your api key"),
+    )
+    {
+        val semaphore by lazy { Semaphore(maxConcurrency) }
+
+        init
+        {
+            require(maxConcurrency > 0) { "maxConcurrency must be greater than 0" }
+            require(key.isNotEmpty()) { "embedding key must not be empty" }
+        }
+    }
+
     init
     {
         require(timeout > 0) { "timeout must be greater than 0" }
@@ -72,7 +90,6 @@ data class AiConfig(
         require(checker in models) { "check model not found in models" }
         require(translator in models) { "translator model not found in models" }
         require(chatNamer in models) { "chatNamer model not found in models" }
-        require(models.all { (key, value) -> key != "bdfzHelper" }) { "bdfzHelper should not be in models" }
     }
 }
 
