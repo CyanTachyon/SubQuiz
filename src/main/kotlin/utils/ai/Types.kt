@@ -7,6 +7,7 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.PolymorphicKind
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.descriptors.buildSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
@@ -14,7 +15,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import moe.tachyon.quiz.utils.JsonSchema
+import moe.tachyon.quiz.utils.ai.tools.AiToolInfo
 import moe.tachyon.quiz.utils.ai.tools.AiTools
+import moe.tachyon.quiz.utils.generateSchema
+import java.util.function.IntFunction
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
@@ -53,6 +58,7 @@ data class TokenUsage(
 }
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 sealed interface ContentNode
 {
     val type: String
@@ -68,14 +74,18 @@ sealed interface ContentNode
     }
 
     @Serializable
+    @SerialName("text")
     data class Text(val text: String): ContentNode
     {
+        @EncodeDefault(EncodeDefault.Mode.ALWAYS)
         override val type: String = "text"
     }
 
     @Serializable
+    @SerialName("image_url")
     data class Image(@SerialName("image_url") val image: Image): ContentNode
     {
+        @EncodeDefault(EncodeDefault.Mode.ALWAYS)
         override val type: String = "image_url"
         @Serializable data class Image(val url: String)
     }
@@ -150,109 +160,9 @@ value class Content(@Serializable(ContentSerializer::class) val content: List<Co
     }
 }
 
-data class AiToolInfo<T: Any>(
-    val name: String,
-    val displayName: String,
-    val description: String,
-    val invoke: suspend (T) -> ToolResult,
-    val parms: Parameters,
-    val type: KType,
-)
-{
-    @OptIn(ExperimentalSerializationApi::class)
-    @SerialInfo
-    @Target(AnnotationTarget.FIELD, AnnotationTarget.PROPERTY)
-    annotation class Description(val value: String)
-
-
-    @OptIn(ExperimentalSerializationApi::class)
-    @SerialInfo
-    @Target(AnnotationTarget.FIELD, AnnotationTarget.PROPERTY)
-    annotation class EnumValues(val values: Array<String>)
-
-    data class ToolResult(
-        val content: Content,
-        val showingContent: String? = null,
-        val showingContentType: AiTools.ToolData.Type = AiTools.ToolData.Type.MARKDOWN,
-    )
-
-    companion object
-    {
-        inline operator fun <reified T: Any> invoke(
-            name: String,
-            displayName: String,
-            description: String,
-            noinline block: suspend (T) -> ToolResult
-        ): AiToolInfo<T>
-        {
-            val type = typeOf<T>()
-            val descriptor = serializer(type).descriptor
-            val properties = mutableMapOf<String, Parameters.Property>()
-            val required = mutableListOf<String>()
-            for (i in 0 until descriptor.elementsCount)
-            {
-                val elementName = descriptor.getElementName(i)
-                val elementDescription = descriptor.getElementAnnotations(i).filterIsInstance<Description>().firstOrNull()?.value
-                val elementEnumValues = descriptor.getElementAnnotations(i).filterIsInstance<EnumValues>().firstOrNull()?.values
-                val elementDescriptor = descriptor.getElementDescriptor(i)
-                val property = when (elementDescriptor.kind)
-                {
-                    PrimitiveKind.STRING   -> Parameters.Property("string", elementDescription, elementEnumValues?.toList())
-
-                    PrimitiveKind.LONG,
-                    PrimitiveKind.INT,
-                    PrimitiveKind.BYTE,
-                    PrimitiveKind.SHORT    -> Parameters.Property("integer", elementDescription)
-
-                    PrimitiveKind.DOUBLE,
-                    PrimitiveKind.FLOAT    -> Parameters.Property("double", elementDescription)
-
-                    PrimitiveKind.BOOLEAN  -> Parameters.Property("boolean", elementDescription)
-
-                    else -> throw SerializationException("Unsupported type: $elementDescriptor")
-                }
-                properties[elementName] = property
-                if (descriptor.isElementOptional(i).not())
-                    required.add(elementName)
-            }
-            val parameters = Parameters(properties, required)
-            return AiToolInfo(
-                name = name,
-                displayName = displayName,
-                description = description,
-                invoke = block,
-                parms = parameters,
-                type = type
-            )
-        }
-    }
-
-    @Serializable
-    data class Parameters(
-        @SerialName("properties") val properties: Map<String, Property>,
-        @SerialName("required") val required: List<String> = emptyList(),
-    )
-    {
-        val type = "object"
-        @Serializable
-        @OptIn(ExperimentalSerializationApi::class)
-        data class Property(
-            val type: String,
-            @EncodeDefault(EncodeDefault.Mode.NEVER) val description: String? = null,
-            @EncodeDefault(EncodeDefault.Mode.NEVER) val enum: List<String>? = null,
-        )
-    }
-}
-
-
-typealias ChatMessages = List<ChatMessage>
-fun ChatMessages(vararg messages: ChatMessage): ChatMessages = messages.toList()
-fun ChatMessages(role: Role, content: String, reasoningContent: String = "", toolCallId: String = ""): ChatMessages =
-    listOf(ChatMessage(role, content, reasoningContent, toolCallId))
-fun ChatMessages(role: Role, content: Content, reasoningContent: String = "", toolCallId: String = ""): ChatMessages = listOf(ChatMessage(role, content, reasoningContent, toolCallId))
 @Serializable
 data class ChatMessage(
-    val role: Role = Role.USER,
+    val role: Role,
     val content: Content,
     @SerialName("reasoning_content")
     val reasoningContent: String = "",
@@ -281,12 +191,11 @@ data class ChatMessage(
         }
     }
 
+    infix fun canPlus(other: ChatMessage): Boolean =
+        this.role == other.role && this.toolCallId.isEmpty() && other.toolCallId.isEmpty() && this.showingType == null && other.showingType == null
     operator fun plus(other: ChatMessage): ChatMessage
     {
-        if (this.toolCallId.isNotEmpty() || other.toolCallId.isNotEmpty() || this.showingType != null || other.showingType != null)
-        {
-            error("Cannot combine messages with tool calls")
-        }
+        if (!(this canPlus other)) error("Cannot combine messages with different roles, tool call IDs, or showing types")
         return ChatMessage(
             role = role,
             content = content + other.content,
@@ -316,11 +225,63 @@ data class ChatMessage(
     }
 }
 
+@Serializable
+@JvmInline
+@Suppress("JavaDefaultMethodsNotOverriddenByDelegation")
+value class ChatMessages(private val messages: List<ChatMessage>): List<ChatMessage> by messages
+{
+    override fun subList(fromIndex: Int, toIndex: Int): ChatMessages =
+        ChatMessages(messages.subList(fromIndex, toIndex))
+    constructor(vararg messages: ChatMessage): this(messages.toList())
+    constructor(role: Role, content: Content, reasoningContent: String = "", toolCallId: String = ""):
+        this(ChatMessage(role, content, reasoningContent, toolCallId))
+    constructor(role: Role, content: String, reasoningContent: String = "", toolCallId: String = ""):
+            this(role, Content(content), reasoningContent, toolCallId)
+    constructor(vararg messages: Pair<Role, Content>):
+        this(messages.map { ChatMessage(it.first, it.second) })
+
+    fun optimize(): ChatMessages
+    {
+        if (isEmpty()) return empty()
+        val optimizedMessages = mutableListOf<ChatMessage>()
+        var lastMessage: ChatMessage = first()
+        for (message in drop(1))
+        {
+            if (lastMessage canPlus message)
+                lastMessage += message
+            else
+            {
+                optimizedMessages.add(lastMessage)
+                lastMessage = message
+            }
+        }
+        optimizedMessages.add(lastMessage)
+        return optimizedMessages.toChatMessages()
+    }
+
+    operator fun plus(other: ChatMessage): ChatMessages =
+        ChatMessages(this.messages + other).optimize()
+    operator fun plus(other: Collection<ChatMessage>): ChatMessages =
+        ChatMessages(this.messages + other).optimize()
+
+    companion object
+    {
+        @JvmStatic
+        fun empty(): ChatMessages = ChatMessages(emptyList())
+        @JvmStatic
+        fun of(vararg messages: ChatMessage): ChatMessages = ChatMessages(messages.toList())
+        fun Iterable<ChatMessage>.toChatMessages(): ChatMessages = this as? ChatMessages ?: ChatMessages(this.toList())
+        operator fun Iterable<ChatMessage>.plus(other: ChatMessages): ChatMessages =
+            if (this is ChatMessages) this + other
+            else this.toChatMessages() + other
+    }
+}
+
 sealed interface StreamAiResponseSlice
 {
     @Serializable
     data class Message(
-        val content: String = "",
+        val content: String,
         @SerialName("reasoning_content")
         val reasoningContent: String = "",
     ): StreamAiResponseSlice

@@ -1,12 +1,14 @@
 package moe.tachyon.quiz.database
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.serializer
 import moe.tachyon.quiz.config.systemConfig
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.Slice
+import moe.tachyon.quiz.database.utils.CustomExpression
 import moe.tachyon.quiz.database.utils.asSlice
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
-import kotlinx.serialization.serializer
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.coalesce
@@ -26,17 +28,16 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             onDelete = ReferenceOption.CASCADE,
             onUpdate = ReferenceOption.CASCADE
         ).index()
-        val description = text("description")
+        val description = jsonb<JsonElement>("description", dataJson, dataJson.serializersModule.serializer())
         val weight = integer("weight").default(50)
         val available = bool("available").default(true)
-        val markdown = bool("markdown").default(false)
-        val questions = jsonb<List<Question<Any, Nothing?, String>>>("questions", dataJson, dataJson.serializersModule.serializer())
+        val questions = jsonb<List<Question<Any, Nothing?, JsonElement>>>("questions", dataJson, dataJson.serializersModule.serializer())
         override val primaryKey = PrimaryKey(id)
     }
 
     private val sectionTypeTable by lazy { get<SectionTypes>().table }
 
-    private fun deserialize(row: ResultRow): Section<Any, Nothing?, String> = SectionTable.run()
+    private fun deserialize(row: ResultRow): Section<Any, Nothing?, JsonElement> = SectionTable.run()
     {
         Section(
             id = row[id].value,
@@ -44,12 +45,11 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             description = row[description],
             weight = row[weight],
             available = row[available],
-            markdown = row[markdown],
             questions = row[questions]
         )
     }
 
-    suspend fun getSection(id: SectionId): Section<Any, Nothing?, String>? = query()
+    suspend fun getSection(id: SectionId): Section<Any, Nothing?, JsonElement>? = query()
     {
         table
             .select(table.columns)
@@ -60,9 +60,10 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
 
     suspend fun recommendSections(
         user: UserId,
+        keyword: String?,
         knowledgePoints: List<KnowledgePointId>?,
         count: Int
-    ): Slice<Section<Any, Nothing?, String>> = query()
+    ): Slice<Section<Any, Nothing?, JsonElement>> = query()
     {
         val preferencesTable = get<Preferences>().table
         val historyTable = get<Histories>().table
@@ -77,6 +78,18 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             ) { (historyTable.user eq user) and (historyTable.score greaterEq systemConfig.score) }
             .select(table.columns)
             .apply { knowledgePoints?.let { andWhere { sectionTypeTable.knowledgePoint inList it } } }
+            .apply()
+            {
+                if (keyword == null) return@apply
+                andWhere()
+                {
+                    val expr1 = (table.description.castTo(TextColumnType()) like "%$keyword%")
+                    val keyword1 = keyword.replace("\\", "\\\\").replace("\"", "\\\"")
+                    val tmp = CustomExpression<String>("'$[*].description ? (@.string() like_regex \"$keyword1\" flag \"i\")'")
+                    val expr2 = CustomFunction("jsonb_path_exists", BooleanColumnType(), table.questions, tmp)
+                    expr1 or expr2
+                }
+            }
             .andWhere { available eq true }
             .groupBy(*table.columns.toTypedArray())
             .groupBy(*preferencesTable.columns.toTypedArray())
@@ -92,7 +105,7 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             .map(::deserialize)
     }
 
-    suspend fun newSection(section: Section<Any, Nothing?, String>) = query()
+    suspend fun newSection(section: Section<Any, Nothing?, JsonElement>) = query()
     {
         insertAndGetId()
         {
@@ -100,12 +113,11 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             it[table.description] = section.description
             it[table.weight] = section.weight
             it[table.available] = section.available
-            it[table.markdown] = section.markdown
             it[table.questions] = section.questions
         }.value
     }
 
-    suspend fun updateSection(section: Section<Any, Nothing?, String>) = query()
+    suspend fun updateSection(section: Section<Any, Nothing?, JsonElement>) = query()
     {
         update({ table.id eq section.id })
         {
@@ -113,7 +125,6 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             it[table.description] = section.description
             it[table.weight] = section.weight
             it[table.available] = section.available
-            it[table.markdown] = section.markdown
             it[table.questions] = section.questions
         } > 0
     }
@@ -128,7 +139,7 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
         sectionType: SectionTypeId?,
         begin: Long,
         count: Int
-    ): Slice<Section<Any, Nothing?, String>> = query()
+    ): Slice<Section<Any, Nothing?, JsonElement>> = query()
     {
         table
             .join(sectionTypeTable, JoinType.INNER, table.type, sectionTypeTable.id)

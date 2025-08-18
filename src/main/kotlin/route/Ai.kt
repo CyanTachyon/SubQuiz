@@ -14,6 +14,7 @@ import io.ktor.server.routing.*
 import io.ktor.server.sse.*
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.ChatId.Companion.toChatIdOrNull
@@ -22,15 +23,21 @@ import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.route.utils.*
+import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.AiImage
 import moe.tachyon.quiz.utils.ai.AiTranslate
+import moe.tachyon.quiz.utils.ai.ChatMessages
+import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.Role
 import moe.tachyon.quiz.utils.ai.StreamAiResponseSlice
 import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.ai.tools.AiTools
+import moe.tachyon.quiz.utils.ai.tools.AiTools.ToolData.Type.*
 import moe.tachyon.quiz.utils.statuses
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 private val logger = SubQuizLogger.getLogger()
 fun Route.ai() = route("/ai", {
@@ -94,37 +101,7 @@ fun Route.ai() = route("/ai", {
             }
         }, Context::getChatList)
 
-        get("/{id}", {
-            description = "获取一个AI聊天"
-            request {
-                pathParameter<ChatId>("id")
-                {
-                    required = true
-                    description = "聊天id"
-                }
-            }
-            response {
-                statuses<ChatResponse>(HttpStatus.OK, example = ChatResponse.example)
-                statuses(HttpStatus.Unauthorized, HttpStatus.NotFound)
-            }
-        }, Context::getChat)
-
-        delete("/{id}", {
-            description = "删除一个AI聊天"
-            request {
-                pathParameter<ChatId>("id")
-                {
-                    required = true
-                    description = "聊天id"
-                }
-            }
-            response {
-                statuses(HttpStatus.OK, example = "删除成功")
-                statuses(HttpStatus.Unauthorized, HttpStatus.NotFound)
-            }
-        }, Context::deleteChat)
-
-        post("/{id}/cancel", {
+        route("/{id}", {
             request()
             {
                 pathParameter<ChatId>("id")
@@ -132,46 +109,85 @@ fun Route.ai() = route("/ai", {
                     required = true
                     description = "聊天id"
                 }
-            }
-        }, Context::cancelChat)
-
-        route("/sse", HttpMethod.Get,{
-            description = "获得AI回复"
-            request {
-                queryParameter<ChatId>("chat")
-                {
-                    required = true
-                    description = "聊天id"
-                }
-                queryParameter<String>("hash")
-                {
-                    required = true
-                }
-            }
-            response()
-            {
-                statuses<ChatSseMessage>(HttpStatus.OK, example = ChatSseMessage("content", "reasoning", ""))
-                statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
             }
         })
         {
-            plugin(SSE)
-            handle(Context::listenChat)
-        }
+            get({
+                description = "获取一个AI聊天"
+                response()
+                {
+                    statuses<ChatResponse>(HttpStatus.OK, example = ChatResponse.example)
+                    statuses(HttpStatus.Unauthorized, HttpStatus.NotFound)
+                }
+            }, Context::getChat)
 
-        get("/toolData", {
-            request()
+            delete({
+                description = "删除一个AI聊天"
+            }, Context::deleteChat)
+
+            post("/cancel",Context::cancelChat)
+
+            route("/sse", HttpMethod.Get,{
+                description = "获得AI回复"
+                request {
+                    queryParameter<String>("hash")
+                    {
+                        required = true
+                    }
+                }
+                response()
+                {
+                    statuses<ChatSseMessage>(HttpStatus.OK, example = ChatSseMessage(Content("content"), "reasoning", ""))
+                    statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
+                }
+            })
             {
-                queryParameter<String>("type")
-                {
-                    required = true
-                }
-                queryParameter<String>("path")
-                {
-                    required = true
-                }
+                plugin(SSE)
+                handle(Context::listenChat)
             }
-        }, Context::getToolData)
+
+            get("/toolData", {
+                request()
+                {
+                    queryParameter<String>("type")
+                    {
+                        required = true
+                    }
+                    queryParameter<String>("path")
+                    {
+                        required = true
+                    }
+                }
+            }, Context::getToolData)
+
+            route("/file/{file}", {
+                request()
+                {
+                    pathParameter<String>("file")
+                    {
+                        required = true
+                        description = "文件名"
+                    }
+                }
+            })
+            {
+                get("/info", {
+                    request()
+                    {
+                        queryParameter<Boolean>("download")
+                        {
+                            required = false
+                        }
+                    }
+                    response()
+                    {
+                        statuses<ChatFiles.FileInfo>(HttpStatus.OK)
+                    }
+                }) { getChatFile(true) }
+
+                get("/data") { getChatFile(false) }
+            }
+        }
     }
 
     route("/translate", HttpMethod.Post, {
@@ -221,16 +237,17 @@ fun Route.ai() = route("/ai", {
 private val ser = Section.serializer(
     QuestionAnswerSerializer,
     QuestionAnswerSerializer,
-    String.serializer()
+    JsonElement.serializer()
 )
-private class SectionSerializer: KSerializer<Section<Any, Any, String>> by ser
+private class SectionSerializer: KSerializer<Section<Any, Any, JsonElement>> by ser
 
 @Serializable
 private data class CreateChatRequest(
     @Serializable(SectionSerializer::class)
-    val section: Section<@Contextual Any, @Contextual Any, String>?,
+    val section: Section<@Contextual Any, @Contextual Any, JsonElement>?,
     val content: String,
     val model: String,
+    val images: List<String> = emptyList()
 )
 
 private suspend fun Context.newChat(): Nothing
@@ -241,10 +258,13 @@ private suspend fun Context.newChat(): Nothing
     val chat = chats.createChat(user.id, body.section)
     val res = logger.warning("Failed to start chat for user ${user.id} with model ${body.model}")
     {
-        val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest, "model not found")
-        val hash = AiChatsUtils.startRespond(body.content, chat, service) ?: finishCall(HttpStatus.Conflict)
+        val content = AiChatsUtils.makeContent(chat.id, body.content, body.images)
+        if (content !is AiChatsUtils.MakeContentResult.Success)
+            finishCall(HttpStatus.BadRequest.subStatus(content.error))
+        val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
+        val hash = AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
         ChatResponse(chat.copy(hash = hash))
-    }.onFailure { chats.deleteChat(chat.id, user.id) }.getOrThrow()
+    }.onFailure { AiChatsUtils.deleteChat(chat.id, user.id) }.getOrThrow()
     finishCall(HttpStatus.OK, res)
 }
 
@@ -254,6 +274,8 @@ private data class SendChatMessageRequest(
     val content: String,
     val model: String,
     val hash: String,
+    val images: List<String> = emptyList(),
+    val regenerate: Boolean = false,
 )
 
 private suspend fun Context.sendChatMessage()
@@ -261,17 +283,24 @@ private suspend fun Context.sendChatMessage()
     val loginUser = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val body = call.receive<SendChatMessageRequest>()
     val chats = get<Chats>()
-    val chat = chats.getChat(body.chatId) ?: finishCall(HttpStatus.NotFound)
+    val chat = chats.getChat(body.chatId)?.let()
+    {
+        if (body.regenerate) it.copy(histories = it.histories.subList(0, it.histories.indexOfLast { c -> c.role == Role.USER }))
+        else it
+    } ?: finishCall(HttpStatus.NotFound)
     if (chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chat.hash != body.hash) finishCall(HttpStatus.Conflict)
     if (chat.banned) finishCall(HttpStatus.Forbidden.copy(message = AiChatsUtils.BANNED_MESSAGE))
-    val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest, "model not found")
-    val hash = AiChatsUtils.startRespond(body.content, chat, service) ?: finishCall(HttpStatus.Conflict)
+    val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
+    val content = AiChatsUtils.makeContent(chat.id, body.content, body.images)
+    if (content !is AiChatsUtils.MakeContentResult.Success)
+        finishCall(HttpStatus.BadRequest.subStatus(content.error))
+    val hash = AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, hash)
 }
 
 @Serializable
-data class ChatModelResponse(
+private data class ChatModelResponse(
     val model: String,
     val displayName: String,
     val toolable: Boolean,
@@ -293,7 +322,7 @@ private fun Context.sseHeaders()
 
 @Serializable
 private data class ChatSseMessage(
-    val content: String,
+    val content: Content,
     @SerialName("reasoning_content")
     val reasoningContent: String,
     @SerialName("tool_call")
@@ -307,7 +336,7 @@ private data class ChatResponse(
     val user: UserId,
     val title: String,
     @Serializable(SectionSerializer::class)
-    val section: Section<@Contextual Any, @Contextual Any, String>?,
+    val section: Section<@Contextual Any, @Contextual Any, JsonElement>?,
     val histories: List<History>,
     val hash: String,
     val banned: Boolean,
@@ -325,9 +354,9 @@ private data class ChatResponse(
         private val ser = Section.serializer(
             QuestionAnswerSerializer,
             QuestionAnswerSerializer,
-            String.serializer()
+            JsonElement.serializer()
         )
-        private class SectionSerializer: KSerializer<Section<Any, Any, String>> by ser
+        private class SectionSerializer: KSerializer<Section<Any, Any, JsonElement>> by ser
 
         val example = ChatResponse(
             id = ChatId(1),
@@ -339,17 +368,27 @@ private data class ChatResponse(
             banned = false,
         )
 
-        operator fun invoke(chat: Chat): ChatResponse
+        suspend operator fun invoke(chat: Chat): ChatResponse
         {
-            val tools = AiTools.getTools(chat.user)
+            if (chat.histories.isEmpty()) return ChatResponse(
+                id = chat.id,
+                user = chat.user,
+                title = chat.title,
+                section = chat.section,
+                histories = emptyList(),
+                hash = chat.hash,
+                banned = chat.banned,
+            )
+
+            val tools = AiTools.getTools(chat)
             val h = chat.histories.mapNotNull()
             { msg ->
                 if (msg.role == Role.TOOL)
                     return@mapNotNull null
                 if (msg.role == Role.USER)
-                    return@mapNotNull listOf(History(Role.USER, listOf(ChatSseMessage(msg.content.toText(), "", ""))))
+                    return@mapNotNull listOf(History(Role.USER, listOf(ChatSseMessage(msg.content, "", ""))))
                 if (msg.showingType != null)
-                    return@mapNotNull listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(msg.content.toText(), "", "", msg.showingType))))
+                    return@mapNotNull listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(msg.content, "", "", msg.showingType))))
                 val rc = msg.reasoningContent
                 val c  = msg.content.toText()
                 val calls = msg.toolCalls.mapNotNull calls@
@@ -364,10 +403,10 @@ private data class ChatResponse(
                 { toolName ->
                     History(
                         Role.ASSISTANT,
-                        listOf(ChatSseMessage("", "",toolName))
+                        listOf(ChatSseMessage(Content(""), "",toolName))
                     )
                 }
-                listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(c, rc, "")))) + calls
+                listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(Content(c), rc, "")))) + calls
             }
             val list = h.flatten()
             val res = mutableListOf<History>()
@@ -394,8 +433,8 @@ private data class ChatResponse(
 private suspend fun Context.listenChat()
 {
     val loginUser = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val chatId = call.parameters["chat"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
-    val hash = call.parameters["hash"] ?: finishCall(HttpStatus.BadRequest)
+    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+    val hash = call.queryParameters["hash"] ?: finishCall(HttpStatus.BadRequest)
     val chatInfo = AiChatsUtils.getChatInfo(chatId) ?: finishCall(HttpStatus.OK)
     if (chatInfo.chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chatInfo.chat.hash != hash) finishCall(HttpStatus.Conflict)
@@ -421,13 +460,16 @@ private suspend fun Context.listenChat()
                         when(it.message)
                         {
                             is StreamAiResponseSlice.Message ->
-                                ChatSseMessage(it.message.content, it.message.reasoningContent, "")
+                                ChatSseMessage(Content(it.message.content), it.message.reasoningContent, "")
                             is StreamAiResponseSlice.ToolCall ->
-                                ChatSseMessage("", "", it.message.tool.displayName)
+                                if (it.message.tool.displayName != null)
+                                    ChatSseMessage(Content(""), "", it.message.tool.displayName)
+                                else null
                             is StreamAiResponseSlice.ShowingTool ->
-                                ChatSseMessage(it.message.content, "", "", it.message.showingType)
+                                ChatSseMessage(Content(it.message.content), "", "", it.message.showingType)
                         }
-                    send(event = "message", data = contentNegotiationJson.encodeToString(msg))
+                    if (msg != null)
+                        send(event = "message", data = contentNegotiationJson.encodeToString(msg))
                 }
             }
         }
@@ -443,7 +485,7 @@ private suspend fun Context.getChatList()
     val chats = get<Chats>()
     val (begin, count) = call.getPage()
     val chatList = chats.getChats(user.id, begin, count)
-    finishCall(HttpStatus.OK, chatList.map(ChatResponse::invoke))
+    finishCall(HttpStatus.OK, chatList.map { ChatResponse(it) })
 }
 
 private suspend fun Context.getChat()
@@ -452,7 +494,7 @@ private suspend fun Context.getChat()
     val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val chats = get<Chats>()
     val chat = chats.getChat(chatId) ?: finishCall(HttpStatus.NotFound)
-    if (chat.user != user.id) finishCall(HttpStatus.Forbidden)
+    if (chat.user != user.id && !user.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
     finishCall(HttpStatus.OK, ChatResponse(chat))
 }
 
@@ -460,10 +502,9 @@ private suspend fun Context.deleteChat()
 {
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
-    val chats = get<Chats>()
-    if (!chats.deleteChat(chatId, user.id))
-        finishCall(HttpStatus.NotFound, "聊天不存在或你没有权限删除")
-    finishCall(HttpStatus.OK, "删除成功")
+    if (!AiChatsUtils.deleteChat(chatId, user.id))
+        finishCall(HttpStatus.NotFound)
+    finishCall(HttpStatus.OK)
 }
 
 private suspend fun Context.cancelChat()
@@ -476,13 +517,43 @@ private suspend fun Context.cancelChat()
     finishCall(HttpStatus.OK)
 }
 
-private fun Context.getToolData()
+private suspend fun Context.getToolData()
 {
-    val type = call.request.queryParameters["type"] ?: finishCall(HttpStatus.BadRequest, "type is required")
-    val path = call.request.queryParameters["path"] ?: finishCall(HttpStatus.BadRequest, "path is required")
+    val type = call.queryParameters["type"] ?: finishCall(HttpStatus.BadRequest.subStatus("type is required"))
+    val path = call.queryParameters["path"] ?: finishCall(HttpStatus.BadRequest.subStatus("path is required"))
+    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("chat id is required"))
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val data = AiTools.getData(user.id, type, path)
+    val chat = get<Chats>().getChat(chatId) ?: finishCall(HttpStatus.NotFound)
+    if (chat.user != user.id) finishCall(HttpStatus.NotFound)
+    val data = AiTools.getData(chat, type, path)
     finishCall(HttpStatus.OK, data ?: AiTools.ToolData(AiTools.ToolData.Type.TEXT, "资源不存在或无法访问"))
+}
+
+@OptIn(ExperimentalUuidApi::class)
+private suspend fun Context.getChatFile(info: Boolean)
+{
+    val fileUuid = call.parameters["file"] ?: finishCall(HttpStatus.BadRequest.subStatus("file is required"))
+    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("chat id is required"))
+    val download = call.request.queryParameters["download"]?.toBooleanStrictOrNull() ?: false
+    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val chat = get<Chats>().getChat(chatId) ?: finishCall(HttpStatus.NotFound)
+    if (chat.user != user.id) finishCall(HttpStatus.NotFound)
+    val file = ChatFiles.getChatFile(chat.id, Uuid.parseHex(fileUuid)) ?: finishCall(HttpStatus.NotFound)
+    if (info) finishCall(HttpStatus.OK, file.first)
+    else
+    {
+        if (download)
+        {
+            val ext = file.first.name.substringAfterLast(".").encodeURLParameter()
+            val filename = file.first.name.encodeURLParameter()
+            val simpleName = "data" + if (ext.isNotEmpty()) ".$ext" else ""
+            call.response.header(
+                HttpHeaders.ContentDisposition,
+                "attachment; filename=\"$simpleName\"; filename*=UTF-8''$filename"
+            )
+        }
+        finishCallWithBytes(HttpStatus.OK, ContentType.fromFileExtension(file.first.name).firstOrNull() ?: ContentType.Application.OctetStream, file.second)
+    }
 }
 
 @Serializable

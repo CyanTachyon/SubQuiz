@@ -45,7 +45,7 @@ suspend fun <T> sendAiRequestAndGetResult(
     resultType: ResultType<T>,
 ): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
     model = model,
-    messages = ChatMessages(Role.SYSTEM, message),
+    messages = ChatMessages(Role.USER, message),
     resultType = resultType,
 )
 

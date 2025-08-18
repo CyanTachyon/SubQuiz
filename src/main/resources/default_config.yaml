@@ -3,7 +3,7 @@ ktor:
     port: 8080
     rootPath: '/api'
 
-# 服务端地址, 该项决定了API文档中的请求地址
+# 服务端地址，该项决定了API文档中的请求地址以及文件下载地址等
 serverUrl:
   - 'https://quiz.tachyon.moe'
 

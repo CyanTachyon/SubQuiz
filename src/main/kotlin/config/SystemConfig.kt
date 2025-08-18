@@ -11,7 +11,7 @@ data class SystemConfig(
     val ssoServerId: Int,
     @YamlComment("SSO服务秘钥")
     val ssoSecret: String,
-    val minVersionId: Int,
+    val minVersionId: Long,
     @YamlComment("重复推送阈值, 若某个section在某次作答的正确率高于该阈值则不再重新推送. 例如60表示正确率高于60%不会再推送")
     val score: Double,
 )

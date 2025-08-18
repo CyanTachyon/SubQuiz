@@ -120,5 +120,24 @@ class CustomExpressionWithColumnType<T>(
     override fun toString(): String = expression.toString()
 }
 
+class CustomExpression<T>(
+    val expression: String,
+): Expression<T>()
+{
+
+    override fun equals(other: Any?): Boolean
+    {
+        if (other is CustomExpression<*>) return this.expression == other.expression
+        return this.expression == other
+    }
+
+    override fun hashCode(): Int = expression.hashCode()
+    override fun toQueryBuilder(queryBuilder: QueryBuilder)
+    {
+        queryBuilder.append(expression)
+    }
+    override fun toString(): String = expression.toString()
+}
+
 fun <T>Expression<T>.withColumnType(columnType: ColumnType<T & Any>): ExpressionWithColumnType<T> =
     CustomExpressionWithColumnType(this, columnType)

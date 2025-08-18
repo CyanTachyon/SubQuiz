@@ -1,6 +1,7 @@
 package moe.tachyon.quiz.config
 
 import com.charleskorn.kaml.YamlComment
+import io.github.smiley4.ktorswaggerui.data.TagGenerator
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -18,6 +19,7 @@ data class AiConfig(
     val checker: String = "ds-r1-qwen3-8b",
     val translator: String = "ds-r1-qwen3-8b",
     val chatNamer: String = "ds-r1-qwen3-8b",
+    val imageGenerator: Model = Model(),
     val embedding: Model = Model(),
     val reranker: Model = Model(),
     val models: Map<String, LlmModel> = mapOf(

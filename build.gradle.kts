@@ -74,6 +74,7 @@ dependencies {
     implementation("io.github.smiley4:schema-kenerator-reflection:$schema_kenerator_version")
     implementation("io.github.smiley4:schema-kenerator-serialization:$schema_kenerator_version")
     implementation("io.github.smiley4:schema-kenerator-swagger:$schema_kenerator_version")
+    implementation("io.github.smiley4:schema-kenerator-jsonschema:${schema_kenerator_version}")
     implementation("io.swagger.parser.v3:swagger-parser:2.1.22")
     implementation("com.sun.mail:javax.mail:1.6.2") // 邮件发送
     implementation("ch.qos.logback:logback-classic:$logback_version") // 日志
@@ -81,6 +82,9 @@ dependencies {
     implementation("io.ktor:ktor-server-config-yaml-jvm") // yaml on read application.yaml
     implementation("org.fusesource.jansi:jansi:2.4.1") // 终端颜色码
     implementation("org.jline:jline:$jline_version") // 终端打印、命令等
+
+    // mcp support
+    implementation("io.modelcontextprotocol:kotlin-sdk:0.6.0")
 
     //postgresql
     val postgresql_version: String by project

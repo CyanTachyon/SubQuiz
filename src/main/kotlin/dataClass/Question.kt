@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalSerializationApi::class)
 package moe.tachyon.quiz.dataClass
 
 import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
@@ -6,15 +7,17 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.NothingSerializer
 import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonClassDiscriminator
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlin.reflect.KClass
 
-@OptIn(ExperimentalSerializationApi::class)
 @JsonClassDiscriminator("type")
-sealed interface Question<out Answer, out UserAnswer, out Analysis: String?>
+sealed interface Question<out Answer, out UserAnswer, out Analysis: JsonElement?>
 {
-    val description: String
-    val options: List<String>?
+    val description: JsonElement
+    val options: List<JsonElement>?
     val answer: Answer
     val userAnswer: UserAnswer
     val analysis: Analysis
@@ -64,7 +67,7 @@ sealed interface Question<out Answer, out UserAnswer, out Analysis: String?>
 
         @Suppress("unused", "UNCHECKED_CAST")
         @OptIn(InternalSerializationApi::class)
-        fun <A: Any?, UA: Any?, Ana: String?>serializer(a: KSerializer<A>, ua: KSerializer<UA>, ana: KSerializer<Ana>): KSerializer<Question<A,UA,Ana>>
+        fun <A: Any?, UA: Any?, Ana: JsonElement?>serializer(a: KSerializer<A>, ua: KSerializer<UA>, ana: KSerializer<Ana>): KSerializer<Question<A,UA,Ana>>
         {
             require(
                 a == QuestionAnswerSerializer ||
@@ -103,8 +106,8 @@ sealed interface Question<out Answer, out UserAnswer, out Analysis: String?>
                     SingleChoiceQuestion.serializer(getKSerializer(a, Int.serializer()), getKSerializer(ua, Int.serializer()), ana),
                     MultipleChoiceQuestion.serializer(getKSerializer(a, ListSerializer(Int.serializer())), getKSerializer(ua, ListSerializer(Int.serializer())), ana),
                     JudgeQuestion.serializer(getKSerializer(a, Boolean.serializer()), getKSerializer(ua, Boolean.serializer()), ana),
-                    FillQuestion.serializer(getKSerializer(a, String.serializer()), getKSerializer(ua, String.serializer()), ana),
-                    EssayQuestion.serializer(getKSerializer(a, String.serializer()), getKSerializer(ua, String.serializer()), ana)
+                    FillQuestion.serializer(getKSerializer(a, JsonElement.serializer ()), getKSerializer(ua, String.serializer()), ana),
+                    EssayQuestion.serializer(getKSerializer(a, JsonElement.serializer()), getKSerializer(ua, String.serializer()), ana)
                 )
             )
         }
@@ -124,14 +127,15 @@ sealed interface Question<out Answer, out UserAnswer, out Analysis: String?>
 
 @Serializable
 @SerialName("single")
-data class SingleChoiceQuestion<out Answer: Int?, out UserAnswer: Int?, out Analysis: String?>(
-    override val description: String,
-    override val options: List<String>,
+data class SingleChoiceQuestion<out Answer: Int?, out UserAnswer: Int?, out Analysis: JsonElement?>(
+    override val description: JsonElement,
+    override val options: List<JsonElement>?,
     override val answer: Answer,
     override val userAnswer: UserAnswer,
     override val analysis: Analysis
 ): Question<Answer, UserAnswer, Analysis>
 {
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     override val type = "single"
     override fun hideAnswer(): SingleChoiceQuestion<Nothing?, UserAnswer, Nothing?> =
         SingleChoiceQuestion(description, options, null, userAnswer, null)
@@ -147,20 +151,25 @@ data class SingleChoiceQuestion<out Answer: Int?, out UserAnswer: Int?, out Anal
     companion object
     {
         val example = SingleChoiceQuestion(
-            description = "the question description",
-            options = listOf("option 1", "option 2", "option 3", "option 4"),
+            description = JsonObject(emptyMap()),
+            options = listOf(
+                JsonObject(emptyMap()),
+                JsonObject(emptyMap()),
+                JsonObject(emptyMap()),
+                JsonObject(emptyMap()),
+            ),
             answer = 0,
             userAnswer = 1,
-            analysis = "the analysis"
+            analysis = JsonObject(emptyMap()),
         )
     }
 }
 
 @Serializable
 @SerialName("multiple")
-data class MultipleChoiceQuestion<out Answer: List<Int>?, out UserAnswer: List<Int>?, out Analysis: String?>(
-    override val description: String,
-    override val options: List<String>,
+data class MultipleChoiceQuestion<out Answer: List<Int>?, out UserAnswer: List<Int>?, out Analysis: JsonElement?>(
+    override val description: JsonElement,
+    override val options: List<JsonElement>?,
     override val answer: Answer,
     override val userAnswer: UserAnswer,
     override val analysis: Analysis
@@ -171,6 +180,7 @@ data class MultipleChoiceQuestion<out Answer: List<Int>?, out UserAnswer: List<I
         require(answer == null || answer.isNotEmpty()) { "answer must not be empty" }
         require(userAnswer == null || userAnswer.isNotEmpty()) { "userAnswer must not be empty" }
     }
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     override val type = "multiple"
     override fun hideAnswer(): MultipleChoiceQuestion<Nothing?, UserAnswer, Nothing?> =
         MultipleChoiceQuestion(description, options, null, userAnswer, null)
@@ -186,25 +196,31 @@ data class MultipleChoiceQuestion<out Answer: List<Int>?, out UserAnswer: List<I
     companion object
     {
         val example = MultipleChoiceQuestion(
-            description = "the question description",
-            options = listOf("option 1", "option 2", "option 3", "option 4"),
+            description = JsonObject(emptyMap()),
+            options = listOf(
+                JsonObject(emptyMap()),
+                JsonObject(emptyMap()),
+                JsonObject(emptyMap()),
+                JsonObject(emptyMap()),
+            ),
             answer = listOf(0, 1),
             userAnswer = listOf(1, 2),
-            analysis = "the analysis"
+            analysis = JsonObject(emptyMap()),
         )
     }
 }
 
 @Serializable
 @SerialName("judge")
-data class JudgeQuestion<out Answer: Boolean?, out UserAnswer: Boolean?, out Analysis: String?>(
-    override val description: String,
+data class JudgeQuestion<out Answer: Boolean?, out UserAnswer: Boolean?, out Analysis: JsonElement?>(
+    override val description: JsonElement,
     override val answer: Answer,
     override val userAnswer: UserAnswer,
     override val analysis: Analysis
 ): Question<Answer, UserAnswer, Analysis>
 {
-    override val options: List<String>? get() = null
+    override val options: List<JsonElement>? get() = null
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     override val type = "judge"
     override fun hideAnswer(): JudgeQuestion<Nothing?, UserAnswer, Nothing?> =
         JudgeQuestion(description, null, userAnswer, null)
@@ -220,28 +236,28 @@ data class JudgeQuestion<out Answer: Boolean?, out UserAnswer: Boolean?, out Ana
     companion object
     {
         val example = JudgeQuestion(
-            description = "the question description",
+            description = JsonObject(emptyMap()),
             answer = true,
             userAnswer = false,
-            analysis = "the analysis"
+            analysis = JsonObject(emptyMap()),
         )
     }
 }
 
 @Serializable
 @SerialName("fill")
-data class FillQuestion<out Answer: String?, out UserAnswer: String?, out Analysis: String?>(
-    override val description: String,
+data class FillQuestion<out Answer: JsonElement?, out UserAnswer: String?, out Analysis: JsonElement?>(
+    override val description: JsonElement,
     override val answer: Answer,
     override val userAnswer: UserAnswer,
     override val analysis: Analysis
 ): Question<Answer, UserAnswer, Analysis>
 {
     init {
-        require(answer == null || answer.isNotBlank()) { "answer must not be blank" }
         require(userAnswer == null || userAnswer.isNotBlank()) { "userAnswer must not be blank" }
     }
-    override val options: List<String>? get() = null
+    override val options: List<JsonElement>? get() = null
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     override val type = "fill"
     override fun hideAnswer(): FillQuestion<Nothing?, UserAnswer, Nothing?> =
         FillQuestion(description, null, userAnswer, null)
@@ -257,18 +273,18 @@ data class FillQuestion<out Answer: String?, out UserAnswer: String?, out Analys
     companion object
     {
         val example = FillQuestion(
-            description = "the question description",
-            answer = "the answer",
+            description = JsonObject(emptyMap()),
+            answer = JsonObject(emptyMap()),
             userAnswer = "the user answer",
-            analysis = "the analysis"
+            analysis = JsonObject(emptyMap()),
         )
     }
 }
 
 @Serializable
 @SerialName("essay")
-data class EssayQuestion<out Answer: String?, out UserAnswer: String?, out Analysis: String?>(
-    override val description: String,
+data class EssayQuestion<out Answer: JsonElement?, out UserAnswer: String?, out Analysis: JsonElement?>(
+    override val description: JsonElement,
     override val answer: Answer,
     override val userAnswer: UserAnswer,
     override val analysis: Analysis
@@ -276,10 +292,10 @@ data class EssayQuestion<out Answer: String?, out UserAnswer: String?, out Analy
 {
     init
     {
-        require(answer == null || answer.isNotBlank()) { "answer must not be blank" }
         require(userAnswer == null || userAnswer.isNotBlank()) { "userAnswer must not be blank" }
     }
-    override val options: List<String>? get() = null
+    override val options: List<JsonElement>? get() = null
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     override val type = "essay"
     override fun hideAnswer(): EssayQuestion<Nothing?, UserAnswer, Nothing?> =
         EssayQuestion(description, null, userAnswer, null)
@@ -295,10 +311,10 @@ data class EssayQuestion<out Answer: String?, out UserAnswer: String?, out Analy
     companion object
     {
         val example = EssayQuestion(
-            description = "the question description",
-            answer = "the answer",
+            description = JsonObject(emptyMap()),
+            answer = JsonObject(emptyMap()),
             userAnswer = "the user answer",
-            analysis = "the analysis"
+            analysis = JsonObject(emptyMap()),
         )
     }
 }

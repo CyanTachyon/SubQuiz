@@ -6,24 +6,26 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.CompositeDecoder.Companion.DECODE_DONE
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @OptIn(ExperimentalSerializationApi::class)
 @Suppress("DEPRECATION_ERROR")
 @Serializable(with = Section.Serializer::class)
 @KeepGeneratedSerializer
-data class Section<out Answer, out UserAnswer, out Analysis: String?>(
+data class Section<out Answer, out UserAnswer, out Analysis: JsonElement?>(
     val id: SectionId,
     val type: SectionTypeId,
-    val description: String,
+    val description: JsonElement,
     val weight: Int,
     val available: Boolean,
-    val markdown: Boolean,
     val questions: List<Question<Answer, UserAnswer, Analysis>>
 )
 {
     init
     {
-        if (weight < 0 || weight > 100) throw IllegalArgumentException("Weight must be between 0 and 100")
+        if (weight !in 0..100) throw IllegalArgumentException("Weight must be between 0 and 100")
         if (available && questions.isEmpty()) throw IllegalArgumentException("Questions must not be empty if available is true")
     }
 
@@ -33,7 +35,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
         description = description,
         weight = weight,
         available = available,
-        markdown = markdown,
         questions  = questions.map { it.hideAnswer() }
     )
 
@@ -44,7 +45,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
             description = description,
             weight = weight,
             available = available,
-            markdown = markdown,
             questions = questions.map { it.checkFinished() ?: return null }
         )
 
@@ -55,7 +55,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
             description = description,
             weight = weight,
             available = available,
-            markdown = markdown,
             questions = questions.map { it.withoutUserAnswer() }
         )
 
@@ -68,7 +67,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
             description = description,
             weight = weight,
             available = available,
-            markdown = markdown,
             questions = questions.zip(o.questions).map { (a, b) -> a.mergeUserAnswer(b) }
         )
     }
@@ -80,10 +78,9 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
         val example = Section(
             id = SectionId(1),
             type = SectionTypeId(1),
-            description = "the section description",
+            description = JsonObject(mapOf("text" to JsonPrimitive("Example Section"))),
             weight = 50,
             available = true,
-            markdown = false,
             questions = Question.examples
         )
     }
@@ -98,12 +95,12 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
      *
      * See [kotlinx.serialization Github](https://github.com/Kotlin/kotlinx.serialization/issues/2953)
      *
-     * The old data does not include the fields `weight`, `available`, or `markdown`.
+     * The old data does not include the fields `weight`, `available`
      * To ensure compatibility (prevent deserialization errors),
      * these three fields should be treated as optional during deserialization.
      */
     @Deprecated("This serializer is only used to fix a bug in kotlinx.serialization, please do not use it.", level = DeprecationLevel.ERROR, replaceWith = ReplaceWith("Section.serializer(answerSerializer, userAnswerSerializer, analysisSerializer)"))
-    class Serializer<Answer, UserAnswer, Analysis: String?>(
+    class Serializer<Answer, UserAnswer, Analysis: JsonElement?>(
         private val answerSerializer: KSerializer<Answer>,
         private val userAnswerSerializer: KSerializer<UserAnswer>,
         private val analysisSerializer: KSerializer<Analysis>
@@ -122,7 +119,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
         private val descriptionIndex = descriptor.getElementIndex("description")
         private val weightIndex = descriptor.getElementIndex("weight")
         private val availableIndex = descriptor.getElementIndex("available")
-        private val markdownIndex = descriptor.getElementIndex("markdown")
         private val questionsIndex = descriptor.getElementIndex("questions")
 
         override fun deserialize(decoder: Decoder): Section<Answer, UserAnswer, Analysis>
@@ -131,10 +127,9 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
             var bits = 0
             var id: SectionId? = null
             var type: SectionTypeId? = null
-            var description: String? = null
+            var description: JsonElement? = null
             var weight: Int = 50
             var available: Boolean = true
-            var markdown: Boolean = false
             var questions: List<Question<Answer, UserAnswer, Analysis>>? = null
             loop@ while (true)
             {
@@ -144,10 +139,9 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
                     DECODE_DONE -> break@loop
                     idIndex -> id = d.decodeSerializableElement(descriptor, i, SectionId.serializer())
                     typeIndex -> type = d.decodeSerializableElement(descriptor, i, SectionTypeId.serializer())
-                    descriptionIndex -> description = d.decodeStringElement(descriptor, i)
+                    descriptionIndex -> description = d.decodeSerializableElement(descriptor, i, JsonElement.serializer())
                     weightIndex -> weight = d.decodeIntElement(descriptor, i)
                     availableIndex -> available = d.decodeBooleanElement(descriptor, i)
-                    markdownIndex -> markdown = d.decodeBooleanElement(descriptor, i)
                     questionsIndex -> questions = d.decodeSerializableElement(descriptor, i, ListSerializer(Question.serializer(answerSerializer, userAnswerSerializer, analysisSerializer)))
                     else -> throw SerializationException("Unknown index $i")
                 }
@@ -164,8 +158,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
                 @Suppress("ControlFlowWithEmptyBody")
                 if (bits and (1 shl weightIndex) == 0) { /*do nothing*/ }
                 @Suppress("ControlFlowWithEmptyBody")
-                if (bits and (1 shl markdownIndex) == 0) { /*do nothing*/ }
-                @Suppress("ControlFlowWithEmptyBody")
                 if (bits and (1 shl availableIndex) == 0) { /*do nothing*/ }
             }
             return Section(
@@ -174,7 +166,6 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
                 description = description!!,
                 weight = weight,
                 available = available,
-                markdown = markdown,
                 questions = questions!!
             )
         }
@@ -184,10 +175,9 @@ data class Section<out Answer, out UserAnswer, out Analysis: String?>(
             val c = encoder.beginStructure(descriptor)
             c.encodeSerializableElement(descriptor, idIndex, SectionId.serializer(), value.id)
             c.encodeSerializableElement(descriptor, typeIndex, SectionTypeId.serializer(), value.type)
-            c.encodeStringElement(descriptor, descriptionIndex, value.description)
+            c.encodeSerializableElement(descriptor, descriptionIndex, JsonElement.serializer(), value.description)
             c.encodeIntElement(descriptor, weightIndex, value.weight)
             c.encodeBooleanElement(descriptor, availableIndex, value.available)
-            c.encodeBooleanElement(descriptor, markdownIndex, value.markdown)
             c.encodeSerializableElement(descriptor, questionsIndex, ListSerializer(Question.serializer(answerSerializer, userAnswerSerializer, analysisSerializer)), value.questions)
             c.endStructure(descriptor)
         }

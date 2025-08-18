@@ -33,7 +33,8 @@ fun Route.user() = route("user", {
                 description = "用户id, 0为当前用户"
             }
         }
-        response {
+        response()
+        {
             statuses<UserFull>(HttpStatus.OK.subStatus("获得完整信息成功", 0), example = UserFull.example)
             statuses<BasicUserInfo>(HttpStatus.OK.subStatus("获得基本信息成功", 1), example = BasicUserInfo.example)
         }
@@ -57,7 +58,8 @@ fun Route.user() = route("user", {
     get("/author", {
         summary = "获取作者信息"
         description = "获取作者信息"
-        response {
+        response()
+        {
             statuses<Author>(HttpStatus.OK, example = Author.example)
         }
     })

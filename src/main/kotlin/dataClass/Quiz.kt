@@ -8,6 +8,7 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.CompositeDecoder.Companion.DECODE_DONE
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.utils.ai.TokenUsage
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.minutes
@@ -16,7 +17,7 @@ import kotlin.time.Duration.Companion.minutes
 @Suppress("DEPRECATION_ERROR")
 @Serializable(with = Quiz.Serializer::class)
 @KeepGeneratedSerializer
-data class Quiz<out Answer, out UserAnswer, out Analysis: String?>(
+data class Quiz<out Answer, out UserAnswer, out Analysis: JsonElement?>(
     val id: QuizId,
     val user: UserId,
     val time: Long,
@@ -108,7 +109,7 @@ data class Quiz<out Answer, out UserAnswer, out Analysis: String?>(
      * See [kotlinx.serialization Github](https://github.com/Kotlin/kotlinx.serialization/issues/2953)
      */
     @Deprecated("This serializer is only used to fix a bug in kotlinx.serialization, please do not use it.", level = DeprecationLevel.ERROR, replaceWith = ReplaceWith("Quiz.serializer(answerSerializer, userAnswerSerializer, analysisSerializer)"))
-    class Serializer<Answer, UserAnswer, Analysis: String?>(
+    class Serializer<Answer, UserAnswer, Analysis: JsonElement?>(
         private val answerSerializer: KSerializer<Answer>,
         private val userAnswerSerializer: KSerializer<UserAnswer>,
         private val analysisSerializer: KSerializer<Analysis>

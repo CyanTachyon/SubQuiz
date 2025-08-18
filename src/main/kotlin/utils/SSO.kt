@@ -65,7 +65,6 @@ object SSO: KoinComponent
             }.body<Response<Information<SsoUserFull>>>().data
             if (data.service.id != systemConfig.ssoServerId) null else data.user
         }.getOrElse { logger.fine("error in sso", it); null }
-        if (user != null) classMembers.updateUsers(user.id, user.seiue.map { it.studentId })
         user
     }
 
@@ -114,12 +113,11 @@ object SSO: KoinComponent
         }.getOrElse { logger.fine("error in sso", it); null }
     }
 
-    suspend fun hasUser(id: UserId) = getAccessToken(id) != null
-
     suspend fun getUserFull(accessToken: String): UserFull?
     {
         val ssoUser = getUser(accessToken) ?: return null
         val dbUser = users.getOrCreateUser(ssoUser.id)
+        classMembers.updateUsers(ssoUser.id, ssoUser.seiue.map { s -> s.studentId })
         return UserFull.from(ssoUser, dbUser)
     }
 
@@ -131,12 +129,5 @@ object SSO: KoinComponent
         @Suppress("UNUSED_VARIABLE")
         val ssoUser = getAccessToken(userId) ?: return null
         return users.getOrCreateUser(userId)
-    }
-
-    suspend fun getUserAndDbUser(userId: UserId): Pair<SsoUser, DatabaseUser>?
-    {
-        val ssoUser = getAccessToken(userId)?.let { getUser(it) } ?: return null
-        val dbUser = users.getOrCreateUser(userId)
-        return ssoUser to dbUser
     }
 }

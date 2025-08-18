@@ -18,6 +18,7 @@ import io.github.smiley4.ktorswaggerui.routing.swaggerUI
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.request.header
+import io.ktor.server.request.path
 import io.ktor.server.request.uri
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -49,14 +50,17 @@ fun Application.router() = routing()
 
     install(createRouteScopedPlugin("CheckClientVersion", { })
     {
+        val regex = listOf(
+            "api-docs.*",
+            "terminal.*",
+            "ai/chat/[0-9]+/file/[^/]+/data",
+        ).map(::Regex)
         onCall()
         {
-            if (it.request.uri.let { uri ->
-                uri == "$rootPath/" ||
-                uri.startsWith("$rootPath/api-docs") ||
-                uri.startsWith("$rootPath/terminal")
-            }) return@onCall
-            val clientVersion = it.request.header("X-Client-Version")?.toIntOrNull()
+            val path = it.request.path().removePrefix(rootPath).removePrefix("/")
+            if (path.isEmpty() || regex.any { r -> r.matches(path) })
+                return@onCall
+            val clientVersion = it.request.header("X-Client-Version")?.toLongOrNull()
             if (clientVersion == null || clientVersion < systemConfig.minVersionId)
                 finishCall(HttpStatus.VersionTooOld)
         }

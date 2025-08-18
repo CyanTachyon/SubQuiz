@@ -5,6 +5,7 @@ import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
 import moe.tachyon.quiz.utils.ai.ChatMessages
 
@@ -29,7 +30,7 @@ data class Chat(
     val user: UserId,
     val title: String,
     @Serializable(SectionSerializer::class)
-    val section: Section<@Contextual Any, @Contextual Any, String>?,
+    val section: Section<@Contextual Any, @Contextual Any, JsonElement>?,
     val histories: ChatMessages,
     val hash: String,
     val banned: Boolean,
@@ -41,16 +42,16 @@ data class Chat(
         private val ser = Section.serializer(
             QuestionAnswerSerializer,
             QuestionAnswerSerializer,
-            String.serializer()
+            JsonElement.serializer()
         )
-        private class SectionSerializer: KSerializer<Section<Any, Any, String>> by ser
+        private class SectionSerializer: KSerializer<Section<Any, Any, JsonElement>> by ser
 
         val example = Chat(
             id = ChatId(1),
             user = UserId(1),
             title = "示例聊天",
             section = Section.example,
-            histories = emptyList(),
+            histories = ChatMessages.empty(),
             hash = "example-hash",
             banned = false,
         )

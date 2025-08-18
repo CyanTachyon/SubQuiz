@@ -5,6 +5,7 @@ package moe.tachyon.quiz.route.exam
 import io.github.smiley4.ktorswaggerui.dsl.routing.*
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
+import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.ClassId.Companion.toClassIdOrNull
 import moe.tachyon.quiz.dataClass.ExamId.Companion.toExamIdOrNull
@@ -138,7 +139,7 @@ fun Route.exam() = route("/exam", {
             }
             response()
             {
-                statuses<Quiz<Any, Any, String>>(HttpStatus.OK, example = Quiz.example)
+                statuses<Quiz<Any, Any, JsonElement>>(HttpStatus.OK, example = Quiz.example)
                 statuses(HttpStatus.Forbidden, HttpStatus.NotFound, HttpStatus.NotAcceptable.subStatus("该学生未完成考试"))
             }
         }, Context::getStudentExam)

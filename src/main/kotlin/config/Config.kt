@@ -108,7 +108,7 @@ class ConfigLoader<T: Any> private constructor(
         )
         fun init() // 初始化所有配置
         {
-            listOf(aiConfig, apiDocsConfig, loggerConfig, systemConfig, cosConfig)
+            listOf(aiConfig, apiDocsConfig, mcpConfig, loggerConfig, systemConfig, cosConfig)
             reloadAll()
         }
 

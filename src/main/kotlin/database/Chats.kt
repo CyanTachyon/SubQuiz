@@ -1,5 +1,6 @@
 package moe.tachyon.quiz.database
 
+import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.dataClass.Section
@@ -30,7 +31,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
         override val id = chatId("id").autoIncrement().entityId()
         val user = reference("user", Users.UserTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
         val title = varchar("title", 128).default("新建对话")
-        val section = jsonb<Section<Any, Any, String>>("section", dataJson, dataJson.serializersModule.serializer()).nullable()
+        val section = jsonb<Section<Any, Any, JsonElement>>("section", dataJson, dataJson.serializersModule.serializer()).nullable()
         val histories = jsonb<ChatMessages>("histories", dataJson, dataJson.serializersModule.serializer())
         val hash = varchar("hash", 64).index()
         val banned = bool("banned").default(false)
@@ -50,14 +51,14 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
 
     suspend fun createChat(
         user: UserId,
-        section: Section<Any, Any, String>?,
+        section: Section<Any, Any, JsonElement>?,
         hash: String = System.currentTimeMillis().toString(36),
     ): Chat = query()
     {
         val id = insertAndGetId {
             it[ChatTable.user] = user
             it[ChatTable.section] = section
-            it[ChatTable.histories] = emptyList()
+            it[ChatTable.histories] = ChatMessages.empty()
             it[ChatTable.hash] = hash
         }.value
         Chat(
@@ -65,7 +66,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             user = user,
             title = "新建对话",
             section = section,
-            histories = emptyList(),
+            histories = ChatMessages.empty(),
             hash = hash,
             banned = false,
         )
@@ -100,7 +101,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
                     it[table.user].value,
                     it[table.title],
                     null,
-                    emptyList(),
+                    ChatMessages.empty(),
                     it[table.hash],
                     it[table.banned],
                 )
@@ -115,7 +116,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             .where { table.id eq chatId }
             .singleOrNull()
             ?.get(table.histories)
-            ?: emptyList()
+            ?: ChatMessages.empty()
     }
 
     suspend fun updateHistory(

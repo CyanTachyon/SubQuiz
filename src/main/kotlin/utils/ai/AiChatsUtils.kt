@@ -2,20 +2,28 @@
 
 package moe.tachyon.quiz.utils.ai.chatUtils
 
+import io.ktor.util.decodeBase64Bytes
 import kotlinx.coroutines.*
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
+import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.Chats
 import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
+import moe.tachyon.quiz.utils.ai.tools.AiTools
+import moe.tachyon.quiz.utils.safeWithContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.io.ByteArrayOutputStream
 import java.util.*
+import javax.imageio.ImageIO
+import kotlin.uuid.ExperimentalUuidApi
 
 private typealias MessageSlice = StreamAiResponseSlice
 private typealias TextMessage = StreamAiResponseSlice.Message
@@ -42,7 +50,7 @@ object AiChatsUtils: KoinComponent
     private val chatInfoLocks = Locks<ChatId>()
     class ChatInfo(
         val chat: Chat,
-        val content: String,
+        val content: Content,
     )
     {
         private val response: MutableList<StreamAiResponseSlice> = mutableListOf()
@@ -51,21 +59,22 @@ object AiChatsUtils: KoinComponent
             private set
         var finished: Boolean = false
             private set
-        var checked = 0
+        private var checked = 0
         private val job = SupervisorJob()
         suspend fun join() = job.join()
         private var askJob = Job()
-        private val coroutineScope = CoroutineScope(Dispatchers.IO + job + CoroutineExceptionHandler { _, throwable ->
+        private val coroutineScope = CoroutineScope(Dispatchers.IO + job + CoroutineExceptionHandler()
+        { _, throwable ->
             if (!job.isCancelled) logger.warning("error in ChatInfo job ${chat.id}", throwable)
         })
 
-        private suspend inline fun<T> withLock(block: () -> T): T = chatInfoLocks.withLock(chat.id, block)
+        private suspend fun<T> withLock(block: suspend () -> T): T = chatInfoLocks.withLock(chat.id, block)
 
         fun cancel() = askJob.cancel()
 
         suspend fun start(service: AskService): Unit = withLock()
         {
-            if (finished || banned) return
+            if (finished || banned) return@withLock
 
             job.invokeOnCompletion()
             {
@@ -74,26 +83,18 @@ object AiChatsUtils: KoinComponent
 
             coroutineScope.launch()
             {
-                var res0: StreamAiResult? = null
-                try
+                val res = runCatching()
                 {
-                    withContext(askJob)
+                    safeWithContext(askJob)
                     {
-                        res0 = service.ask(
-                            chat.section,
-                            chat.histories,
-                            chat.user,
+                        service.ask(
+                            chat,
                             content,
                             this@ChatInfo::putMessage
                         )
                     }
-                }
-                catch (e: Throwable)
-                {
-                    if (res0 == null)
-                        res0 = StreamAiResult.UnknownError(emptyList(), TokenUsage(), e)
-                }
-                val res = res0 ?: StreamAiResult.UnknownError(emptyList(), TokenUsage(), IllegalStateException("no result from ask service"))
+                }.getOrElse { StreamAiResult.UnknownError(ChatMessages.empty(), TokenUsage(), it) }
+
                 try
                 {
                     users.addTokenUsage(chat.user, res.usage)
@@ -126,30 +127,19 @@ object AiChatsUtils: KoinComponent
 
                         val endMsg = if (res.messages.isNotEmpty()) "\n---\n$ERROR_MESSAGE" else ERROR_MESSAGE
                         runCatching { putMessage(TextMessage(endMsg)) }
-                        val resMsg = res.messages.toMutableList()
-                        if (resMsg.lastOrNull()?.role == Role.ASSISTANT)
-                        {
-                            resMsg[resMsg.lastIndex] = resMsg.last().copy(
-                                content = resMsg.last().content + Content(endMsg),
-                            )
-                        }
-                        else resMsg += ChatMessage(
-                            role = Role.ASSISTANT,
-                            content = endMsg
-                        )
+                        val resMsg = res.messages + ChatMessage(Role.ASSISTANT, endMsg)
                         finish(withBanned = false, resMsg.toList())
                     }
                 }
             }
         }
 
-        suspend fun banned(): Unit = withLock()
+        private suspend fun banned(): Unit = withLock()
         {
-            if (banned) return
             finish(withBanned = true, BANNED_MESSAGE)
         }
 
-        suspend fun check(onFinished: Boolean): Unit = withLock()
+        private suspend fun check(onFinished: Boolean): Unit = withLock()
         {
             val uncheckedList = mutableListOf<TextMessage>()
             var checked0 = this.checked
@@ -183,12 +173,12 @@ object AiChatsUtils: KoinComponent
             for (message in uncheckedList)
                 count += message.content.length + message.reasoningContent.length
 
-            if (!onFinished && count < CHECK_LENGTH) return
+            if (!onFinished && count < CHECK_LENGTH) return@withLock
             else this.checked += count
 
             coroutineScope.launch()
             {
-                val res = AskService.check(this@ChatInfo.content, uncheckedList)
+                val res = AskService.check(this@ChatInfo.content.toText(), uncheckedList)
                 users.addTokenUsage(chat.user, res.second)
                 if (res.first) return@launch banned()
             }
@@ -206,18 +196,18 @@ object AiChatsUtils: KoinComponent
             }
         }
 
-        suspend fun merge(message: MessageSlice): Unit = withLock()
+        private suspend fun merge(message: MessageSlice): Unit = withLock()
         {
             val lst = response.lastOrNull()
             if (message !is TextMessage)
             {
                 response += message
-                return
+                return@withLock
             }
             else if (lst !is TextMessage)
             {
                 response += message
-                return
+                return@withLock
             }
             val content = lst.content + message.content
             val reasoning = lst.reasoningContent + message.reasoningContent
@@ -225,9 +215,9 @@ object AiChatsUtils: KoinComponent
             check(false)
         }
 
-        suspend fun putMessage(message: MessageSlice): Unit = withLock()
+        private suspend fun putMessage(message: MessageSlice): Unit = withLock()
         {
-            if (banned) return
+            if (banned) return@withLock
             val disabledListeners = hashSetOf<ChatListener>()
             for (listener in listeners)
                 runCatching { listener(MessageEvent(message)) }.onFailure { disabledListeners += listener }
@@ -237,8 +227,8 @@ object AiChatsUtils: KoinComponent
 
         suspend fun putListener(listener: ChatListener) = withLock()
         {
-            if (banned) return listener(BannedEvent)
-            if (listener in listeners) return
+            if (banned) return@withLock listener(BannedEvent)
+            if (listener in listeners) return@withLock
             listeners += listener
             response.forEach {
                 runCatching { listener(MessageEvent(it)) }
@@ -250,11 +240,12 @@ object AiChatsUtils: KoinComponent
             }
         }
 
-        suspend fun finish(withBanned: Boolean, res: String, ): Unit =
+        private suspend fun finish(withBanned: Boolean, res: String): Unit =
             finish(withBanned, listOf(ChatMessage(Role.ASSISTANT, res)))
-        suspend fun finish(withBanned: Boolean, res: List<ChatMessage>): Unit = withLock()
+        private suspend fun finish(withBanned: Boolean, res: List<ChatMessage>): Unit = withLock()
         {
-            if (finished && !withBanned) return
+            if (finished && !withBanned) return@withLock
+            if (banned && !withBanned) return@withLock
             finished = true
             banned = banned || withBanned
             if (!banned) runCatching { check(true) }
@@ -279,25 +270,25 @@ object AiChatsUtils: KoinComponent
         }
     }
 
-    private val responseMap = hashMapOf<ChatId, ChatInfo>()
+    private val responseMap = Collections.synchronizedMap(hashMapOf<ChatId, ChatInfo>())
 
     suspend fun getChatInfo(chat: ChatId): ChatInfo? = chatInfoLocks.withLock(chat)
     {
-        return responseMap[chat]
+        return@withLock responseMap[chat]
     }
 
-    suspend fun startRespond(content: String, chat: Chat, service: AskService): String? = chatInfoLocks.withLock(chat.id)
+    suspend fun startRespond(content: Content, chat: Chat, service: AskService): String? = chatInfoLocks.withLock(chat.id)
     {
-        if (chat.banned) return null
+        if (chat.banned) return@withLock null
         val newHash: String = UUID.randomUUID().toString()
         val info = ChatInfo(chat.copy(hash = newHash), content)
-        if (responseMap.putIfAbsent(chat.id, info) != null) return null
+        if (responseMap.putIfAbsent(chat.id, info) != null) return@withLock null
         runCatching()
         {
             if (!chats.checkHash(chat.id, chat.hash))
             {
                 responseMap.remove(chat.id)
-                return null
+                return@withLock null
             }
             chats.updateHistory(chat.id, chat.histories + ChatMessage(Role.USER, content), newHash)
             info.start(service)
@@ -306,11 +297,62 @@ object AiChatsUtils: KoinComponent
             responseMap.remove(chat.id)
             throw it
         }
-        return newHash
+        return@withLock newHash
     }
 
     suspend fun cancelChat(chat: ChatId): Unit = chatInfoLocks.withLock(chat)
     {
         responseMap[chat]?.cancel()
+    }
+
+    suspend fun deleteChat(chat: ChatId, user: UserId): Boolean = chatInfoLocks.withLock(chat)
+    {
+        if (chat in responseMap) return@withLock false
+        if (chats.deleteChat(chat, user))
+        {
+            ChatFiles.deleteChatFiles(chat)
+            return@withLock true
+        }
+        return@withLock false
+    }
+
+    interface MakeContentResult
+    {
+        val content: Content?
+        val error: String?
+        data class Success(override val content: Content): MakeContentResult
+        {
+            override val error: String? = null
+        }
+        data class Failure(override val error: String): MakeContentResult
+        {
+            override val content: Content? = null
+        }
+    }
+    @OptIn(ExperimentalUuidApi::class)
+    fun makeContent(chat: ChatId, content: String, images: List<String>): MakeContentResult
+    {
+        if (images.size > 5) return MakeContentResult.Failure("最多只能上传5张图片")
+        if (images.any { it.length > 1024 * 1024 * 4 / 3 + 100 })
+            return MakeContentResult.Failure("图片过大，单张图片不能超过1MB")
+        val imageContents = images.map()
+        {
+            if (it.startsWith("uuid:")) return@map ContentNode.image(it)
+            runCatching()
+            {
+                val img = ImageIO.read(it.decodeBase64Bytes().inputStream())
+                val output = ByteArrayOutputStream()
+                ImageIO.write(img, "png", output)
+                output.flush()
+                output.close()
+                val bytes = output.toByteArray()
+                val uuid = ChatFiles.addChatFile(chat, "img.png", AiTools.ToolData.Type.IMAGE, bytes)
+                ContentNode.image("uuid:" + uuid.toHexString())
+            }.getOrElse()
+            {
+                return MakeContentResult.Failure("图片格式错误或无法读取")
+            }
+        }
+        return MakeContentResult.Success(Content(imageContents + ContentNode.text(content)))
     }
 }

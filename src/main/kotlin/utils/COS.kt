@@ -65,10 +65,10 @@ object COS: KoinComponent
      * @param type 图片的类型
      * @return 若需要上传, 返回图片的URL, 否则返回null
      */
-    suspend fun addImage(sectionId: SectionId, md5: String, type: ContentType): String? = withContext(Dispatchers.IO)
+    suspend fun addImage(sectionId: SectionId, md5: String, type: ContentType): Pair<String?, String> = withContext(Dispatchers.IO)
     {
         val filename = md5.decodeBase64Bytes().joinToString("") { it.toUByte().toString(16).padStart(2, '0') }
-        if (hasObject("/section_images/$sectionId/$filename")) return@withContext null
+        if (hasObject("/section_images/$sectionId/$filename")) return@withContext null to filename
         val url = cosClient.generatePresignedUrl(
             GeneratePresignedUrlRequest(
                 cosConfig.bucketName,
@@ -80,7 +80,7 @@ object COS: KoinComponent
                 withExpiration(Date(System.currentTimeMillis() + 30 * 60 * 1000))
             }
         )
-        return@withContext url.toString()
+        return@withContext url.toString() to filename
     }
 
     fun removeImage(sectionId: SectionId, md5: String)

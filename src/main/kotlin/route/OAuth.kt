@@ -28,7 +28,8 @@ fun Route.oauth() = route("oauth", {
                 required = true
             }
         }
-        response {
+        response()
+        {
             statuses<String>(HttpStatus.OK, example = "token")
         }
     })

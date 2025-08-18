@@ -15,12 +15,18 @@ import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.*
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.database.Records
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
+import moe.tachyon.quiz.plugin.contentNegotiation.showJson
+import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.*
+import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
+import moe.tachyon.quiz.utils.ai.tools.AiToolInfo
 import moe.tachyon.quiz.utils.getKoin
 
 @Serializable
@@ -55,6 +61,7 @@ private sealed interface AiResponse
                 val function: Function,
             )
             {
+                @Suppress("RedundantNullableReturnType")
                 val type: String? = "function"
                 @Serializable
                 data class Function(
@@ -98,7 +105,7 @@ private data class DefaultAiResponse(
     @Serializable
     data class Choice(
         @SerialName("finish_reason")
-        override val finishReason: AiResponse.FinishReason,
+        override val finishReason: AiResponse.FinishReason? = null,
         override val index: Int,
         override val message: Message,
     ): AiResponse.Choice
@@ -207,12 +214,14 @@ private data class AiRequest(
     @Serializable
     data class Tool(val function: Function)
     {
+        @Suppress("RedundantNullableReturnType")
         val type: String? = "function"
+
         @Serializable
         data class Function(
             val name: String,
             val description: String? = null,
-            val parameters: AiToolInfo.Parameters? = null,
+            val parameters: JsonSchema? = null,
         )
     }
 }
@@ -256,18 +265,18 @@ private val defaultAiClient = HttpClient(CIO)
 
 private val records: Records by getKoin().inject()
 
-sealed class StreamAiResult(val messages: List<ChatMessage>, val usage: TokenUsage)
+sealed class StreamAiResult(val messages: ChatMessages, val usage: TokenUsage)
 {
-    class Success(messages: List<ChatMessage>, usage: TokenUsage): StreamAiResult(messages, usage)
-    class TooManyRequests(messages: List<ChatMessage>, usage: TokenUsage) : StreamAiResult(messages, usage)
-    class ServiceError(messages: List<ChatMessage>, usage: TokenUsage) : StreamAiResult(messages, usage)
-    class Cancelled(messages: List<ChatMessage>, usage: TokenUsage) : StreamAiResult(messages, usage)
-    class UnknownError(messages: List<ChatMessage>, usage: TokenUsage, val error: Throwable) : StreamAiResult(messages, usage)
+    class Success(messages: ChatMessages, usage: TokenUsage): StreamAiResult(messages, usage)
+    class TooManyRequests(messages: ChatMessages, usage: TokenUsage) : StreamAiResult(messages, usage)
+    class ServiceError(messages: ChatMessages, usage: TokenUsage) : StreamAiResult(messages, usage)
+    class Cancelled(messages: ChatMessages, usage: TokenUsage) : StreamAiResult(messages, usage)
+    class UnknownError(messages: ChatMessages, usage: TokenUsage, val error: Throwable) : StreamAiResult(messages, usage)
 }
 
 suspend fun sendAiRequest(
     model: AiConfig.LlmModel,
-    messages: List<ChatMessage>,
+    messages: ChatMessages,
     temperature: Double? = null,
     topP: Double? = null,
     frequencyPenalty: Double? = null,
@@ -291,7 +300,7 @@ suspend fun sendAiRequest(
         stop = stop,
     )
 
-    var res: DefaultAiResponse? = null
+    var res: JsonElement? = null
     try
     {
         res = withTimeout(aiConfig.timeout)
@@ -305,27 +314,40 @@ suspend fun sendAiRequest(
                 setBody(body)
             }
             val body = res.bodyAsText()
-            logger.severe("AI请求返回异常: $body")
+            logger.severe("AI请求返回不是合法JSON: $body")
             {
-                contentNegotiationJson.decodeFromString<DefaultAiResponse>(body)
+                contentNegotiationJson.parseToJsonElement(body)
             }.getOrThrow()
         }
-        res
+        val r = runCatching()
+        {
+            contentNegotiationJson.decodeFromJsonElement<DefaultAiResponse>(res)
+        }.onFailure()
+        {
+            logger.warning("AI请求返回异常: ${contentNegotiationJson.encodeToString(res)}")
+        }.getOrThrow()
+
         ChatMessage(
             role = Role.ASSISTANT,
-            content = res.choices.firstOrNull()?.message?.content ?: "",
-            reasoningContent = res.choices.firstOrNull()?.message?.reasoningContent ?: "",
-        ) to res.usage
+            content = r.choices.firstOrNull()?.message?.content ?: "",
+            reasoningContent = r.choices.firstOrNull()?.message?.reasoningContent ?: "",
+        ) to r.usage
     }
     finally
     {
-        if (record) records.addRecord(url, body, res)
+        if (record) runCatching()
+        {
+            withContext(NonCancellable)
+            {
+                records.addRecord(url, body, res)
+            }
+        }
     }
 }
 
 suspend fun sendAiStreamRequest(
     model: AiConfig.LlmModel,
-    messages: List<ChatMessage>,
+    messages: ChatMessages,
     temperature: Double? = null,
     topP: Double? = null,
     frequencyPenalty: Double? = null,
@@ -348,18 +370,18 @@ suspend fun sendAiStreamRequest(
         frequencyPenalty = frequencyPenalty,
         presencePenalty = presencePenalty,
         stop = stop,
-        tools = tools.map {
+        tools = tools.map()
+        {
             AiRequest.Tool(
                 function = AiRequest.Tool.Function(
                     name = it.name,
                     description = it.description,
-                    parameters = it.parms,
+                    parameters = it.dataSchema,
                 )
             )
         },
     )
 
-    logger.config("发送AI流式请求: $url")
     val list = mutableListOf<StreamAiResponse>()
     val res = mutableListOf<ChatMessage>()
     var send = true
@@ -376,7 +398,9 @@ suspend fun sendAiStreamRequest(
                 bearerAuth(model.key.random())
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Any)
-                setBody(contentNegotiationJson.encodeToString(body.copy(messages = body.messages + res.mapNotNull(ChatMessage::toRequestMessage))))
+                val rBody = contentNegotiationJson.encodeToString(body.copy(messages = body.messages + res.mapNotNull(ChatMessage::toRequestMessage)))
+                logger.config("流式请求$url : $rBody")
+                setBody(rBody)
             })
             {
                 incoming
@@ -420,7 +444,7 @@ suspend fun sendAiStreamRequest(
                                 }
                             }
 
-                            if (c.message.content != null || c.message.reasoningContent != null)
+                            if (!c.message.content.isNullOrEmpty() || !c.message.reasoningContent.isNullOrEmpty())
                             {
                                 onReceive(
                                     StreamAiResponseSlice.Message(
@@ -464,10 +488,10 @@ suspend fun sendAiStreamRequest(
         if (!curMsg.content.isEmpty() || !curMsg.reasoningContent.isEmpty()) res += curMsg
         return when (e)
         {
-            is CancellationException -> StreamAiResult.Cancelled(res.toList(), usage)
-            is SSEClientException if (e.response?.status?.value == 429) -> StreamAiResult.TooManyRequests(res.toList(), usage)
-            is SSEClientException if (e.response?.status?.value in listOf(500, 502, 504)) -> StreamAiResult.ServiceError(res.toList(), usage)
-            else -> StreamAiResult.UnknownError(res.toList(), usage, e)
+            is CancellationException -> StreamAiResult.Cancelled(res.toChatMessages(), usage)
+            is SSEClientException if (e.response?.status?.value == 429) -> StreamAiResult.TooManyRequests(res.toChatMessages(), usage)
+            is SSEClientException if (e.response?.status?.value in listOf(500, 502, 504)) -> StreamAiResult.ServiceError(res.toChatMessages(), usage)
+            else -> StreamAiResult.UnknownError(res.toChatMessages(), usage, e)
         }
     }
     finally
@@ -480,7 +504,7 @@ suspend fun sendAiStreamRequest(
             }
         }
     }
-    StreamAiResult.Success(res.toList(), usage)
+    StreamAiResult.Success(res.toChatMessages(), usage)
 }
 
 private suspend fun parseToolCalls(
@@ -516,6 +540,7 @@ private suspend fun parseToolCalls(
 
         val content = try
         {
+            logger.config("Calling tool $toolName with parameters $parm")
             @Suppress("UNCHECKED_CAST")
             (tool as AiToolInfo<Any>).invoke(data)
         }
@@ -533,12 +558,14 @@ private suspend fun parseToolCalls(
             content = content.content,
             toolCallId = id
         )
-        if (content.showingContent == null) return@flatMap ChatMessages(toolCall)
-        val showingContent = ChatMessage(
-            role = Role.ASSISTANT,
-            content = Content(content.showingContent),
-            showingType = content.showingContentType
-        )
-        return@flatMap listOf(toolCall, showingContent)
-    }
+        val showingContents = content.showingContent.map()
+        {
+            ChatMessage(
+                role = Role.ASSISTANT,
+                content = Content(it.first),
+                showingType = it.second,
+            )
+        }
+        return@flatMap listOf(toolCall) + showingContents
+    }.toChatMessages()
 }

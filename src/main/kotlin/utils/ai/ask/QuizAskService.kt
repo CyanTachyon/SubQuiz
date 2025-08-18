@@ -2,28 +2,62 @@ package moe.tachyon.quiz.utils.ai.ask
 
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
+import moe.tachyon.quiz.dataClass.Chat
+import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.dataClass.Section
 import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiStreamRequest
 import moe.tachyon.quiz.utils.ai.tools.AiTools
+import moe.tachyon.quiz.utils.ai.tools.ReadImage
 import java.util.*
 
 class QuizAskService private constructor(val model: AiConfig.LlmModel): AskService()
 {
+    private fun parseImages(chat: ChatId, content: Content, imageable: Boolean): Content
+    {
+        if (imageable)
+        {
+            val rContent = content.content.mapNotNull()
+            {
+                when (it)
+                {
+                    is ContentNode.Text  -> it
+                    is ContentNode.Image ->
+                    {
+                        ReadImage.parseUrl (chat, it.image.url)?.let { url -> ContentNode.image(url) }
+                    }
+                }
+            }
+            return Content(rContent)
+        }
+        val sb = StringBuilder()
+        content.content.forEach()
+        {
+            when (it)
+            {
+                is ContentNode.Text -> sb.append(it.text)
+                is ContentNode.Image -> sb.append("`image_url='${it.image.url}'`")
+            }
+        }
+        return Content(sb.toString())
+    }
+
     override suspend fun ask(
-        section: Section<Any, Any, String>?,
-        histories: ChatMessages,
-        user: UserId,
-        content: String,
+        chat: Chat,
+        content: Content,
         onRecord: suspend (StreamAiResponseSlice)->Unit
     ): StreamAiResult
     {
-        val prompt = makePrompt(section, !model.imageable, model.toolable)
-        val messages = listOf(prompt) + histories + ChatMessage(Role.USER, content)
+        val histories = (chat.histories + ChatMessage(Role.USER, content)).map()
+        {
+            it.copy(content = parseImages(chat.id, it.content, model.imageable))
+        }
+        val prompt = makePrompt(chat.section, !model.imageable, model.toolable)
+        val messages = ChatMessages(prompt) + histories
         val tools =
-            if (model.toolable) AiTools.getTools(user)
+            if (model.toolable) AiTools.getTools(chat)
             else emptyList()
         return sendAiStreamRequest(
             model = model,

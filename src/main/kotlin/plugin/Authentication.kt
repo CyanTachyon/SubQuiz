@@ -2,25 +2,28 @@
 
 package moe.tachyon.quiz.plugin.authentication
 
-import moe.tachyon.quiz.config.apiDocsConfig
-import moe.tachyon.quiz.dataClass.Permission
-import moe.tachyon.quiz.logger.SubQuizLogger
-import moe.tachyon.quiz.route.utils.finishCall
-import moe.tachyon.quiz.utils.HttpStatus
 import io.ktor.http.*
 import io.ktor.http.auth.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
+import moe.tachyon.quiz.config.apiDocsConfig
+import moe.tachyon.quiz.dataClass.Permission
 import moe.tachyon.quiz.dataClass.SsoUserFull
+import moe.tachyon.quiz.database.ClassMembers
+import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.route.utils.finishCall
+import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.SSO
+import moe.tachyon.quiz.utils.getKoin
 
 /**
  * 安装登陆验证服务
  */
 fun Application.installAuthentication() = install(Authentication)
 {
+    val classMembers: ClassMembers by getKoin().inject()
     val logger = SubQuizLogger.getLogger()
     // 此登陆仅用于api文档的访问, 见ApiDocs插件
     basic("auth-api-docs")
@@ -38,10 +41,11 @@ fun Application.installAuthentication() = install(Authentication)
     {
         authHeader()
         {
-            val token = it.request.header(HttpHeaders.Authorization) ?: run {
+            val token = it.request.header(HttpHeaders.Authorization) ?: run()
+            {
                 val t = parseHeaderValue(it.request.header(HttpHeaders.SecWebSocketProtocol))
                 val index = t.indexOfFirst { headerValue -> headerValue.value == "Bearer" }
-                if (index == -1) return@run null
+                if (index == -1) return@run it.request.queryParameters["token"]?.let { token -> "Bearer $token" }
                 it.response.header(HttpHeaders.SecWebSocketProtocol, "Bearer")
                 t.getOrNull(index + 1)?.value?.let { token -> "Bearer $token" }
             }

@@ -14,6 +14,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.ClassDiscriminatorMode
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.modules.SerializersModule
 
 /**
@@ -23,8 +24,8 @@ import kotlinx.serialization.modules.SerializersModule
 val QuestionAnswerSerializer = SealedClassSerializer(
     "QuestionAnswerSerializer",
     Any::class,
-    arrayOf(Int::class, String::class, List::class),
-    arrayOf(Int.serializer(), String.serializer(), ListSerializer(Int.serializer()))
+    arrayOf(Int::class, JsonElement::class, List::class),
+    arrayOf(Int.serializer(), JsonElement.serializer(), ListSerializer(Int.serializer()))
 )
 
 /**
@@ -57,6 +58,7 @@ val contentNegotiationJson = Json()
 val dataJson = Json(contentNegotiationJson)
 {
     prettyPrint = false
+    encodeDefaults = false
 }
 
 /**

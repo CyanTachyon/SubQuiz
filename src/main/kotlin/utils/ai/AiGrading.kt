@@ -40,12 +40,13 @@ object AiGrading: KoinComponent
                     is FillQuestion, is EssayQuestion -> runCatching {
                         checkAnswer(
                             subject?.name,
-                            this@checkAnswer.description,
-                            it.description,
+                            this@checkAnswer.description.toString(),
+                            it.description.toString(),
                             it.userAnswer.toString(),
                             it.answer.toString()
                         ).let { ans -> totalTokens += ans.second; ans.first }
-                    }.onFailure { e ->
+                    }.onFailure()
+                    { e ->
                         logger.warning("检查答案失败, SectionID: $id, QuestionIndex: $index", e)
                         if (e is AiRetryFailedException) e.exceptions.forEachIndexed()
                         { i, cause ->

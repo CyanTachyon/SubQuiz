@@ -23,6 +23,7 @@ private val client = HttpClient(CIO)
     engine()
     {
         dispatcher = Dispatchers.IO
+        requestTimeout = 0
     }
     install(ContentNegotiation)
     {

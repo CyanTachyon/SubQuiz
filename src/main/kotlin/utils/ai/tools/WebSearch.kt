@@ -16,7 +16,7 @@ import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
-import moe.tachyon.quiz.utils.ai.AiToolInfo
+import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
 
 object WebSearch
@@ -38,7 +38,7 @@ object WebSearch
     }
 
     @Serializable
-    data class Results<T>(val results: List<T>)
+    private data class Results<T>(val results: List<T>)
 
     @Serializable
     data class SearchResult(
@@ -96,47 +96,43 @@ object WebSearch
     }
 
     @Serializable
-    data class AiSearchToolData(
-        @AiToolInfo.Description("搜索关键字")
+    private data class AiSearchToolData(
+        @JsonSchema.Description("搜索关键字")
         val key: String,
-        @AiToolInfo.Description("返回结果数量，不得超过20, 不填默认为10")
+        @JsonSchema.Description("返回结果数量，不得超过20, 不填默认为10")
         val count: Int = 10,
     )
     @Serializable
-    data class AiExtractToolData(@AiToolInfo.Description("要请求的url") val url: String)
+    private data class AiExtractToolData(@JsonSchema.Description("要请求的url") val url: String)
 
     init
     {
-        AiTools.registerTool(
+        AiTools.registerTool<AiSearchToolData>(
             name = "web_search",
             displayName = "联网搜索",
             description = """
                 进行网络搜索，将返回若干相关的搜索结果及来源url等，如有需要可以再使用`web_extract`工具提取网页内容
-                
-                **注意**: 使用该工具获得的信息后，你需要添加信息来源标记，type为 `web`，path为网页url，例如:
-                <tool_data type="web" path="https://example.com">
             """.trimIndent(),
         )
-        { it: AiSearchToolData ->
-            val data = it.key
+        { (chat, parm) ->
+            val data = parm.key
             if (data.isBlank()) AiToolInfo.ToolResult(Content("error: key must not be empty"))
-            else AiToolInfo.ToolResult(Content(showJson.encodeToString(search(data, it.count.coerceIn(1, 20)))))
+            else AiToolInfo.ToolResult(Content(showJson.encodeToString(search(data, parm.count.coerceIn(1, 20))) +
+                    "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\">"))
         }
 
-        AiTools.registerTool(
+        AiTools.registerTool<AiExtractToolData>(
             name = "web_extract",
             displayName = "获取网页内容",
             description = """
                 提取网页内容，将读取指定url的内容并返回
-                
-                **注意**: 使用该工具获得的信息后，你需要添加信息来源标记，type为 `web`，path为网页url，例如:
-                <tool_data type="web" path="https://example.com">
             """.trimIndent(),
         )
-        { it: AiExtractToolData ->
-            val data = it.url
+        { (chat, parm) ->
+            val data = parm.url
             if (data.isBlank()) AiToolInfo.ToolResult(Content("error: url must not be empty"))
-            else AiToolInfo.ToolResult(Content(showJson.encodeToString(extract(data))))
+            else AiToolInfo.ToolResult(Content(showJson.encodeToString(extract(data)) +
+                    "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\">"))
         }
 
         AiTools.registerToolDataGetter("web")

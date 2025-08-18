@@ -12,6 +12,7 @@ import io.ktor.server.routing.*
 import kotlinx.coroutines.*
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.QuizId.Companion.toQuizIdOrNull
 import moe.tachyon.quiz.database.*
@@ -69,7 +70,7 @@ fun Route.quiz() = route("/quiz", {
                 required = false
                 description = "是否提交, 不填默认为false, 若为true, 则要求请求体中的所有选项不得为null"
             }
-            body<Quiz<Any?, Any?, String?>>()
+            body<Quiz<Any?, Any?, JsonElement?>>()
             {
                 required = true
                 description = "选择的选项, 仍以Quiz的形式传递，但该Quiz中仅userAnswer是重要的，其余值可任意填写"
@@ -102,7 +103,7 @@ fun Route.quiz() = route("/quiz", {
 
         response()
         {
-            statuses<Quiz<Any, Any, String>>(HttpStatus.OK, example = Quiz.example)
+            statuses<Quiz<Any, Any, JsonElement>>(HttpStatus.OK, example = Quiz.example)
             statuses(HttpStatus.NotAcceptable.subStatus("该测试还未结束", 1), HttpStatus.NotFound, HttpStatus.QuestionMarking)
         }
     }) { getAnalysis() }
@@ -118,7 +119,7 @@ fun Route.quiz() = route("/quiz", {
 
         response()
         {
-            statuses<Slice<Quiz<Any?, Any?, String?>>>(HttpStatus.OK, example = sliceOf(Quiz.example))
+            statuses<Slice<Quiz<Any?, Any?, JsonElement?>>>(HttpStatus.OK, example = sliceOf(Quiz.example))
         }
     }) { getHistories() }
 
@@ -130,14 +131,14 @@ private suspend fun Context.newQuiz(): Nothing
     val user = getLoginUser()?.id ?: finishCall(HttpStatus.Unauthorized)
     val quizzes: Quizzes = get()
     val count = call.parameters["count"]?.toIntOrNull() ?: finishCall(HttpStatus.BadRequest)
-    val sections = get<Sections>().recommendSections(user, knowledgePoints, count)
+    val sections = get<Sections>().recommendSections(user, null, knowledgePoints, count)
     if (sections.count < count) finishCall(HttpStatus.NotEnoughQuestions)
     val quiz = quizzes.addQuiz(user, sections.list, null)?.hideAnswer()
     if (quiz != null) finishCall(HttpStatus.OK, quiz)
     finishCall(HttpStatus.NotAcceptable.subStatus("已有未完成的测试"), quizzes.getUnfinishedQuiz(user)!!.hideAnswer())
 }
 
-private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, String?>): Nothing
+private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, JsonElement?>): Nothing
 {
     val user = getLoginUser()?.id ?: finishCall(HttpStatus.Unauthorized)
     val id = call.pathParameters["id"]?.toQuizIdOrNull() ?: finishCall(HttpStatus.BadRequest)

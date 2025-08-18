@@ -1,20 +1,49 @@
 package moe.tachyon.quiz.utils.ai.tools
 
 import kotlinx.serialization.Serializable
-import moe.tachyon.quiz.dataClass.UserId
-import moe.tachyon.quiz.utils.ai.AiToolInfo
+import kotlinx.serialization.json.Json
+import moe.tachyon.quiz.dataClass.Chat
+import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
+import moe.tachyon.quiz.utils.JsonSchema
+import moe.tachyon.quiz.utils.ai.Content
+import moe.tachyon.quiz.utils.generateSchema
+import kotlin.reflect.KType
+import kotlin.reflect.typeOf
 
 object AiTools
 {
-    private val toolGetters = mutableListOf<(user: UserId) -> AiToolInfo<*>>()
-    private val toolDataGetters = mutableMapOf<String, (user: UserId, path: String) -> ToolData?>()
+    @Serializable data object EmptyToolParm
+    typealias ToolGetter = suspend (chat: Chat) -> List<AiToolInfo<*>>
+    typealias ToolDataGetter = suspend (chat: Chat, path: String) -> ToolData?
+    private val toolGetters = mutableListOf<ToolGetter>()
+    private val toolDataGetters = mutableMapOf<String, ToolDataGetter>()
+    private val logger = SubQuizLogger.getLogger<AiTools>()
+    val aiNegotiationJson = Json(contentNegotiationJson)
+    {
+        ignoreUnknownKeys = true
+        isLenient = true
+        prettyPrint = true
+    }
 
     init
     {
-        AiLibrary
-        WebSearch
-        UserInfoGetter
-        MindMap
+        listOf(
+            AiLibrary,
+            WebSearch,
+            GetUserInfo,
+            MindMap,
+            ShowHtml,
+            PPT,
+            Math,
+            Quiz,
+            ReadImage,
+            ImageGeneration,
+            MCP,
+        ).let()
+        {
+            logger.fine("Loaded AI Tools: ${it.joinToString { tool -> tool::class.simpleName ?: "Unknown" }}")
+        }
     }
 
     @Serializable
@@ -30,32 +59,96 @@ object AiTools
             URL,
             TEXT,
             HTML,
+            FILE,
+            PAGE,
+            IMAGE,
+            MATH,
         }
     }
 
-    fun getData(user: UserId, type: String, path: String) = toolDataGetters[type]?.invoke(user, path)
+    suspend fun getData(chat: Chat, type: String, path: String) = toolDataGetters[type]?.invoke(chat, path)
 
-    fun getTools(user: UserId): List<AiToolInfo<*>> = toolGetters.map { it(user) }
+    suspend fun getTools(chat: Chat): List<AiToolInfo<*>> = toolGetters.flatMap { it(chat) }
 
     fun <T: Any> registerTool(tool: AiToolInfo<T>)
     {
-        this.toolGetters += { tool }
+        this.toolGetters += { listOf(tool) }
     }
 
+    data class ToolStatus<T>(val chat: Chat, val parm: T)
     inline fun <reified T: Any> registerTool(
         name: String,
-        displayName: String,
+        displayName: String?,
         description: String,
-        noinline block: suspend (T) ->AiToolInfo.ToolResult
-    ) = registerTool(AiToolInfo(name, displayName, description, block))
+        noinline block: suspend (info: ToolStatus<T>) ->AiToolInfo.ToolResult
+    ) = registerTool()
+    { chat ->
+        val tool = AiToolInfo<T>(name, displayName, description)
+        { parm ->
+            block(ToolStatus(chat, parm))
+        }
+        listOf(tool)
+    }
 
-    fun registerTool(getter: (user: UserId) -> AiToolInfo<*>)
+    fun registerTool(getter: ToolGetter)
     {
         this.toolGetters += getter
     }
 
-    fun registerToolDataGetter(type: String, getter: (user: UserId, path: String) -> ToolData?)
+    fun registerToolDataGetter(type: String, getter: ToolDataGetter)
     {
         this.toolDataGetters[type] = getter
+    }
+}
+
+
+data class AiToolInfo<T: Any>(
+    val name: String,
+    val displayName: String?,
+    val description: String,
+    val invoke: suspend (T) -> ToolResult,
+    val dataSchema: JsonSchema,
+    val type: KType,
+)
+{
+    data class ToolResult(
+        val content: Content,
+        val showingContent: List<Pair<String, AiTools.ToolData.Type>> = emptyList(),
+    )
+    {
+        constructor(
+            content: Content,
+            showingContent: String,
+            showingType: AiTools.ToolData.Type = AiTools.ToolData.Type.MARKDOWN
+        ): this(
+            content = content,
+            showingContent = listOf(showingContent to showingType)
+        )
+    }
+
+    operator fun invoke(parm: String)
+    {
+        invoke(AiTools.aiNegotiationJson.decodeFromString(parm))
+    }
+
+    companion object
+    {
+        inline operator fun <reified T: Any> invoke(
+            name: String,
+            displayName: String?,
+            description: String,
+            noinline block: suspend (T) -> ToolResult
+        ): AiToolInfo<T>
+        {
+            val type = typeOf<T>()
+            return AiToolInfo(
+                name = name,
+                displayName = displayName,
+                description = description,
+                invoke = block,
+                dataSchema = JsonSchema.generateSchema<T>(),
+                type = type
+            )
+        }
     }
 }

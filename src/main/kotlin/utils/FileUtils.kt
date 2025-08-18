@@ -1,18 +1,31 @@
 package moe.tachyon.quiz.utils
 
+import io.ktor.http.ContentType
+import io.ktor.http.fromFilePath
+import kotlinx.serialization.Serializable
+import moe.tachyon.quiz.config.systemConfig
+import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.dataDir
+import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
+import moe.tachyon.quiz.utils.ai.tools.AiTools
 import java.io.File
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
-object FileUtils
+object AiLibraryFiles
 {
     /**
      * AI答疑资料库
      */
     val aiLibrary = File(dataDir, "ai-library")
+    val bdfzLibrary = File(aiLibrary, "bdfz");
+    val booksLibrary = File(aiLibrary, "books");
 
     init
     {
         aiLibrary.mkdirs()
+        bdfzLibrary.mkdirs()
+        booksLibrary.mkdirs()
     }
 
 
@@ -73,5 +86,75 @@ object FileUtils
         if (!file.exists() || !file.isFile) return null
         if (!file.canonicalPath.startsWith(aiLibrary.canonicalPath)) return null
         return file.readBytes()
+    }
+
+    fun getBookSubjects(): List<String>
+    {
+        if (!booksLibrary.exists() || !booksLibrary.isDirectory) return emptyList()
+        return booksLibrary.listFiles()?.map { it.name }?.filterNotNull() ?: emptyList()
+    }
+}
+
+object ChatFiles
+{
+    /**
+     * 聊天记录文件夹
+     */
+    val chatFiles = File(dataDir, "chat_files")
+
+    init
+    {
+        chatFiles.mkdirs()
+    }
+
+    @Serializable
+    data class FileInfo(
+        val name: String,
+        val type: AiTools.ToolData.Type
+    )
+    {
+        val mimeType get() = ContentType.fromFilePath(name).firstOrNull()
+    }
+
+    @OptIn(ExperimentalUuidApi::class)
+    fun listChatFiles(chat: ChatId): List<Pair<Uuid, FileInfo>>
+    {
+        val dir = File(chatFiles, chat.toString())
+        return dir.listFiles().filter { it.extension == "info" }.map()
+        { file ->
+            val uuid = Uuid.parseHex(file.nameWithoutExtension)
+            val info = dataJson.decodeFromString<FileInfo>(file.readText())
+            uuid to info
+        }
+    }
+
+    fun deleteChatFiles(chat: ChatId)
+    {
+        val dir = File(chatFiles, chat.toString())
+        if (dir.exists()) require(dir.deleteRecursively())
+    }
+
+    @OptIn(ExperimentalUuidApi::class)
+    fun addChatFile(chat: ChatId, fileName: String, type: AiTools.ToolData.Type, data: ByteArray): Uuid
+    {
+        val dir = File(chatFiles, chat.toString()).apply(File::mkdirs)
+        val uuid = Uuid.random()
+        val infoFile = File(dir, uuid.toHexString() + ".info")
+        val dataFile = File(dir, uuid.toHexString() + ".data")
+        dataFile.writeBytes(data)
+        infoFile.writeText(dataJson.encodeToString(FileInfo(fileName, type)))
+        return uuid
+    }
+
+    @OptIn(ExperimentalUuidApi::class)
+    fun getChatFile(chat: ChatId, uuid: Uuid): Pair<FileInfo, ByteArray>?
+    {
+        val dir = File(chatFiles, chat.toString()).apply(File::mkdirs)
+        val infoFile = File(dir, uuid.toHexString() + ".info")
+        val dataFile = File(dir, uuid.toHexString() + ".data")
+        if (!infoFile.exists() || !dataFile.exists()) return null
+        val data = dataFile.readBytes()
+        val info = dataJson.decodeFromString<FileInfo>(infoFile.readText())
+        return info to data
     }
 }

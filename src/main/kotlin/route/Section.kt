@@ -6,6 +6,7 @@ import io.github.smiley4.ktorswaggerui.dsl.routing.*
 import io.ktor.http.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.KnowledgePointId.Companion.toKnowledgePointId
 import moe.tachyon.quiz.dataClass.SectionId.Companion.toSectionIdOrNull
@@ -31,7 +32,7 @@ fun Route.section() = route("/section", {
         description = "创建一个Section"
         request()
         {
-            body<Section<Any, Nothing?, String>>()
+            body<Section<Any, Nothing?, JsonElement>>()
             {
                 required = true
                 description = "section信息, 其中的id将会被忽略"
@@ -62,7 +63,7 @@ fun Route.section() = route("/section", {
 
             response()
             {
-                statuses<Section<Any, Nothing?, String>>(HttpStatus.OK, example = Section.example.withoutUserAnswer())
+                statuses<Section<Any, Nothing?, JsonElement>>(HttpStatus.OK, example = Section.example.withoutUserAnswer())
             }
         }, Context::getSection)
 
@@ -83,7 +84,7 @@ fun Route.section() = route("/section", {
         description = "更新一个Section"
         request()
         {
-            body<Section<Any, Nothing?, String>>()
+            body<Section<Any, Nothing?, JsonElement>>()
             {
                 required = true
                 description = "section信息"
@@ -115,7 +116,7 @@ fun Route.section() = route("/section", {
         }
         response()
         {
-            statuses<Slice<Section<Any, Nothing?, String>>>(HttpStatus.OK, example = sliceOf(Section.example.withoutUserAnswer()))
+            statuses<Slice<Section<Any, Nothing?, JsonElement>>>(HttpStatus.OK, example = sliceOf(Section.example.withoutUserAnswer()))
         }
     }, Context::getSections)
 }
@@ -224,7 +225,7 @@ fun Route.sectionImage() = route("/image", {})
             }
         }
         response {
-            statuses<String>(HttpStatus.OK)
+            statuses<AddSectionImageResponse>(HttpStatus.OK)
             statuses(
                 HttpStatus.OK.subStatus(code = 1, message = "图片已存在"),
                 HttpStatus.BadRequest.subStatus("md5 is required", 1),
@@ -273,7 +274,7 @@ fun Route.sectionImage() = route("/image", {})
     }, Context::getSectionImages)
 }
 
-private suspend fun <T> Context.createOrUpdateSection(section: Section<Any, Nothing?, String>, block: suspend Sections.(Section<Any, Nothing?, String>) -> T): T
+private suspend fun <T> Context.createOrUpdateSection(section: Section<Any, Nothing?, JsonElement>, block: suspend Sections.(Section<Any, Nothing?, JsonElement>) -> T): T
 {
     section.checkOnCreate()?.let { finishCall(HttpStatus.BadRequest.subStatus(it, 1)) }
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
@@ -287,7 +288,7 @@ private suspend fun <T> Context.createOrUpdateSection(section: Section<Any, Noth
     return sections.block(section)
 }
 
-private suspend fun Context.newSection(section: Section<Any, Nothing?, String>): Nothing
+private suspend fun Context.newSection(section: Section<Any, Nothing?, JsonElement>): Nothing
 {
     finishCall(HttpStatus.OK, createOrUpdateSection(section, Sections::newSection))
 }
@@ -304,7 +305,7 @@ private suspend fun Context.getSection(): Nothing
     finishCall(HttpStatus.OK, section)
 }
 
-private suspend fun Context.updateSection(section: Section<Any, Nothing?, String>): Nothing
+private suspend fun Context.updateSection(section: Section<Any, Nothing?, JsonElement>): Nothing
 {
     if (!createOrUpdateSection(section, Sections::updateSection))
         finishCall(HttpStatus.NotFound)
@@ -352,6 +353,11 @@ enum class ImageType(val contentType: ContentType)
     XIcon(ContentType.Image.XIcon),
 }
 
+@Serializable
+data class AddSectionImageResponse(
+    val uploadUrl: String?,
+    val imageId: String,
+)
 private suspend fun Context.addSectionImage()
 {
     val md5 = call.request.queryParameters["md5"] ?: finishCall(HttpStatus.BadRequest.subStatus("md5 is required", 1))
@@ -363,8 +369,8 @@ private suspend fun Context.addSectionImage()
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
-    val res = COS.addImage(sectionId, md5, type.contentType) ?: finishCall(HttpStatus.OK.subStatus("图片已存在", 1))
-    finishCall(HttpStatus.OK, res)
+    val res = COS.addImage(sectionId, md5, type.contentType)
+    finishCall(HttpStatus.OK, AddSectionImageResponse(res.first, res.second))
 }
 
 private suspend fun Context.deleteSectionImage()

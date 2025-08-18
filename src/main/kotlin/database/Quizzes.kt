@@ -6,6 +6,7 @@ import moe.tachyon.quiz.database.utils.asSlice
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import kotlinx.datetime.Clock
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
 import moe.tachyon.quiz.utils.ai.TokenUsage
 import org.jetbrains.exposed.dao.id.IdTable
@@ -23,7 +24,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
         val user = reference("user", Users.UserTable).index()
         val time = timestamp("time").defaultExpression(CurrentTimestamp).index()
         val duration = long("duration").nullable().default(null)
-        val sections = jsonb<List<Section<Any, Any?, String>>>("sections", dataJson, dataJson.serializersModule.serializer())
+        val sections = jsonb<List<Section<Any, Any?, JsonElement>>>("sections", dataJson, dataJson.serializersModule.serializer())
         val finished = bool("finished").default(false)
         val correct = jsonb<List<List<Boolean?>>>("correct", dataJson, dataJson.serializersModule.serializer()).nullable().default(null)
         val tokenUsage = jsonb<TokenUsage>("token_usage", dataJson, dataJson.serializersModule.serializer()).nullable().default(null)
@@ -37,7 +38,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
         }
     }
 
-    private fun deserialize(row: ResultRow): Quiz<Any, Any?, String> =
+    private fun deserialize(row: ResultRow): Quiz<Any, Any?, JsonElement> =
         Quiz(
             id = row[table.id].value,
             user = row[table.user].value,
@@ -49,7 +50,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             tokenUsage = row[table.tokenUsage],
         )
 
-    suspend fun getUnfinishedQuiz(user: UserId): Quiz<Any, Any?, String>? = query()
+    suspend fun getUnfinishedQuiz(user: UserId): Quiz<Any, Any?, JsonElement>? = query()
     {
         selectAll()
             .where { finished eq false }
@@ -58,7 +59,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             ?.let(::deserialize)
     }
 
-    suspend fun getQuiz(id: QuizId): Quiz<Any, Any?, String>? = query()
+    suspend fun getQuiz(id: QuizId): Quiz<Any, Any?, JsonElement>? = query()
     {
         selectAll()
             .where { table.id eq id }
@@ -66,7 +67,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             ?.let(::deserialize)
     }
 
-    suspend fun getQuiz(user: UserId, exam: ExamId): Quiz<Any, Any?, String>? = query()
+    suspend fun getQuiz(user: UserId, exam: ExamId): Quiz<Any, Any?, JsonElement>? = query()
     {
         selectAll()
             .where { table.user eq user }
@@ -75,7 +76,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             ?.let(::deserialize)
     }
 
-    suspend fun getQuizzes(user: UserId?, begin: Long, count: Int): Slice<Quiz<Any, Any?, String>> = query()
+    suspend fun getQuizzes(user: UserId?, begin: Long, count: Int): Slice<Quiz<Any, Any?, JsonElement>> = query()
     {
         selectAll()
             .apply { if (user != null) andWhere { table.user eq user } }
@@ -84,7 +85,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             .map(::deserialize)
     }
 
-    suspend fun addQuiz(user: UserId, sections: List<Section<Any, Nothing?, String>>, exam: ExamId?): Quiz<Any, Nothing?, String>? = query()
+    suspend fun addQuiz(user: UserId, sections: List<Section<Any, Nothing?, JsonElement>>, exam: ExamId?): Quiz<Any, Nothing?, JsonElement>? = query()
     {
         val time = Clock.System.now()
         val id = insertIgnoreAndGetId {
@@ -106,7 +107,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
         )
     }
 
-    suspend fun updateQuiz(id: QuizId, finished: Boolean, duration: Long?, sections: List<Section<Any, Any?, String>>) = query()
+    suspend fun updateQuiz(id: QuizId, finished: Boolean, duration: Long?, sections: List<Section<Any, Any?, JsonElement>>) = query()
     {
         update({ table.id eq id})
         {
@@ -134,7 +135,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
         }
     }
 
-    suspend fun getQuizzesOrderByTokenUsage(begin: Long, count: Int): Slice<Quiz<Any, Any?, String>> = query()
+    suspend fun getQuizzesOrderByTokenUsage(begin: Long, count: Int): Slice<Quiz<Any, Any?, JsonElement>> = query()
     {
         selectAll()
             .orderBy(tokenUsage.extract<Long>("total_tokens", toScalar = false) to SortOrder.DESC)
@@ -142,7 +143,7 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             .map(::deserialize)
     }
 
-    suspend fun getQuizzesOrderByQuestionCount(begin: Long, count: Int): Slice<Quiz<Any, Any?, String>> = query()
+    suspend fun getQuizzesOrderByQuestionCount(begin: Long, count: Int): Slice<Quiz<Any, Any?, JsonElement>> = query()
     {
         selectAll()
             .orderBy(CustomFunction("jsonb_array_length", LongColumnType(), table.sections) to SortOrder.DESC)
