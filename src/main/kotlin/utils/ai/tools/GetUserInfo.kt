@@ -43,7 +43,7 @@ data object GetUserInfo
                 将获得用户的ID、昵称、实名、学号/工号等信息。
             """.trimIndent()
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val getter = Getter(chat.user)
             val info = getter.getInfo()
             AiToolInfo.ToolResult(Content(info))

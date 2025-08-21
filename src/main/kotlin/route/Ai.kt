@@ -380,7 +380,7 @@ private data class ChatResponse(
                 banned = chat.banned,
             )
 
-            val tools = AiTools.getTools(chat)
+            val tools = AiTools.getTools(chat, null)
             val h = chat.histories.mapNotNull()
             { msg ->
                 if (msg.role == Role.TOOL)

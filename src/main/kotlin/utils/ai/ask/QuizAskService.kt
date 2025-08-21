@@ -57,7 +57,7 @@ class QuizAskService private constructor(val model: AiConfig.LlmModel): AskServi
         val prompt = makePrompt(chat.section, !model.imageable, model.toolable)
         val messages = ChatMessages(prompt) + histories
         val tools =
-            if (model.toolable) AiTools.getTools(chat)
+            if (model.toolable) AiTools.getTools(chat, model)
             else emptyList()
         return sendAiStreamRequest(
             model = model,

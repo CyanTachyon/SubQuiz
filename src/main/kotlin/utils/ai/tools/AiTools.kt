@@ -2,6 +2,7 @@ package moe.tachyon.quiz.utils.ai.tools
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
@@ -14,7 +15,7 @@ import kotlin.reflect.typeOf
 object AiTools
 {
     @Serializable data object EmptyToolParm
-    typealias ToolGetter = suspend (chat: Chat) -> List<AiToolInfo<*>>
+    typealias ToolGetter = suspend (chat: Chat, model: AiConfig.LlmModel?) -> List<AiToolInfo<*>>
     typealias ToolDataGetter = suspend (chat: Chat, path: String) -> ToolData?
     private val toolGetters = mutableListOf<ToolGetter>()
     private val toolDataGetters = mutableMapOf<String, ToolDataGetter>()
@@ -68,24 +69,21 @@ object AiTools
 
     suspend fun getData(chat: Chat, type: String, path: String) = toolDataGetters[type]?.invoke(chat, path)
 
-    suspend fun getTools(chat: Chat): List<AiToolInfo<*>> = toolGetters.flatMap { it(chat) }
+    suspend fun getTools(chat: Chat, model: AiConfig.LlmModel?): List<AiToolInfo<*>> =
+        toolGetters.flatMap { it(chat, model) }
 
-    fun <T: Any> registerTool(tool: AiToolInfo<T>)
-    {
-        this.toolGetters += { listOf(tool) }
-    }
+    data class ToolStatus<T>(val chat: Chat, val model: AiConfig.LlmModel?, val parm: T)
 
-    data class ToolStatus<T>(val chat: Chat, val parm: T)
     inline fun <reified T: Any> registerTool(
         name: String,
         displayName: String?,
         description: String,
-        noinline block: suspend (info: ToolStatus<T>) ->AiToolInfo.ToolResult
+        noinline block: suspend (info: ToolStatus<T>) -> AiToolInfo.ToolResult
     ) = registerTool()
-    { chat ->
+    { chat, model ->
         val tool = AiToolInfo<T>(name, displayName, description)
         { parm ->
-            block(ToolStatus(chat, parm))
+            block(ToolStatus(chat, model, parm))
         }
         listOf(tool)
     }

@@ -126,7 +126,7 @@ object MCP
     init
     {
         AiTools.registerTool()
-        { chat ->
+        { chat, _ ->
             if (mcpConfig.mcp.isEmpty()) return@registerTool emptyList()
             val client: ClientWrapper = getClient(chat.id)
             val tools = client.value.listTools()?.tools ?: return@registerTool emptyList()

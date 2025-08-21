@@ -30,7 +30,7 @@ object ShowHtml
                 该工具在你需要画简单示意图等场景时非常有用。
             """.trimIndent()
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val svgContent = parm.svg.trim()
             AiToolInfo.ToolResult(Content("已成功展示 SVG 图像"), svgContent)
         }
@@ -46,7 +46,7 @@ object ShowHtml
                 该工具会将 HTML 页面直接展示给用户，若成功，会告知你成功，若不成功则告知你错误信息。
             """.trimIndent()
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val html = parm.html.trim()
             AiToolInfo.ToolResult(Content("已成功展示 HTML 页面"), html, AiTools.ToolData.Type.HTML)
         }

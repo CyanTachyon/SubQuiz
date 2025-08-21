@@ -31,7 +31,7 @@ object Quiz: KoinComponent
             当用户学习某个知识点后，你可以搜索题目并考察用户对该知识点的掌握情况。
         """.trimIndent()
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val keyword = parm.keyword
             val sections = sections.recommendSections(chat.user, keyword, null, parm.count).list
             if (sections.isEmpty())

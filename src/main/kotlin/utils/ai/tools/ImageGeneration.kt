@@ -30,7 +30,7 @@ object ImageGeneration
                 该工具会将生成的图片直接展示给用户，若成功，会告知你成功，若不成功则告知你错误信息。
             """.trimIndent(),
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val images = sendImageGenerationRequest(prompt = parm.prompt, negativePrompt = parm.negativePrompt)
             val byteArrays = images.map()
             {

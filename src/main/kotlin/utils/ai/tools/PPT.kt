@@ -182,7 +182,7 @@ object PPT
                 请注意：每个页面内容不得超过5条，否则将无法显示
             """.trimIndent(),
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val data = parm.markdown
             if (data.isBlank())
             {

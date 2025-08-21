@@ -118,7 +118,7 @@ object AiLibrary: KoinComponent
             - {"query": "北大附中 数学课", "count": 5}
         """.trimIndent(),
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val res = searchInOrder("/bdfz/", parm.query, parm.count)
             AiToolInfo.ToolResult(Content(showJson.encodeToString(res) + "请在你后面的回答中添加信息来源标记，type为 `lib`，path为文档路径，例如:\n<data type=\"lib\" path=\"/path/to/document.md\">"))
         }
@@ -147,7 +147,7 @@ object AiLibrary: KoinComponent
             - {"subject": "物理", "query": "加速度定义"}
             """.trimIndent()
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val path =
                 if (parm.subject.isBlank()) "/books/"
                 else "/books/${parm.subject}/"

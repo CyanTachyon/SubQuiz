@@ -67,7 +67,7 @@ object MindMap
                 该工具会将生成的思维导图直接展示给用户，若成功，会告知你成功，若不成功则告知你错误信息。
             """.trimIndent(),
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val data = parm.markdown
             if (data.isBlank())
             {

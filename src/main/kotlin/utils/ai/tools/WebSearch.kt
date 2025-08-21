@@ -114,7 +114,7 @@ object WebSearch
                 进行网络搜索，将返回若干相关的搜索结果及来源url等，如有需要可以再使用`web_extract`工具提取网页内容
             """.trimIndent(),
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val data = parm.key
             if (data.isBlank()) AiToolInfo.ToolResult(Content("error: key must not be empty"))
             else AiToolInfo.ToolResult(Content(showJson.encodeToString(search(data, parm.count.coerceIn(1, 20))) +
@@ -128,7 +128,7 @@ object WebSearch
                 提取网页内容，将读取指定url的内容并返回
             """.trimIndent(),
         )
-        { (chat, parm) ->
+        { (chat, model, parm) ->
             val data = parm.url
             if (data.isBlank()) AiToolInfo.ToolResult(Content("error: url must not be empty"))
             else AiToolInfo.ToolResult(Content(showJson.encodeToString(extract(data)) +
