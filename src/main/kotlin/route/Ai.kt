@@ -13,7 +13,6 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.sse.*
 import kotlinx.serialization.*
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.*
@@ -25,16 +24,10 @@ import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.HttpStatus
-import moe.tachyon.quiz.utils.ai.AiImage
-import moe.tachyon.quiz.utils.ai.AiTranslate
-import moe.tachyon.quiz.utils.ai.ChatMessages
-import moe.tachyon.quiz.utils.ai.Content
-import moe.tachyon.quiz.utils.ai.Role
-import moe.tachyon.quiz.utils.ai.StreamAiResponseSlice
+import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.ai.tools.AiTools
-import moe.tachyon.quiz.utils.ai.tools.AiTools.ToolData.Type.*
 import moe.tachyon.quiz.utils.statuses
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid

@@ -4,8 +4,6 @@ import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
-import moe.tachyon.quiz.dataClass.Section
-import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiStreamRequest

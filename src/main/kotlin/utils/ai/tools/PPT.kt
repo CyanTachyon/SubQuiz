@@ -191,7 +191,7 @@ object PPT
                 )
             }
 
-            val res = makePPT(data, themes.firstOrNull { it.name == parm.theme } ?: themes.first { t -> parm.name == "wave" })
+            val res = makePPT(data, themes.firstOrNull { it.name == parm.theme } ?: themes.first { t -> t.name == "wave" })
             val pptxFile = ChatFiles.addChatFile(chat.id, "${parm.name}.pptx", AiTools.ToolData.Type.FILE, res.pptx)
             val images = res.images.mapIndexed()
             { index, image ->
