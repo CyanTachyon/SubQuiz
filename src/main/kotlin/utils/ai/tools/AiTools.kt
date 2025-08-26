@@ -41,6 +41,7 @@ object AiTools
             ReadImage,
             ImageGeneration,
             MCP,
+            ShowQuestion,
         ).let()
         {
             logger.fine("Loaded AI Tools: ${it.joinToString { tool -> tool::class.simpleName ?: "Unknown" }}")
@@ -64,6 +65,7 @@ object AiTools
             PAGE,
             IMAGE,
             MATH,
+            QUIZ,
         }
     }
 
