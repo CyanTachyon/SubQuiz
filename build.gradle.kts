@@ -13,8 +13,8 @@ val swagger_ui_version: String by project
 val schema_kenerator_version: String by project
 
 plugins {
-    kotlin("jvm") version "2.2.0"
-    kotlin("plugin.serialization") version "2.2.0"
+    kotlin("jvm") version "2.2.10"
+    kotlin("plugin.serialization") version "2.2.10"
     id("io.ktor.plugin") version "3.2.0"
 }
 
