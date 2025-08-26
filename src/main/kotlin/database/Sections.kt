@@ -83,9 +83,9 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
                 if (keyword == null) return@apply
                 andWhere()
                 {
-                    val expr1 = (table.description.castTo(TextColumnType()) like "%$keyword%")
                     val keyword1 = keyword.replace("\\", "\\\\").replace("\"", "\\\"")
-                    val tmp = CustomExpression<String>("'$[*].description ? (@.string() like_regex \"$keyword1\" flag \"i\")'")
+                    val tmp = CustomExpression<String>("'strict $.**.content ? (@.type() == \"string\" && @ like_regex \"$keyword1\")'")
+                    val expr1 = CustomFunction("jsonb_path_exists", BooleanColumnType(), table.description, tmp)
                     val expr2 = CustomFunction("jsonb_path_exists", BooleanColumnType(), table.questions, tmp)
                     expr1 or expr2
                 }
