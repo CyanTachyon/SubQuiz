@@ -27,7 +27,7 @@ import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
-import moe.tachyon.quiz.utils.ai.tools.AiTools
+import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.statuses
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -50,7 +50,7 @@ fun Route.ai() = route("/ai", {
             }
             response()
             {
-                statuses<ChatResponse>(HttpStatus.OK, example = ChatResponse.example)
+                statuses<ChatId>(HttpStatus.OK, example = ChatId(1))
                 statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
             }
         }, Context::newChat)
@@ -255,8 +255,8 @@ private suspend fun Context.newChat(): Nothing
         if (content !is AiChatsUtils.MakeContentResult.Success)
             finishCall(HttpStatus.BadRequest.subStatus(content.error))
         val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
-        val hash = AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
-        ChatResponse(chat.copy(hash = hash))
+        AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
+        chat.id
     }.onFailure { AiChatsUtils.deleteChat(chat.id, user.id) }.getOrThrow()
     finishCall(HttpStatus.OK, res)
 }
@@ -269,6 +269,12 @@ private data class SendChatMessageRequest(
     val hash: String,
     val images: List<String> = emptyList(),
     val regenerate: Boolean = false,
+)
+
+@Serializable
+private data class SendChatMessageResponse(
+    val content: Content,
+    val hash: String,
 )
 
 private suspend fun Context.sendChatMessage()
@@ -289,7 +295,7 @@ private suspend fun Context.sendChatMessage()
     if (content !is AiChatsUtils.MakeContentResult.Success)
         finishCall(HttpStatus.BadRequest.subStatus(content.error))
     val hash = AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
-    finishCall(HttpStatus.OK, hash)
+    finishCall(HttpStatus.OK, SendChatMessageResponse(content.content, hash))
 }
 
 @Serializable
@@ -376,10 +382,15 @@ private data class ChatResponse(
             val tools = AiTools.getTools(chat, null)
             val h = chat.histories.mapNotNull()
             { msg ->
-                if (msg.role == Role.TOOL)
-                    return@mapNotNull null
-                if (msg.role == Role.USER)
-                    return@mapNotNull listOf(History(Role.USER, listOf(ChatSseMessage(msg.content, "", ""))))
+                when (msg.role)
+                {
+                    Role.USER                -> return@mapNotNull listOf(History(Role.USER, listOf(ChatSseMessage(msg.content, "", ""))))
+                    Role.SYSTEM              -> return@mapNotNull null
+                    Role.TOOL                -> return@mapNotNull null
+                    Role.CONTEXT_COMPRESSION -> return@mapNotNull listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(Content(""), "", "压缩上下文"))))
+                    Role.ASSISTANT           -> Unit // go on
+                }
+
                 if (msg.showingType != null)
                     return@mapNotNull listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(msg.content, "", "", msg.showingType))))
                 val rc = msg.reasoningContent
@@ -429,7 +440,7 @@ private suspend fun Context.listenChat()
     val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val hash = call.queryParameters["hash"] ?: finishCall(HttpStatus.BadRequest)
     val chatInfo = AiChatsUtils.getChatInfo(chatId) ?: finishCall(HttpStatus.OK)
-    if (chatInfo.chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
+    if (chatInfo.chat.user != loginUser.id && !loginUser.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
     if (chatInfo.chat.hash != hash) finishCall(HttpStatus.Conflict)
 
     sseHeaders()
@@ -460,6 +471,8 @@ private suspend fun Context.listenChat()
                                 else null
                             is StreamAiResponseSlice.ShowingTool ->
                                 ChatSseMessage(Content(it.message.content), "", "", it.message.showingType)
+                            StreamAiResponseSlice.ContextCompression ->
+                                ChatSseMessage(Content(""), "", "压缩上下文")
                         }
                     if (msg != null)
                         send(event = "message", data = contentNegotiationJson.encodeToString(msg))
@@ -517,7 +530,7 @@ private suspend fun Context.getToolData()
     val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("chat id is required"))
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val chat = get<Chats>().getChat(chatId) ?: finishCall(HttpStatus.NotFound)
-    if (chat.user != user.id) finishCall(HttpStatus.NotFound)
+    if (chat.user != user.id && !user.hasGlobalAdmin()) finishCall(HttpStatus.NotFound)
     val data = AiTools.getData(chat, type, path)
     finishCall(HttpStatus.OK, data ?: AiTools.ToolData(AiTools.ToolData.Type.TEXT, "资源不存在或无法访问"))
 }
@@ -530,7 +543,7 @@ private suspend fun Context.getChatFile(info: Boolean)
     val download = call.request.queryParameters["download"]?.toBooleanStrictOrNull() ?: false
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val chat = get<Chats>().getChat(chatId) ?: finishCall(HttpStatus.NotFound)
-    if (chat.user != user.id) finishCall(HttpStatus.NotFound)
+    if (chat.user != user.id && !user.hasGlobalAdmin()) finishCall(HttpStatus.NotFound)
     val file = ChatFiles.getChatFile(chat.id, Uuid.parseHex(fileUuid)) ?: finishCall(HttpStatus.NotFound)
     if (info) finishCall(HttpStatus.OK, file.first)
     else
@@ -552,6 +565,8 @@ private suspend fun Context.getChatFile(info: Boolean)
 @Serializable
 private data class Text(val text: String)
 @Serializable
+private data class TranslateResult(val text: String, val reasoning: String)
+@Serializable
 private data class Translate(
     val text: String,
     val lang0: String = "中文",
@@ -571,8 +586,8 @@ private suspend fun Context.translateText()
         logger.warning("error in translate")
         {
             AiTranslate.translate(body.text, body.lang0, body.lang1, body.twoWay)
-            {
-                send(event = "message", data = contentNegotiationJson.encodeToString(Text(it)))
+            { content, reasoning ->
+                send(event = "message", data = contentNegotiationJson.encodeToString(TranslateResult(content, reasoning)))
             }
         }
     }

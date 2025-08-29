@@ -1,10 +1,10 @@
 package moe.tachyon.quiz.config
 
 import com.charleskorn.kaml.YamlComment
-import io.github.smiley4.ktorswaggerui.data.TagGenerator
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class AiConfig(
@@ -19,6 +19,7 @@ data class AiConfig(
     val checker: String = "ds-r1-qwen3-8b",
     val translator: String = "ds-r1-qwen3-8b",
     val chatNamer: String = "ds-r1-qwen3-8b",
+    val contextCompressor: String = "ds-r1-qwen3-8b",
     val imageGenerator: Model = Model(),
     val embedding: Model = Model(),
     val reranker: Model = Model(),
@@ -34,6 +35,7 @@ data class AiConfig(
     val checkerModel get() = models[checker]!!
     val translatorModel get() = models[translator]!!
     val chatNamerModel get() = models[chatNamer]!!
+    val contextCompressorModel get() = models[contextCompressor]!!
 
     @Serializable
     data class LlmModel(
@@ -47,6 +49,8 @@ data class AiConfig(
         @SerialName("thinking_budget")
         val thinkingBudget: Int? = null,
         val key: List<String> = listOf("your api key"),
+
+        val customRequestParms: JsonObject = JsonObject(mapOf())
     )
     {
         val semaphore by lazy { Semaphore(maxConcurrency) }
@@ -92,6 +96,7 @@ data class AiConfig(
         require(checker in models) { "check model not found in models" }
         require(translator in models) { "translator model not found in models" }
         require(chatNamer in models) { "chatNamer model not found in models" }
+        require(contextCompressor in models) { "contextCompressor model not found in models" }
     }
 }
 

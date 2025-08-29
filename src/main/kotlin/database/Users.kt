@@ -12,7 +12,6 @@ import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.utils.ai.TokenUsage
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.json.extract
 import org.jetbrains.exposed.sql.json.jsonb
 
 class Users: SqlDao<Users.UserTable>(UserTable)
@@ -25,6 +24,7 @@ class Users: SqlDao<Users.UserTable>(UserTable)
         override val id = userId("id").entityId()
         val permission = enumeration<Permission>("permission").default(Permission.NORMAL)
         val tokenUsage = jsonb<TokenUsage>("token_usage", dataJson, dataJson.serializersModule.serializer()).default(TokenUsage())
+        val globalMemory = jsonb<Map<String, String>>("global_memory", dataJson, dataJson.serializersModule.serializer()).default(emptyMap())
         override val primaryKey = PrimaryKey(id)
     }
 
@@ -59,11 +59,27 @@ class Users: SqlDao<Users.UserTable>(UserTable)
         update({ UserTable.id eq id }) { it[UserTable.tokenUsage] = tokenUsage + usage } > 0
     }
 
-    suspend fun getUserOrderByTokenUsage(begin: Long, count: Int): Slice<DatabaseUser> = query()
+    suspend fun getGlobalMemory(id: UserId): Map<String, String> = query()
     {
-        selectAll()
-            .orderBy(tokenUsage.extract<Long>("total_tokens", toScalar = false) to SortOrder.DESC)
-            .asSlice(begin, count)
-            .map(::deserialize)
+        select(globalMemory).where { UserTable.id eq id }.singleOrNull()?.get(globalMemory) ?: emptyMap()
+    }
+
+    suspend fun setGlobalMemory(id: UserId, key: String, value: String): Boolean = query()
+    {
+        val currentMemory = select(globalMemory).where { UserTable.id eq id }.singleOrNull()?.get(globalMemory) ?: emptyMap()
+        val updatedMemory = currentMemory + (key to value)
+        update({ UserTable.id eq id }) { it[globalMemory] = updatedMemory } > 0
+    }
+
+    suspend fun removeGlobalMemory(id: UserId, key: String): Boolean = query()
+    {
+        val currentMemory = select(globalMemory).where { UserTable.id eq id }.singleOrNull()?.get(globalMemory) ?: emptyMap()
+        val updatedMemory = currentMemory - key
+        update({ UserTable.id eq id }) { it[globalMemory] = updatedMemory } > 0
+    }
+
+    suspend fun clearGlobalMemory(id: UserId): Boolean = query()
+    {
+        update({ UserTable.id eq id }) { it[globalMemory] = emptyMap() } > 0
     }
 }

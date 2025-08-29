@@ -5,9 +5,7 @@ import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.PolymorphicKind
-import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.descriptors.buildSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
@@ -15,13 +13,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
-import moe.tachyon.quiz.utils.JsonSchema
-import moe.tachyon.quiz.utils.ai.tools.AiToolInfo
-import moe.tachyon.quiz.utils.ai.tools.AiTools
-import moe.tachyon.quiz.utils.generateSchema
-import java.util.function.IntFunction
-import kotlin.reflect.KType
-import kotlin.reflect.typeOf
+import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
+import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 
 @Serializable
 enum class Role
@@ -37,6 +30,9 @@ enum class Role
 
     @SerialName("tool")
     TOOL,
+
+    @Serializable
+    CONTEXT_COMPRESSION
 }
 
 
@@ -192,7 +188,10 @@ data class ChatMessage(
     }
 
     infix fun canPlus(other: ChatMessage): Boolean =
-        this.role == other.role && this.toolCallId.isEmpty() && other.toolCallId.isEmpty() && this.showingType == null && other.showingType == null
+        this.role == other.role &&
+        this.showingType == null &&
+        other.showingType == null &&
+        this.role in listOf(Role.ASSISTANT)
     operator fun plus(other: ChatMessage): ChatMessage
     {
         if (!(this canPlus other)) error("Cannot combine messages with different roles, tool call IDs, or showing types")
@@ -295,4 +294,9 @@ sealed interface StreamAiResponseSlice
         val content: String,
         val showingType: AiTools.ToolData.Type,
     ): StreamAiResponseSlice
+
+    /**
+     * 发生了上下文压缩
+     */
+    data object ContextCompression: StreamAiResponseSlice
 }

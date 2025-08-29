@@ -16,7 +16,7 @@ import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
-import moe.tachyon.quiz.utils.ai.tools.AiTools
+import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.safeWithContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -27,15 +27,27 @@ import kotlin.uuid.ExperimentalUuidApi
 
 private typealias MessageSlice = StreamAiResponseSlice
 private typealias TextMessage = StreamAiResponseSlice.Message
-private typealias ToolCallMessage = StreamAiResponseSlice.ToolCall
 typealias ChatListener = suspend (AiChatsUtils.AiChatEvent)->Unit
 
-private const val CHECK_LENGTH = 500
+private const val CHECK_LENGTH = 1000
 
 object AiChatsUtils: KoinComponent
 {
+    /**
+     * 聊天被封禁时的提示信息
+     */
     const val BANNED_MESSAGE = "对不起，该聊天无法继续"
+
+    /**
+     * 系统错误时的提示信息
+     */
     const val ERROR_MESSAGE = "系统错误，请重试或切换模型并重试。如果问题仍然存在，请联系管理员。"
+
+    /**
+     * 聊天结束后，强制杀死协程的时间，用于避免审查时间过长
+     */
+    const val FORCE_STOP_TIME = 5000L
+
     private val logger = SubQuizLogger.getLogger<AiChatsUtils>()
     private val chats: Chats by inject()
     private val users: Users by inject()
@@ -53,6 +65,9 @@ object AiChatsUtils: KoinComponent
         val content: Content,
     )
     {
+        private val checkJobs = mutableListOf<Job>()
+        private var nameJob = null as Job?
+
         private val response: MutableList<StreamAiResponseSlice> = mutableListOf()
         val listeners: MutableSet<ChatListener> = hashSetOf()
         var banned: Boolean = false
@@ -61,15 +76,15 @@ object AiChatsUtils: KoinComponent
             private set
         private var checked = 0
         private val job = SupervisorJob()
-        suspend fun join() = job.join()
-        private var askJob = Job()
+        private val askJob = Job()
         private val coroutineScope = CoroutineScope(Dispatchers.IO + job + CoroutineExceptionHandler()
         { _, throwable ->
             if (!job.isCancelled) logger.warning("error in ChatInfo job ${chat.id}", throwable)
         })
 
-        private suspend fun<T> withLock(block: suspend () -> T): T = chatInfoLocks.withLock(chat.id, block)
 
+        private suspend fun<T> withLock(block: suspend () -> T): T = chatInfoLocks.withLock(chat.id, block)
+        suspend fun join() = job.join()
         fun cancel() = askJob.cancel()
 
         suspend fun start(service: AskService): Unit = withLock()
@@ -176,7 +191,7 @@ object AiChatsUtils: KoinComponent
             if (!onFinished && count < CHECK_LENGTH) return@withLock
             else this.checked += count
 
-            coroutineScope.launch()
+            checkJobs += coroutineScope.launch()
             {
                 val res = AskService.check(this@ChatInfo.content.toText(), uncheckedList)
                 users.addTokenUsage(chat.user, res.second)
@@ -187,7 +202,7 @@ object AiChatsUtils: KoinComponent
         private fun nameChat()
         {
             val chat = this.chat.copy(histories = chat.histories + ChatMessage(Role.USER, content) + response.filterIsInstance<TextMessage>().map { ChatMessage(Role.ASSISTANT, it.content, it.reasoningContent) })
-            coroutineScope.launch()
+            nameJob = coroutineScope.launch()
             {
                 val name = AskService.nameChat(chat)
                 for (listener in listeners)
@@ -242,6 +257,7 @@ object AiChatsUtils: KoinComponent
 
         private suspend fun finish(withBanned: Boolean, res: String): Unit =
             finish(withBanned, listOf(ChatMessage(Role.ASSISTANT, res)))
+
         private suspend fun finish(withBanned: Boolean, res: List<ChatMessage>): Unit = withLock()
         {
             if (finished && !withBanned) return@withLock
@@ -250,6 +266,15 @@ object AiChatsUtils: KoinComponent
             banned = banned || withBanned
             if (!banned) runCatching { check(true) }
             runCatching { nameChat() }
+            if (!banned) runCatching()
+            {
+                coroutineScope.launch()
+                {
+                    delay(FORCE_STOP_TIME)
+                    checkJobs.forEach { runCatching { it.cancel() } }
+                    nameJob?.cancel()
+                }
+            }
             job.complete()
             runCatching()
             {
@@ -329,11 +354,12 @@ object AiChatsUtils: KoinComponent
             override val content: Content? = null
         }
     }
+
     @OptIn(ExperimentalUuidApi::class)
     fun makeContent(chat: ChatId, content: String, images: List<String>): MakeContentResult
     {
         if (images.size > 5) return MakeContentResult.Failure("最多只能上传5张图片")
-        if (images.any { it.length > 1024 * 1024 * 4 / 3 + 100 })
+        if (images.any { it.length > 1030 * 1024 * 4 / 3 }) // 1030KB,稍作余量, base64会膨胀到4/3倍，因此这里乘以4/3
             return MakeContentResult.Failure("图片过大，单张图片不能超过1MB")
         val imageContents = images.map()
         {

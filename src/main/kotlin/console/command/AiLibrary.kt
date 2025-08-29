@@ -4,7 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
-import moe.tachyon.quiz.utils.ai.tools.AiLibrary
+import moe.tachyon.quiz.utils.ai.chat.tools.AiLibrary
 import kotlin.time.measureTime
 
 object AiLibrary: TreeCommand(Update, Clear, Remove, Indexed, Search, SearchInOrder)

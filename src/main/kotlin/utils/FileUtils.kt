@@ -3,11 +3,10 @@ package moe.tachyon.quiz.utils
 import io.ktor.http.ContentType
 import io.ktor.http.fromFilePath
 import kotlinx.serialization.Serializable
-import moe.tachyon.quiz.config.systemConfig
 import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.dataDir
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
-import moe.tachyon.quiz.utils.ai.tools.AiTools
+import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import java.io.File
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -18,8 +17,8 @@ object AiLibraryFiles
      * AI答疑资料库
      */
     val aiLibrary = File(dataDir, "ai-library")
-    val bdfzLibrary = File(aiLibrary, "bdfz");
-    val booksLibrary = File(aiLibrary, "books");
+    val bdfzLibrary = File(aiLibrary, "bdfz")
+    val booksLibrary = File(aiLibrary, "books")
 
     init
     {
@@ -73,7 +72,7 @@ object AiLibraryFiles
 
     fun getAiLibraryFileText(filePath: String): String?
     {
-        val file = File(aiLibrary, filePath)
+        val file = File(aiLibrary, filePath.removePrefix("/"))
         if (!file.exists() || !file.isFile) return null
         if (!file.canonicalPath.startsWith(aiLibrary.canonicalPath)) return null
         val txt = file.readText()
@@ -82,7 +81,7 @@ object AiLibraryFiles
 
     fun getAiLibraryFileBytes(filePath: String): ByteArray?
     {
-        val file = File(aiLibrary, filePath)
+        val file = File(aiLibrary, filePath.removePrefix("/"))
         if (!file.exists() || !file.isFile) return null
         if (!file.canonicalPath.startsWith(aiLibrary.canonicalPath)) return null
         return file.readBytes()
@@ -114,18 +113,6 @@ object ChatFiles
     )
     {
         val mimeType get() = ContentType.fromFilePath(name).firstOrNull()
-    }
-
-    @OptIn(ExperimentalUuidApi::class)
-    fun listChatFiles(chat: ChatId): List<Pair<Uuid, FileInfo>>
-    {
-        val dir = File(chatFiles, chat.toString())
-        return dir.listFiles().filter { it.extension == "info" }.map()
-        { file ->
-            val uuid = Uuid.parseHex(file.nameWithoutExtension)
-            val info = dataJson.decodeFromString<FileInfo>(file.readText())
-            uuid to info
-        }
     }
 
     fun deleteChatFiles(chat: ChatId)

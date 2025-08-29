@@ -1,4 +1,4 @@
-package moe.tachyon.quiz.utils.ai.tools
+package moe.tachyon.quiz.utils.ai.chat.tools
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -33,6 +33,7 @@ object AiTools
             AiLibrary,
             WebSearch,
             GetUserInfo,
+            GlobalMemory,
             MindMap,
             ShowHtml,
             PPT,
@@ -69,7 +70,12 @@ object AiTools
         }
     }
 
-    suspend fun getData(chat: Chat, type: String, path: String) = toolDataGetters[type]?.invoke(chat, path)
+    suspend fun getData(chat: Chat, type: String, path: String): ToolData?
+    {
+        val getter = toolDataGetters[type]
+        logger.fine("got data request: type=$type, path=$path, getter=$getter")
+        return getter?.invoke(chat, path)
+    }
 
     suspend fun getTools(chat: Chat, model: AiConfig.LlmModel?): List<AiToolInfo<*>> =
         toolGetters.flatMap { it(chat, model) }

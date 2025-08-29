@@ -1,4 +1,4 @@
-package moe.tachyon.quiz.utils.ai.tools
+package moe.tachyon.quiz.utils.ai.chat.tools
 
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.utils.ChatFiles

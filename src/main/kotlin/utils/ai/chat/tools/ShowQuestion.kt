@@ -1,4 +1,4 @@
-package moe.tachyon.quiz.utils.ai.tools
+package moe.tachyon.quiz.utils.ai.chat.tools
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
@@ -124,15 +124,6 @@ object ShowQuestion
 
             else -> error("未知的题目类型: $type")
         }
-
-        fun toSection(): Section<Any, Nothing?, JsonElement> = Section(
-            id = SectionId(0),
-            type = SectionTypeId(0),
-            description = markdownWrap(this.description),
-            weight = 50,
-            available = true,
-            questions = listOf(this.toQuestion())
-        )
     }
 
     init
@@ -146,41 +137,61 @@ object ShowQuestion
                 大题适用于如有一个题目背景信息，然后有多个小题的情况，
                 例如阅读理解，实验题等。
                 你输入给该工具的内容会直接展示给用户，请确保内容准确无误。
-            """.trimIndent(),
-        )
-        { (chat, model, parm) ->
-            runCatching()
-            {
-                val section = parm.toSection()
-                AiToolInfo.ToolResult(
-                    content = Content("你的题目已经展示给用户。"),
-                    showingContent = contentNegotiationJson.encodeToString(listOf(section)),
-                    showingType = AiTools.ToolData.Type.QUIZ,
-                )
-            }.getOrElse()
-            {
-                AiToolInfo.ToolResult(Content("题目格式有误: ${it.message}"))
-            }
-        }
-
-        AiTools.registerTool<ShowQuestion>(
-            name = "show_single_question",
-            displayName = null,
-            description = """
-                向用户展示一道题目，题目可以是选择题，判断题，填空题，简答题等。
-                该工具会把题目提供给用户，并提供查看答案按钮。
-                你输入给该工具的内容会直接展示给用户，请确保内容准确无误。
+                **注意**：当你需要出题给用户时，如你向用户讲解了新知识点，准备出题帮用户巩固知识，**必须**使用`show_question`或`show_single_question`工具，
+                而不是直接在回答中写题目，否则用户将看不到题目。
+                该工具在你需要出题给用户时非常有用。
                 
-                example:
+                example（单个小题）:
                 ```json
                 {
-                    "description": "以下哪项是质数？",
-                    "type": "choice",
-                    "options": ["4", "6", "9", "11"],
-                    "answer": [3],
-                    "analysis": "质数是指只能被1和它本身整除的自然数，11只能被1和11整除，因此11是质数。"
+                    "description": "", // 大题描述留空，表示没有大题，只有若干小题
+                    "questions": [
+                        {
+                            "description": "以下哪项是质数？",
+                            "type": "choice",
+                            "options": ["4", "6", "9", "11"],
+                            "answer": [3],
+                            "analysis": "质数是指只能被1和它本身整除的自然数，11只能被1和11整除，因此11是质数。"
+                        }
+                    ]
                 }
                 ```
+                
+                example（多个小题）:
+                ```json
+                {
+                    "description": "阅读下面的文章，然后回答问题。(文章内容省略)",
+                    "questions": [
+                        {
+                            "description": "文章的主要观点是什么？",
+                            "type": "essay",
+                            "answer": "文章的主要观点是...",
+                            "options": [],
+                            "analysis": "文章通过论据A、B、C支持了其主要观点。"
+                        },
+                        {
+                            "description": "以下哪项是文章提到的事实？",
+                            "type": "choice",
+                            "options": ["事实A", "事实B", "事实C", "事实D"],
+                            "answer": [1],
+                            "analysis": "文章中明确提到事实B，其他选项未被提及。"
+                        },
+                        {
+                            "description": "文章中提到的事件发生在什么时间？",
+                            "type": "fill",
+                            "answer": "2020年",
+                            "options": [],
+                            "analysis": "根据文章内容，事件发生在2020年。"
+                        }
+                    ]
+                }
+                ```
+                
+                需要注意：
+                - 每个空必须独立一道小题，不能多个问题在一个小题中，这会导致用户只能输入一个答案，无法分别作答多个空。
+                - 你不应该标注题号，题号会自动生成，你只需要提供题目内容即可。
+                - 若有多道独立小题，可让大题的题目内容为空，但你不应该让大题的题目内容与小题重复。
+                - 你必须确保题目内容清晰明确，避免歧义，确保用户能够理解题意。
             """.trimIndent(),
         )
         { (chat, model, parm) ->

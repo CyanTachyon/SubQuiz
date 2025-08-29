@@ -1,4 +1,4 @@
-package moe.tachyon.quiz.utils.ai.tools
+package moe.tachyon.quiz.utils.ai.chat.tools
 
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.database.Sections
@@ -23,7 +23,7 @@ object Quiz: KoinComponent
     init
     {
         AiTools.registerTool<SearchQuizToolData>(
-            name = "get_quiz",
+            name = "search_questions",
             displayName = "搜索题库",
             description = """
             该工具用于搜索题库中的题目。只能通过关键字搜索。因此请尽可能保证你的`keyword`在题目中出现。

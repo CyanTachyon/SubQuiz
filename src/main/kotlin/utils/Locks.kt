@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package moe.tachyon.quiz.utils
 
 import kotlinx.coroutines.*
@@ -123,8 +125,5 @@ suspend fun <T> safeWithContext(
         }
     }
     if (res != null) return res.getOrThrow()
-
-    res1.getOrThrow().getOrThrow()
-
-    error("unreachable")
+    return res1.getOrThrow().getOrThrow()
 }

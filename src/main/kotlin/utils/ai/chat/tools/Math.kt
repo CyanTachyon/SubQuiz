@@ -1,7 +1,8 @@
-package moe.tachyon.quiz.utils.ai.tools
+package moe.tachyon.quiz.utils.ai.chat.tools
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonObject
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
 
@@ -9,10 +10,10 @@ object Math
 {
     @Serializable
     private data class ShowParm(
-        @JsonSchema.Description("请按math_demo工具的说明格式输入")
+        @JsonSchema.Description("显示的区域范围")
         val bounds: Bounds,
         @JsonSchema.Description("数学公式表达式列表，详见math_demo工具的说明")
-        val expressions: List<JsonObject>,
+        val expressions: List<Expression>,
     )
     {
         @Serializable
@@ -21,6 +22,47 @@ object Math
             val top: Double,
             val right: Double,
             val bottom: Double,
+        )
+
+        @OptIn(ExperimentalSerializationApi::class)
+        @Serializable
+        data class Expression(
+            @JsonSchema.Description("数学公式，注意需要使用latex格式，例如: 椭圆\\frac{x^{2}}{4}+\\frac{y^{2}}{9}=1")
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val latex: String? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val color: String? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val lineStyle: String? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val lineWidth: Double? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val lineOpacity: Double? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val pointStyle: String? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val pointSize: Double? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val pointOpacity: Double? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val fillOpacity: Double? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val points: Boolean? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val lines: Boolean? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val fill: Boolean? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val hidden: Boolean? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val secret: Boolean? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val sliderBounds: SliderBounds? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val playing: Boolean? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val parametricDomain: Domain? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val polarDomain: Domain? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val id: String? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val dragMode: String? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val label: String? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val showLabel: Boolean? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val labelSize: String? = null,
+            @EncodeDefault(EncodeDefault.Mode.NEVER) val labelOrientation: String? = null,
+        )
+        @Serializable
+        data class SliderBounds(
+            val min: String,
+            val max: String,
+            val step: String,
+        )
+        @Serializable
+        data class Domain(
+            val min: String,
+            val max: String,
         )
     }
 
@@ -169,11 +211,11 @@ object Math
             displayName = "绘制数学函数图像",
             description = """
                 该工具用于绘制数学函数图像，包括函数曲线、方程图像等。
-                注意，由于该工具的输入格式较为复杂，首次使用该工具前，请先调用`math_demo`工具使用的说明和示例。
                 该工具会将生成的数学公式直接展示给用户，若成功，会告知你成功，若不成功则告知你错误信息。
                 特别要求：
                 - 当你需要绘制数学方程图像等内容时（如椭圆图像），你必须使用该工具而不是svg
                 - 当你要求解一个函数题目/解析几何题目前，你必须使用该工具绘制图像以直观向用户展示图像
+                - 如果你需要使用复杂功能，请务必先使用`math_demo`工具学习如何使用该工具
             """.trimIndent(),
         )
         {

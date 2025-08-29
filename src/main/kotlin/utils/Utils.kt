@@ -1,5 +1,9 @@
 package moe.tachyon.quiz.utils
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import org.koin.mp.KoinPlatformTools
 import java.io.ByteArrayOutputStream
@@ -48,4 +52,23 @@ open class LinePrintStream(private val line: (String) -> Unit): PrintStream(Line
     override fun println(x: Double) = println(x as Any?)
     override fun println(x: CharArray) = println(x.joinToString("") as Any?)
     override fun println(x: String?) = println(x as Any?)
+}
+
+fun richTextToString(richText: JsonElement): String
+{
+    return when (richText)
+    {
+        is JsonArray   -> richText.joinToString("", transform = ::richTextToString)
+        is JsonPrimitive -> richText.content
+        is JsonObject  ->
+        {
+            val text = richText["text"]
+            if (text != null) return richTextToString(text)
+            val content = richText["content"]
+            if (content != null) return richTextToString(content)
+            val children = richText["children"]
+            if (children != null) return richTextToString(children)
+            return ""
+        }
+    }
 }

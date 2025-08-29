@@ -1,4 +1,5 @@
 @file:Suppress("unused", "PackageDirectoryMismatch")
+@file:OptIn(ExperimentalUuidApi::class)
 
 package moe.tachyon.quiz.utils.ai.internal.llm
 
@@ -16,18 +17,23 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.*
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.database.Records
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
-import moe.tachyon.quiz.plugin.contentNegotiation.showJson
+import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
-import moe.tachyon.quiz.utils.ai.tools.AiToolInfo
+import moe.tachyon.quiz.utils.ai.chat.ContextCompressor
+import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.getKoin
+import kotlin.uuid.ExperimentalUuidApi
 
 @Serializable
 private sealed interface AiResponse
@@ -144,10 +150,16 @@ private data class StreamAiResponse(
         data class Message(
             override val content: String? = null,
             @SerialName("reasoning_content")
-            override val reasoningContent: String? = null,
+            val reasoningContent0: String? = null,
+            @SerialName("reasoning")
+            val reasoningContent1: String? = null,
             @SerialName("tool_calls")
             override val toolCalls: List<AiResponse.Choice.Message.ToolCall> = emptyList(),
         ): AiResponse.Choice.Message
+        {
+            override val reasoningContent: String?
+                get() = reasoningContent0 ?: reasoningContent1
+        }
     }
 }
 
@@ -172,6 +184,10 @@ private data class AiRequest(
     data class Message(
         val role: Role,
         val content: Content = Content(),
+        @SerialName("reasoning_content")
+        val reasoningContent0: String?,
+        @SerialName("reasoning")
+        val reasoningContent1: String?,
         @EncodeDefault(EncodeDefault.Mode.NEVER)
         @SerialName("tool_call_id")
         val toolCallId: String? = null,
@@ -180,19 +196,13 @@ private data class AiRequest(
         val toolCalls: List<AiResponse.Choice.Message.ToolCall> = emptyList(),
     )
     {
-        operator fun plus(other: Message): Message
-        {
-            if (this.toolCallId != null || other.toolCallId != null)
-            {
-                error("Tool call ID should only be set for TOOL role messages")
-            }
-            return Message(
-                role = role,
-                content = content + other.content,
-                toolCallId = null,
-                toolCalls = toolCalls + other.toolCalls,
-            )
-        }
+        constructor(
+            role: Role,
+            content: Content = Content(),
+            reasoningContent: String?,
+            toolCallId: String? = null,
+            toolCalls: List<AiResponse.Choice.Message.ToolCall> = emptyList()
+        ): this(role, content, reasoningContent, reasoningContent, toolCallId, toolCalls)
     }
 
     @Serializable
@@ -226,15 +236,25 @@ private data class AiRequest(
     }
 }
 
-private fun ChatMessage.toRequestMessage(): AiRequest.Message?
+private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
 {
-    if (this.showingType != null) return null
-    return AiRequest.Message(
-        role = this.role,
-        content = this.content,
-        toolCallId = this.toolCallId.takeUnless { it.isEmpty() },
-        toolCalls = this.toolCalls.map { AiResponse.Choice.Message.ToolCall(it.id, AiResponse.Choice.Message.ToolCall.Function(it.name, it.arguments)) },
-    )
+    fun ChatMessage.toRequestMessage(): AiRequest.Message?
+    {
+        if (this.showingType != null) return null
+        return AiRequest.Message(
+            role = this.role,
+            content = this.content,
+            reasoningContent = this.reasoningContent.takeUnless { it.isBlank() },
+            toolCallId = this.toolCallId.takeUnless { it.isEmpty() },
+            toolCalls = this.toolCalls.map { AiResponse.Choice.Message.ToolCall(it.id, AiResponse.Choice.Message.ToolCall.Function(it.name, it.arguments)) },
+        )
+    }
+    val index = this.indexOfLast { it.role == Role.CONTEXT_COMPRESSION }
+    if (index == -1) return this.mapNotNull(ChatMessage::toRequestMessage)
+    val tail = this.subList(index + 1, this.size)
+    val head = dataJson.decodeFromString<ChatMessages>(this[index].content.toText())
+    val systemPrompt = this.indexOfFirst { it.role != Role.SYSTEM }.let { if (it == -1) this else this.subList(0, it) }
+    return (systemPrompt + head + tail).toRequestMessages()
 }
 
 private val logger = SubQuizLogger.getLogger()
@@ -289,7 +309,7 @@ suspend fun sendAiRequest(
 
     val body = AiRequest(
         model = model.model,
-        messages = messages.mapNotNull(ChatMessage::toRequestMessage),
+        messages = messages.toRequestMessages(),
         stream = false,
         maxTokens = model.maxTokens,
         thinkingBudget = model.thinkingBudget,
@@ -298,7 +318,10 @@ suspend fun sendAiRequest(
         frequencyPenalty = frequencyPenalty,
         presencePenalty = presencePenalty,
         stop = stop,
-    )
+    ).let(contentNegotiationJson::encodeToJsonElement)
+        .jsonObject
+        .plus(model.customRequestParms)
+        .let(::JsonObject)
 
     var res: JsonElement? = null
     try
@@ -345,6 +368,11 @@ suspend fun sendAiRequest(
     }
 }
 
+/**
+ * 发送流式AI请求，通过`onReceive`回调接收流式响应。最终结果通过返回值返回。
+ *
+ * 该函数理应永远不会抛出任何错误，返回详见[StreamAiResult]
+ */
 suspend fun sendAiStreamRequest(
     model: AiConfig.LlmModel,
     messages: ChatMessages,
@@ -355,13 +383,14 @@ suspend fun sendAiStreamRequest(
     stop: List<String>? = null,
     record: Boolean = true,
     tools: List<AiToolInfo<*>> = emptyList(),
+    contextCompressor: ContextCompressor? = null,
     onReceive: suspend (StreamAiResponseSlice) -> Unit,
 ): StreamAiResult = model.semaphore.withPermit()
 {
     val url = model.url
     val body = AiRequest(
         model = model.model,
-        messages = messages.mapNotNull(ChatMessage::toRequestMessage),
+        messages = emptyList(),
         stream = true,
         maxTokens = model.maxTokens,
         thinkingBudget = model.thinkingBudget,
@@ -386,6 +415,7 @@ suspend fun sendAiStreamRequest(
     val res = mutableListOf<ChatMessage>()
     var send = true
     var usage = TokenUsage()
+    var usage0: TokenUsage
     var curMsg = ChatMessage(Role.ASSISTANT, "")
     try
     {
@@ -393,12 +423,46 @@ suspend fun sendAiStreamRequest(
         {
             val waitingTools = mutableMapOf<String, Pair<String, String>>()
             var lstToolId = ""
+            usage0 = TokenUsage()
+
+            val rMessages = (messages + res).let()
+            { messages0 ->
+                val systemPrompt = messages0.indexOfFirst { it.role != Role.SYSTEM }.let { if (it == -1) messages0 else messages0.subList(0, it) }
+                val messageWithoutSystem = messages0.drop(systemPrompt.size)
+                val index = messageWithoutSystem.indexOfLast { it.role == Role.CONTEXT_COMPRESSION }
+                val uncompressed =
+                    (if (index == -1) messageWithoutSystem
+                    else
+                    {
+                        val com = dataJson.decodeFromString<ChatMessages>(messageWithoutSystem[index].content.toText())
+                        com + messageWithoutSystem.subList(index + 1, messageWithoutSystem.size)
+                    }).toChatMessages()
+
+                if (contextCompressor != null && contextCompressor.shouldCompress(uncompressed))
+                {
+                    onReceive(StreamAiResponseSlice.ContextCompression)
+                    val compressed = contextCompressor.compress(uncompressed)
+                    usage += compressed.second
+                    res += ChatMessage(
+                        role = Role.CONTEXT_COMPRESSION,
+                        content = dataJson.encodeToString(compressed.first)
+                    )
+                }
+                (messages + res).toRequestMessages()
+            }
+
+
             streamAiClient.sse(url, {
                 method = HttpMethod.Post
                 bearerAuth(model.key.random())
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Any)
-                val rBody = contentNegotiationJson.encodeToString(body.copy(messages = body.messages + res.mapNotNull(ChatMessage::toRequestMessage)))
+                val rBody = body.copy(messages = rMessages)
+                    .let(contentNegotiationJson::encodeToJsonElement)
+                    .jsonObject
+                    .plus(model.customRequestParms)
+                    .let(::JsonObject)
+                    .let(contentNegotiationJson::encodeToString)
                 logger.config("流式请求$url : $rBody")
                 setBody(rBody)
             })
@@ -415,7 +479,8 @@ suspend fun sendAiStreamRequest(
                     .collect()
                     {
                         list.add(it)
-                        usage += it.usage
+                        if (it.usage.totalTokens > usage0.totalTokens)
+                            usage0 = it.usage
                         it.choices.forEach()
                         { c ->
                             c.message
@@ -432,15 +497,17 @@ suspend fun sendAiStreamRequest(
                                     waitingTools[tool.id] = "" to ""
                                     lstToolId = tool.id
                                 }
-                                if (!tool.function.name.isNullOrEmpty())
+                                if (!tool.function.name.isNullOrEmpty() || !tool.function.arguments.isNullOrEmpty())
                                 {
-                                    val l = waitingTools[lstToolId]!!
-                                    waitingTools[lstToolId] = l.first + tool.function.name to l.second
-                                }
-                                if (!tool.function.arguments.isNullOrEmpty())
-                                {
-                                    val l = waitingTools[lstToolId]!!
-                                    waitingTools[lstToolId] = l.first to l.second + tool.function.arguments
+                                    val l = waitingTools[lstToolId]
+                                    if (l == null)
+                                        logger.warning("出现错误: 工具调用ID丢失，无法将工具调用名称与参数对应。lstToolId=$lstToolId，waitingTools=$waitingTools, tool=$tool")
+                                    else
+                                    {
+                                        val newName = l.first + (tool.function.name ?: "")
+                                        val newArg = l.second + (tool.function.arguments ?: "")
+                                        waitingTools[lstToolId] = newName to newArg
+                                    }
                                 }
                             }
 
@@ -471,14 +538,15 @@ suspend fun sendAiStreamRequest(
             }
             res += curMsg
             curMsg = ChatMessage(Role.ASSISTANT, "")
+            usage += usage0
             if (waitingTools.isNotEmpty())
             {
                 val parseToolCalls = parseToolCalls(waitingTools, tools)
+                res += parseToolCalls
                 parseToolCalls.filter { it.showingType != null }.forEach()
                 {
                     onReceive(StreamAiResponseSlice.ShowingTool(it.content.toText(), it.showingType!!))
                 }
-                res += parseToolCalls
             }
             else send = false
         }
@@ -519,7 +587,7 @@ private suspend fun parseToolCalls(
         {
             ChatMessages(
                 role = Role.TOOL,
-                content = "error: tool $toolName not found",
+                content = "error: 工具$toolName 并不存在，请确认你调用的工具名称正确且存在",
                 toolCallId = id
             )
         }
@@ -533,7 +601,7 @@ private suspend fun parseToolCalls(
         {
             return@flatMap ChatMessages(
                 Role.TOOL,
-                "error: \n${e.stackTraceToString()}",
+                "错误！你调用工具 $toolName 时传入的参数格式错误，请检查参数是否符合要求，并改正错误后重试。\n具体错误为：\n${e.message}",
                 toolCallId = id
             )
         }

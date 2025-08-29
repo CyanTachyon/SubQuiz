@@ -12,12 +12,12 @@ object AiTranslate
         lang0: String,
         lang1: String,
         twoWay: Boolean,
-        onMessage: suspend (msg: String) -> Unit
+        onMessage: suspend (msg: String, reasoning: String) -> Unit
     )
     {
         if (text.isBlank())
         {
-            onMessage("请提供需要翻译的内容")
+            onMessage("请提供需要翻译的内容", "")
             return
         }
 
@@ -84,7 +84,7 @@ object AiTranslate
                 logger.severe("Unexpected response slice: $it")
                 return@sendAiStreamRequest
             }
-            onMessage(it.content)
+            onMessage(it.content, it.reasoningContent)
         }
     }
 }
