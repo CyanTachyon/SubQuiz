@@ -82,6 +82,7 @@ dependencies {
     implementation("io.ktor:ktor-server-config-yaml-jvm") // yaml on read application.yaml
     implementation("org.fusesource.jansi:jansi:2.4.1") // 终端颜色码
     implementation("org.jline:jline:$jline_version") // 终端打印、命令等
+    implementation("at.favre.lib:bcrypt:0.10.2") // bcrypt 单向加密
 
     // mcp support
     implementation("io.modelcontextprotocol:kotlin-sdk:0.6.0")

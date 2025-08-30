@@ -21,6 +21,8 @@ import moe.tachyon.quiz.plugin.sse.installSSE
 import moe.tachyon.quiz.plugin.statusPages.installStatusPages
 import moe.tachyon.quiz.plugin.webSockets.installWebSockets
 import moe.tachyon.quiz.route.router
+import moe.tachyon.quiz.utils.JwtAuth
+import moe.tachyon.quiz.utils.JwtAuth.initJwtAuth
 import moe.tachyon.quiz.utils.Power
 import java.io.File
 import kotlin.properties.Delegates
@@ -135,6 +137,11 @@ fun Application.init()
 
     // start command thread
     startConsoleCommandHandler()
+
+    context(JwtAuth)
+    {
+        initJwtAuth()
+    }
 
     // install other plugins
     installApiDoc()

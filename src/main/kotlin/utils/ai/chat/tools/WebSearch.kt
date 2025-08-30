@@ -2,7 +2,6 @@ package moe.tachyon.quiz.utils.ai.chat.tools
 
 import io.ktor.client.*
 import io.ktor.client.call.*
-import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -18,13 +17,14 @@ import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
+import moe.tachyon.quiz.utils.ktorClientEngineFactory
 
 object WebSearch
 {
     private val logger = SubQuizLogger.getLogger<WebSearch>()
     private const val SEARCH_URL = "https://api.tavily.com/search"
 
-    private val client = HttpClient(CIO)
+    private val client = HttpClient(ktorClientEngineFactory)
     {
         engine()
         {
@@ -134,7 +134,7 @@ object WebSearch
             """.trimIndent(),
             display = {
                 if (it.parm != null)
-                    Content("读取网页: `${it.parm.url}`")
+                    Content("读取网页: [${it.parm.url}](${it.parm.url})")
                 else Content()
             }
         )

@@ -3,7 +3,6 @@
 package moe.tachyon.quiz.utils.ai.internal.imageGeneration
 
 import io.ktor.client.*
-import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -20,6 +19,7 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
+import moe.tachyon.quiz.utils.ktorClientEngineFactory
 import java.awt.image.BufferedImage
 import java.net.URL
 import javax.imageio.ImageIO
@@ -67,7 +67,7 @@ private data class Response(
     )
 }
 
-private val client = HttpClient(CIO)
+private val client = HttpClient(ktorClientEngineFactory)
 {
     engine()
     {

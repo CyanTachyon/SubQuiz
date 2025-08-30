@@ -2,16 +2,18 @@
 
 package moe.tachyon.quiz.route.oauth
 
-import moe.tachyon.quiz.logger.SubQuizLogger
-import moe.tachyon.quiz.route.utils.finishCall
-import moe.tachyon.quiz.utils.HttpStatus
-import moe.tachyon.quiz.utils.SSO
-import moe.tachyon.quiz.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.post
 import io.github.smiley4.ktorswaggerui.dsl.routing.route
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
+import moe.tachyon.quiz.dataClass.UserId
+import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.route.utils.finishCall
+import moe.tachyon.quiz.utils.HttpStatus
+import moe.tachyon.quiz.utils.JwtAuth
+import moe.tachyon.quiz.utils.SSO
+import moe.tachyon.quiz.utils.statuses
 
 private val logger = SubQuizLogger.getLogger()
 
@@ -51,7 +53,31 @@ fun Route.oauth() = route("oauth", {
             finishCall(HttpStatus.Unauthorized)
         finishCall(HttpStatus.OK, accessToken)
     }
+
+    post("/custom/login", {
+        summary = "自定义用户登陆"
+        description = "自定义用户的登陆，仅限自定义用户使用"
+        request()
+        {
+            body<CustomLogin>()
+        }
+    })
+    {
+        val (id, password) = call.receive<CustomLogin>()
+        if (SSO.isSsoUser(id))
+            finishCall(HttpStatus.BadRequest)
+        if (!JwtAuth.checkPassword(id, password))
+            finishCall(HttpStatus.Unauthorized)
+        val token = JwtAuth.makeToken(id)
+        finishCall(HttpStatus.OK, token)
+    }
 }
 
 @Serializable
 private data class Login(val code: String)
+
+@Serializable
+private data class CustomLogin(
+    val id: UserId,
+    val password: String,
+)

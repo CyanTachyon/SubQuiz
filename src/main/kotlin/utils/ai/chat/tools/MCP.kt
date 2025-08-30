@@ -1,7 +1,6 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
 import io.ktor.client.*
-import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.serialization.kotlinx.json.*
 import io.modelcontextprotocol.kotlin.sdk.*
@@ -28,6 +27,7 @@ import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.ContentNode
 import moe.tachyon.quiz.utils.ai.aiNegotiationJson
+import moe.tachyon.quiz.utils.ktorClientEngineFactory
 import moe.tachyon.quiz.version
 import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
@@ -40,7 +40,7 @@ import kotlin.uuid.ExperimentalUuidApi
 object MCP
 {
     private val logger = SubQuizLogger.getLogger<MCP>()
-    private val client = HttpClient(CIO)
+    private val client = HttpClient(ktorClientEngineFactory)
     {
         engine()
         {

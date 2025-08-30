@@ -1,7 +1,18 @@
 package moe.tachyon.quiz.route
 
+import io.github.smiley4.ktorswaggerui.dsl.routing.get
+import io.github.smiley4.ktorswaggerui.dsl.routing.route
+import io.github.smiley4.ktorswaggerui.routing.openApiSpec
+import io.github.smiley4.ktorswaggerui.routing.swaggerUI
+import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import moe.tachyon.quiz.config.systemConfig
 import moe.tachyon.quiz.route.adimin.admin
 import moe.tachyon.quiz.route.ai.ai
+import moe.tachyon.quiz.route.clazz.clazz
 import moe.tachyon.quiz.route.exam.exam
 import moe.tachyon.quiz.route.knowledgePoint.knowledgePoint
 import moe.tachyon.quiz.route.oauth.oauth
@@ -11,19 +22,6 @@ import moe.tachyon.quiz.route.section.section
 import moe.tachyon.quiz.route.subject.subject
 import moe.tachyon.quiz.route.terminal.terminal
 import moe.tachyon.quiz.route.user.user
-import io.github.smiley4.ktorswaggerui.dsl.routing.get
-import io.github.smiley4.ktorswaggerui.dsl.routing.route
-import io.github.smiley4.ktorswaggerui.routing.openApiSpec
-import io.github.smiley4.ktorswaggerui.routing.swaggerUI
-import io.ktor.server.application.*
-import io.ktor.server.auth.*
-import io.ktor.server.request.header
-import io.ktor.server.request.path
-import io.ktor.server.request.uri
-import io.ktor.server.response.*
-import io.ktor.server.routing.*
-import moe.tachyon.quiz.config.systemConfig
-import moe.tachyon.quiz.route.clazz.clazz
 import moe.tachyon.quiz.route.utils.finishCall
 import moe.tachyon.quiz.utils.HttpStatus
 
@@ -66,10 +64,10 @@ fun Application.router() = routing()
         }
     })
 
-    oauth()
-
     authenticate("auth", optional = true)
     {
+        oauth()
+
         admin()
         ai()
         clazz()

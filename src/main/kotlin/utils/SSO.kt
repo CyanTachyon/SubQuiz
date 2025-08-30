@@ -19,6 +19,7 @@ object SSO: KoinComponent
     val users: Users by inject()
     private val logger = getLogger<SSO>()
     private val classMembers: ClassMembers by inject()
+    const val CUSTOM_USER_PREFIX = "quiz-"
 
     @Serializable
     @Suppress("unused")
@@ -53,9 +54,14 @@ object SSO: KoinComponent
         val description: String,
     )
 
+    fun isSsoUser(token: String) = token.startsWith(CUSTOM_USER_PREFIX).not()
+    fun isSsoUser(userId: UserId) = userId.value > 0
+
     suspend fun getUser(accessToken: String): SsoUserFull? = withContext(Dispatchers.IO)
     {
-        val user = runCatching {
+        if (!isSsoUser(accessToken)) return@withContext JwtAuth.getSsoUser(accessToken)
+        val user = runCatching()
+        {
             val url = systemConfig.ssoServer + "/serviceApi/info"
             logger.finer("url: $url")
             logger.finer("  accessToken: $accessToken")
@@ -70,7 +76,9 @@ object SSO: KoinComponent
 
     suspend fun getAccessToken(id: UserId): String? = withContext(Dispatchers.IO)
     {
-        runCatching {
+        if (!isSsoUser(id)) return@withContext JwtAuth.makeToken(id)
+        runCatching()
+        {
             val url = systemConfig.ssoServer + "/serviceApi/accessToken"
             logger.finer("url: $url")
             logger.finer("  user: $id")
@@ -86,7 +94,13 @@ object SSO: KoinComponent
 
     suspend fun getStatus(accessToken: String): AuthorizationStatus? = withContext(Dispatchers.IO)
     {
-        runCatching {
+        if (!isSsoUser(accessToken))
+        {
+            if (JwtAuth.checkToken(accessToken) == null) return@withContext null
+            return@withContext AuthorizationStatus.AUTHORIZED
+        }
+        runCatching()
+        {
             val url = systemConfig.ssoServer + "/serviceApi/oauth/status"
             logger.finer("url: $url")
             logger.finer("  accessToken: $accessToken")
@@ -99,7 +113,8 @@ object SSO: KoinComponent
 
     suspend fun getAccessToken(code: String): String? = withContext(Dispatchers.IO)
     {
-        runCatching {
+        runCatching()
+        {
             val url = systemConfig.ssoServer + "/serviceApi/oauth/accessToken"
             logger.finer("url: $url")
             logger.finer("  code: $code")
@@ -126,8 +141,7 @@ object SSO: KoinComponent
      */
     suspend fun getDbUser(userId: UserId): DatabaseUser?
     {
-        @Suppress("UNUSED_VARIABLE")
-        val ssoUser = getAccessToken(userId) ?: return null
+        getAccessToken(userId) ?: return null
         return users.getOrCreateUser(userId)
     }
 }

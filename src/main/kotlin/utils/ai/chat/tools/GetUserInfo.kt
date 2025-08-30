@@ -1,12 +1,10 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
 import kotlinx.datetime.Instant
-import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.utils.SSO
 import moe.tachyon.quiz.utils.ai.Content
 
-@Serializable
 data object GetUserInfo
 {
     private class Getter(val user: UserId)
@@ -35,7 +33,7 @@ data object GetUserInfo
 
     init
     {
-        AiTools.registerTool<GetUserInfo>(
+        AiTools.registerTool<AiTools.EmptyToolParm>(
             name = "user_info",
             displayName = "获取用户信息",
             description = """

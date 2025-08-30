@@ -68,8 +68,6 @@ object Help: Command
         return true
     }
 
-    override suspend fun tabComplete(args: List<String>): List<Candidate>
-    {
-        return CommandSet.tabComplete(args)
-    }
+    override suspend fun tabComplete(args: List<String>): List<Candidate> =
+        CommandSet.tabComplete(args)
 }

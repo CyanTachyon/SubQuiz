@@ -59,7 +59,7 @@ fun Application.installAuthentication() = install(Authentication)
             if (user == null) return@authenticate null
 
             if (user.permission < Permission.NORMAL) finishCall(HttpStatus.Prohibit)
-            if (user.seiue.isEmpty()) //  || user.seiue.all(SsoUserFull.Seiue::archived)
+            if (user.seiue.isEmpty())
                 finishCall(HttpStatus.RealNameRequired, user)
 
             user

@@ -70,6 +70,7 @@ object SqlDatabase: KoinComponent
         Chats::class,
         Classes::class,
         ClassMembers::class,
+        CustomUsers::class,
         Exams::class,
         Histories::class,
         KnowledgePoints::class,
@@ -157,6 +158,7 @@ object SqlDatabase: KoinComponent
 
             databases.forEach()
             { dao ->
+                @Suppress("UNCHECKED_CAST")
                 single { dao.primaryConstructor!!.call() }.bind(dao as KClass<SqlDao<*>>)
             }
         }

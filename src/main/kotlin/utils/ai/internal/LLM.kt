@@ -4,7 +4,6 @@
 package moe.tachyon.quiz.utils.ai.internal.llm
 
 import io.ktor.client.*
-import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
@@ -15,12 +14,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.serialization.*
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.encodeToJsonElement
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.*
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.database.Records
@@ -33,6 +31,7 @@ import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
 import moe.tachyon.quiz.utils.ai.chat.ContextCompressor
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.getKoin
+import moe.tachyon.quiz.utils.ktorClientEngineFactory
 import kotlin.uuid.ExperimentalUuidApi
 
 @Serializable
@@ -259,7 +258,7 @@ private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
 
 private val logger = SubQuizLogger.getLogger()
 
-private val streamAiClient = HttpClient(CIO)
+private val streamAiClient = HttpClient(ktorClientEngineFactory)
 {
     engine()
     {
@@ -269,7 +268,7 @@ private val streamAiClient = HttpClient(CIO)
     install(SSE)
 }
 
-private val defaultAiClient = HttpClient(CIO)
+private val defaultAiClient = HttpClient(ktorClientEngineFactory)
 {
     engine()
     {

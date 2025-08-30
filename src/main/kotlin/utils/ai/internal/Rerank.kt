@@ -3,7 +3,6 @@
 package moe.tachyon.quiz.utils.ai.internal.rerank
 
 import io.ktor.client.*
-import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -17,9 +16,10 @@ import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
+import moe.tachyon.quiz.utils.ktorClientEngineFactory
 
 private val logger = SubQuizLogger.getLogger()
-private val client = HttpClient(CIO)
+private val client = HttpClient(ktorClientEngineFactory)
 {
     engine()
     {

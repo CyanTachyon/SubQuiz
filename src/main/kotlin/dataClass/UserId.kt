@@ -12,6 +12,7 @@ value class UserId(val value: Int): Comparable<UserId>
 {
     override fun compareTo(other: UserId): Int = value.compareTo(other.value)
     override fun toString(): String = value.toString()
+    operator fun unaryMinus() = UserId(-value)
     companion object
     {
         fun String.toUserId() = UserId(toInt())
