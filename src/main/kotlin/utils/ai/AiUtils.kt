@@ -3,14 +3,22 @@ package moe.tachyon.quiz.utils.ai
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
-import moe.tachyon.quiz.plugin.contentNegotiation.showJson
+import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
+
+val aiNegotiationJson = Json(contentNegotiationJson)
+{
+    ignoreUnknownKeys = false
+    isLenient = true
+    prettyPrint = true
+}
 
 private val logger = SubQuizLogger.getLogger()
 
@@ -30,14 +38,14 @@ interface ResultType<T>
     {
         @Suppress("UNCHECKED_CAST")
         override fun getValue(str: String): T =
-            showJson.decodeFromString(showJson.serializersModule.serializer(type), str) as T
+            aiNegotiationJson.decodeFromString(aiNegotiationJson.serializersModule.serializer(type), str) as T
     }
 
     private class WrapResultType<T: Any>(private val type: KType): ResultType<T>
     {
         @Suppress("UNCHECKED_CAST")
         override fun getValue(str: String): T =
-            showJson.decodeFromString(Result.serializer(showJson.serializersModule.serializer(type)), str).result as T
+            aiNegotiationJson.decodeFromString(Result.serializer(aiNegotiationJson.serializersModule.serializer(type)), str).result as T
 
         companion object
         {
@@ -84,18 +92,38 @@ suspend inline fun <reified T: Any> sendAiRequestAndGetResult(
     message: String,
     resultType: ResultType<T> = ResultType<T>(),
     retryType: RetryType = RetryType.RESEND,
+    record: Boolean = true,
 ): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
     model = model,
     messages = ChatMessages(Role.USER, message),
     resultType = resultType,
     retryType = retryType,
+    record = record,
+    impl = Unit,
+)
+
+suspend inline fun <reified T: Any> sendAiRequestAndGetResult(
+    model: AiConfig.LlmModel,
+    messages: ChatMessages,
+    resultType: ResultType<T> = ResultType<T>(),
+    retryType: RetryType = RetryType.RESEND,
+    record: Boolean = true,
+): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
+    model = model,
+    messages = messages,
+    resultType = resultType,
+    retryType = retryType,
+    record = record,
+    impl = Unit,
 )
 
 suspend fun <T: Any> sendAiRequestAndGetResult(
     model: AiConfig.LlmModel,
     messages: ChatMessages,
     resultType: ResultType<T>,
-    retryType: RetryType = RetryType.RESEND,
+    retryType: RetryType,
+    record: Boolean,
+    @Suppress("unused") impl: Unit
 ): Pair<T, TokenUsage>
 {
     var totalTokens = TokenUsage()
@@ -109,6 +137,7 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
             res = sendAiRequest(
                 model = model,
                 messages = messages,
+                record = record,
             )
             totalTokens += res.second
         }
@@ -128,11 +157,7 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
                 val jsonContent = content.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
                 return resultType.getValue(jsonContent) to totalTokens
             }
-            else if (content.startsWith("{") && content.endsWith("}"))
-            {
-                return resultType.getValue(content) to totalTokens
-            }
-            error("JSON格式不正确，JSON对象必须以`{`开始，以`}`结束")
+            return resultType.getValue(content) to totalTokens
         }
         catch (e: Throwable)
         {

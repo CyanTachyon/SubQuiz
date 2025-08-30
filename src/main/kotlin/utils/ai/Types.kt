@@ -287,6 +287,7 @@ sealed interface StreamAiResponseSlice
 
     data class ToolCall(
         val tool: AiToolInfo<*>,
+        val display: AiToolInfo.DisplayToolInfo?,
     ): StreamAiResponseSlice
 
     @Serializable

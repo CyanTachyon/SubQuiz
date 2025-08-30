@@ -26,10 +26,15 @@ object Quiz: KoinComponent
             name = "search_questions",
             displayName = "搜索题库",
             description = """
-            该工具用于搜索题库中的题目。只能通过关键字搜索。因此请尽可能保证你的`keyword`在题目中出现。
-            *该工具暂时不支持多关键字搜索。*
-            当用户学习某个知识点后，你可以搜索题目并考察用户对该知识点的掌握情况。
-        """.trimIndent()
+                该工具用于搜索题库中的题目。只能通过关键字搜索。因此请尽可能保证你的`keyword`在题目中出现。
+                *该工具暂时不支持多关键字搜索。*
+                当用户学习某个知识点后，你可以搜索题目并考察用户对该知识点的掌握情况。
+            """.trimIndent(),
+            display = {
+                if (it.parm != null)
+                    Content("搜索题目: ${it.parm.keyword.split(" ").joinToString(" ") { s -> "`$s`" }}")
+                else Content()
+            }
         )
         { (chat, model, parm) ->
             val keyword = parm.keyword

@@ -67,12 +67,13 @@ object GlobalMemory: KoinComponent
                     **重要**：当前和你对话的用户已经储存的记忆的key列表：
                     ${users.getGlobalMemory(chat.user).keys.joinToString(", ") { "`$it`" }}
                     具体的key对应的value你可以通过调用`get_global_memory`工具来获取。
+                    所有已有的记忆都是你在之前的对话中主动存储的。
                     请注意，在收到新信息后，你应该立即更新记忆，确保记忆的准确性和相关性。
                     在写入新记忆前，你必须先确认上面的列表中是否已经有相关的key，如有，请不要重复写入，
                     你可以考虑获取并update。你不应该盲目写入大量重复的记忆，这会导致记忆混乱，影响后续对话质量。
                     你应该有选择地存储记忆，确保每条记忆都是有意义且有用的，且不和已有记忆重复。
                     
-                """.trimIndent()
+                """.trimIndent(),
             )
             { parm ->
                 val success = users.setGlobalMemory(chat.user, parm.key, parm.value)
@@ -84,7 +85,7 @@ object GlobalMemory: KoinComponent
         // 修改记忆工具
         AiTools.registerTool<UpdateMemoryParm>(
             name = "update_global_memory",
-            displayName = "修改全局记忆",
+            displayName = "更新全局记忆",
             description = """
                 修改已存在的全局记忆信息，或者创建新的记忆。
                 如果指定的key已存在，会覆盖原有内容；如果不存在，会创建新记忆。

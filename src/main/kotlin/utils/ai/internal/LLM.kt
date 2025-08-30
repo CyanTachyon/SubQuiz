@@ -483,13 +483,6 @@ suspend fun sendAiStreamRequest(
                             usage0 = it.usage
                         it.choices.forEach()
                         { c ->
-                            c.message
-                                .toolCalls
-                                .mapNotNull { tool -> tool.function.name }
-                                .mapNotNull { func -> tools.firstOrNull { t -> t.name == func } }
-                                .forEach { tool -> onReceive(StreamAiResponseSlice.ToolCall(tool)) }
-
-
                             c.message.toolCalls.forEach()
                             { tool ->
                                 if (tool.id != null)
@@ -541,7 +534,7 @@ suspend fun sendAiStreamRequest(
             usage += usage0
             if (waitingTools.isNotEmpty())
             {
-                val parseToolCalls = parseToolCalls(waitingTools, tools)
+                val parseToolCalls = parseToolCalls(waitingTools, tools, onReceive)
                 res += parseToolCalls
                 parseToolCalls.filter { it.showingType != null }.forEach()
                 {
@@ -577,7 +570,8 @@ suspend fun sendAiStreamRequest(
 
 private suspend fun parseToolCalls(
     waitingTools: Map<String, Pair<String, String>>,
-    tools: List<AiToolInfo<*>>
+    tools: List<AiToolInfo<*>>,
+    onReceive: suspend (StreamAiResponseSlice) -> Unit,
 ): ChatMessages
 {
     return waitingTools.flatMap()
@@ -592,10 +586,15 @@ private suspend fun parseToolCalls(
             )
         }
 
+        logger.warning("fail to put toolcall message")
+        {
+            onReceive(StreamAiResponseSlice.ToolCall(tool, tool.display(parm)))
+        }
+
         val data: Any
         try
         {
-            data = contentNegotiationJson.decodeFromString(contentNegotiationJson.serializersModule.serializer(tool.type), parm)!!
+            data = tool.parse(parm)
         }
         catch (e: Throwable)
         {

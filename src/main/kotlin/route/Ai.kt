@@ -12,6 +12,8 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.sse.*
+import io.ktor.util.decodeBase64Bytes
+import io.ktor.util.encodeBase64
 import kotlinx.serialization.*
 import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.config.aiConfig
@@ -29,6 +31,8 @@ import moe.tachyon.quiz.utils.ai.ask.AskService
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.statuses
+import java.io.ByteArrayOutputStream
+import javax.imageio.ImageIO
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -203,6 +207,23 @@ fun Route.ai() = route("/ai", {
         plugin(SSE)
         handle(Context::translateText)
     }
+
+    post("/translateImage", {
+        description = "翻译图片"
+        request()
+        {
+            body<Translate>()
+            {
+                required = true
+                description = "需要翻译的图片的base64编码"
+            }
+        }
+        response()
+        {
+            statuses<TranslatedImage>(HttpStatus.OK, example = TranslatedImage("data:image/png;base64,..."))
+            statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
+        }
+    }, Context::translateImage)
 
     route("/imageToText", HttpMethod.Post, {
         description = "图片转文本"
@@ -402,12 +423,12 @@ private data class ChatResponse(
                         logger.warning("Tool ${tc.name} not found in chat ${chat.id}, user ${chat.user}")
                         null
                     }
-                    tool.displayName
+                    tool.display(tc.arguments)
                 }.map()
-                { toolName ->
+                { toolDisplay ->
                     History(
                         Role.ASSISTANT,
-                        listOf(ChatSseMessage(Content(""), "",toolName))
+                        listOf(ChatSseMessage(toolDisplay.content, "",toolDisplay.title))
                     )
                 }
                 listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(Content(c), rc, "")))) + calls
@@ -466,8 +487,8 @@ private suspend fun Context.listenChat()
                             is StreamAiResponseSlice.Message ->
                                 ChatSseMessage(Content(it.message.content), it.message.reasoningContent, "")
                             is StreamAiResponseSlice.ToolCall ->
-                                if (it.message.tool.displayName != null)
-                                    ChatSseMessage(Content(""), "", it.message.tool.displayName)
+                                if (it.message.display != null)
+                                    ChatSseMessage(it.message.display.content, "", it.message.display.title)
                                 else null
                             is StreamAiResponseSlice.ShowingTool ->
                                 ChatSseMessage(Content(it.message.content), "", "", it.message.showingType)
@@ -563,12 +584,10 @@ private suspend fun Context.getChatFile(info: Boolean)
 }
 
 @Serializable
-private data class Text(val text: String)
-@Serializable
-private data class TranslateResult(val text: String, val reasoning: String)
+private data class TranslatedText(val text: String, val reasoning: String)
 @Serializable
 private data class Translate(
-    val text: String,
+    val data: String,
     val lang0: String = "中文",
     val lang1: String = "英文",
     val twoWay: Boolean = true,
@@ -576,6 +595,7 @@ private data class Translate(
 private suspend fun Context.translateText()
 {
     call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+
     val body = call.receive<Translate>()
 
     sseHeaders()
@@ -585,15 +605,35 @@ private suspend fun Context.translateText()
         heartbeat()
         logger.warning("error in translate")
         {
-            AiTranslate.translate(body.text, body.lang0, body.lang1, body.twoWay)
+            AiTranslate.translate(body.data, body.lang0, body.lang1, body.twoWay)
             { content, reasoning ->
-                send(event = "message", data = contentNegotiationJson.encodeToString(TranslateResult(content, reasoning)))
+                send(event = "message", data = contentNegotiationJson.encodeToString(TranslatedText(content, reasoning)))
             }
         }
     }
     return call.respond(HttpStatusCode.OK, res)
 }
 
+@Serializable
+private data class TranslatedImage(val data: String)
+
+private suspend fun Context.translateImage()
+{
+    call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val body = call.receive<Translate>()
+
+    if ((call.request.contentLength() ?: Long.MAX_VALUE) > 21 * 1024 * 1024 * 4 / 3)
+        finishCall(HttpStatus.BadRequest.subStatus("图片过大，最大支持20MB"))
+
+    val img = runCatching { ImageIO.read(body.data.split(",").last().decodeBase64Bytes().inputStream()) }
+        .getOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("无法解析图片"))
+    val res = AiTranslate.translate(img, body.lang0, body.lang1, body.twoWay)
+    val bytes = ByteArrayOutputStream().also { ImageIO.write(res, "png", it) }.toByteArray().encodeBase64()
+    finishCall(HttpStatus.OK, TranslatedImage("data:image/png;base64,$bytes"))
+}
+
+@Serializable
+private data class Text(val text: String)
 @Serializable
 data class ImageToTextRequest(
     val markdown: Boolean,

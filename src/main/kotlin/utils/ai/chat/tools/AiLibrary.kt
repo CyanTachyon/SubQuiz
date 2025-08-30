@@ -110,13 +110,18 @@ object AiLibrary: KoinComponent
             "bdfz_data_search",
             "搜索北大附中资料",
             """
-            在北大附中资料库中搜索相关内容, 将返回相关文档
-            搜索的数量由 count 参数决定, 不宜过多，否则获得的文档可能过多，建议2到5条较为合适
-            
-            example:
-            - {"query": "北大附中有哪些书院"}
-            - {"query": "北大附中 数学课", "count": 5}
-        """.trimIndent(),
+                在北大附中资料库中搜索相关内容, 将返回相关文档
+                搜索的数量由 count 参数决定, 不宜过多，否则获得的文档可能过多，建议2到5条较为合适
+                
+                example:
+                - {"query": "北大附中有哪些书院"}
+                - {"query": "北大附中 数学课", "count": 5}
+            """.trimIndent(),
+            display = {
+                if (it.parm != null)
+                    Content("搜索北大附中资料: ${it.parm.query.split(" ").joinToString(" ") { s -> "`$s`" }}")
+                else Content()
+            }
         )
         { (chat, model, parm) ->
             val res = searchInOrder("/bdfz/", parm.query, parm.count)
@@ -145,7 +150,12 @@ object AiLibrary: KoinComponent
                 
             example:
             - {"subject": "物理", "query": "加速度定义"}
-            """.trimIndent()
+            """.trimIndent(),
+            display = {
+                if (it.parm != null)
+                    Content("查找课本: `${it.parm.subject}` - `${it.parm.query}`")
+                else Content()
+            }
         )
         { (chat, model, parm) ->
             val path =

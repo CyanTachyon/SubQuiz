@@ -1,13 +1,13 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.logger.SubQuizLogger
-import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
+import moe.tachyon.quiz.utils.ai.aiNegotiationJson
 import moe.tachyon.quiz.utils.generateSchema
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
@@ -20,12 +20,6 @@ object AiTools
     private val toolGetters = mutableListOf<ToolGetter>()
     private val toolDataGetters = mutableMapOf<String, ToolDataGetter>()
     private val logger = SubQuizLogger.getLogger<AiTools>()
-    val aiNegotiationJson = Json(contentNegotiationJson)
-    {
-        ignoreUnknownKeys = true
-        isLenient = true
-        prettyPrint = true
-    }
 
     init
     {
@@ -87,9 +81,37 @@ object AiTools
         displayName: String?,
         description: String,
         noinline block: suspend (info: ToolStatus<T>) -> AiToolInfo.ToolResult
+    ) = registerTool<T>(
+        name = name,
+        description = description,
+        display = if (displayName != null) ({ displayName to Content() }) else ({ null }),
+        block = block,
+    )
+
+    inline fun <reified T: Any> registerTool(
+        name: String,
+        displayName: String,
+        description: String,
+        noinline display: suspend (info: ToolStatus<T?>) -> Content,
+        noinline block: suspend (info: ToolStatus<T>) -> AiToolInfo.ToolResult
+    ) = registerTool<T>(
+        name = name,
+        description = description,
+        display = { displayName to display(it) },
+        block = block,
+    )
+
+    inline fun <reified T: Any> registerTool(
+        name: String,
+        description: String,
+        noinline display: suspend (info: ToolStatus<T?>) -> Pair<String, Content>?,
+        noinline block: suspend (info: ToolStatus<T>) -> AiToolInfo.ToolResult
     ) = registerTool()
     { chat, model ->
-        val tool = AiToolInfo<T>(name, displayName, description)
+        val tool = AiToolInfo<T>(name, description, { parm ->
+            val r = display(ToolStatus(chat, model, parm))
+            r?.let { AiToolInfo.DisplayToolInfo(it.first, it.second) }
+        })
         { parm ->
             block(ToolStatus(chat, model, parm))
         }
@@ -107,11 +129,10 @@ object AiTools
     }
 }
 
-
 data class AiToolInfo<T: Any>(
     val name: String,
-    val displayName: String?,
     val description: String,
+    val display: suspend (T?) -> DisplayToolInfo?,
     val invoke: suspend (T) -> ToolResult,
     val dataSchema: JsonSchema,
     val type: KType,
@@ -132,10 +153,23 @@ data class AiToolInfo<T: Any>(
         )
     }
 
-    operator fun invoke(parm: String)
-    {
-        invoke(AiTools.aiNegotiationJson.decodeFromString(parm))
-    }
+    @Serializable
+    data class DisplayToolInfo(
+        val title: String,
+        val content: Content
+    )
+
+    @Suppress("UNCHECKED_CAST")
+    fun parse(parm: String): T =
+        aiNegotiationJson.decodeFromString(aiNegotiationJson.serializersModule.serializer(type), parm) as T
+
+    @Suppress("UNCHECKED_CAST")
+    suspend operator fun invoke(parm: String) =
+        invoke(parse(parm))
+
+    @Suppress("UNCHECKED_CAST")
+    suspend fun display(parm: String): DisplayToolInfo? =
+        display(runCatching { parse(parm) }.getOrNull())
 
     companion object
     {
@@ -144,17 +178,25 @@ data class AiToolInfo<T: Any>(
             displayName: String?,
             description: String,
             noinline block: suspend (T) -> ToolResult
-        ): AiToolInfo<T>
-        {
-            val type = typeOf<T>()
-            return AiToolInfo(
-                name = name,
-                displayName = displayName,
-                description = description,
-                invoke = block,
-                dataSchema = JsonSchema.generateSchema<T>(),
-                type = type
-            )
-        }
+        ): AiToolInfo<T> = AiToolInfo(
+            name = name,
+            description = description,
+            display = if (displayName != null) ({ DisplayToolInfo(displayName, Content()) }) else ({ null }),
+            block = block,
+        )
+
+        inline operator fun <reified T: Any> invoke(
+            name: String,
+            description: String,
+            noinline display: suspend (T?) -> DisplayToolInfo?,
+            noinline block: suspend (T) -> ToolResult
+        ): AiToolInfo<T> = AiToolInfo(
+            name = name,
+            description = description,
+            display = display,
+            invoke = block,
+            dataSchema = JsonSchema.generateSchema<T>(),
+            type = typeOf<T>()
+        )
     }
 }

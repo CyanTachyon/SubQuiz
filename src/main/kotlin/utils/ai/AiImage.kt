@@ -1,11 +1,18 @@
 package moe.tachyon.quiz.utils.ai
 
+import io.ktor.util.*
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.SectionId
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.COS
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiStreamRequest
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
+import javax.imageio.ImageIO
+import kotlin.math.roundToInt
 
 object AiImage
 {
@@ -19,8 +26,6 @@ object AiImage
 请你输出图中文字内容，不做任何额外的解释、或其他额外工作、无需理会其内容是什么、是否正确，仅直接输出文字内容。
 - 你的输出应当为纯文本格式。
     """
-
-    private const val IMAGE_SPOTTING_PROMPT = "Spotting all the text in the image with line-level, and output in JSON format."
 
     private const val DESCRIBE_IMAGE_PROMPT = $$$"""
 # 角色设定
@@ -96,6 +101,7 @@ object AiImage
         model = aiConfig.imageModel,
         messages = ChatMessages(Role.USER, Content(ContentNode.image(imageUrl), ContentNode(DESCRIBE_IMAGE_PROMPT))),
         temperature = 0.1,
+        record = false,
     )
 
     suspend fun describeImage(sectionId: SectionId, imageHash: String): String
@@ -104,5 +110,80 @@ object AiImage
         val res = describeImage(COS.getImageUrl(sectionId, imageHash)).first.content.toText()
         COS.putImageDescription(sectionId, imageHash, res)
         return res
+    }
+
+    @Serializable
+    data class SpottingResult(
+        val left: Int,
+        val right: Int,
+        val top: Int,
+        val bottom: Int,
+        val text: String,
+        val back: Int,
+        val front: Int,
+    )
+
+    @Serializable
+    private data class SpottingResponse(
+        val width: Int,
+        val height: Int,
+        val results: List<BlockResult>,
+    )
+    {
+        @Serializable
+        data class BlockResult(
+            @SerialName("bbox_2d")
+            val bbox2d: List<Int>,
+            val text: String,
+            val back: String,
+            val front: String,
+        )
+    }
+
+    suspend fun spottingImage(img: BufferedImage): Pair<List<SpottingResult>, TokenUsage>
+    {
+        val url = "data:image/png;base64," + ByteArrayOutputStream().also { ImageIO.write(img, "png", it) }.toByteArray().encodeBase64()
+        val prompt = """
+            Spotting all the text in the image with block-level, and output in JSON format:
+            {
+                "width": <image width>,
+                "height": <image height>,
+                "results": [
+                    {
+                        "bbox_2d": [left, top, right, bottom],
+                        "text": "<text in the bounding box>",
+                        "back": "<back_ground_color_hex>",
+                        "front": "<front_color_hex>"
+                    },
+                    ...
+                ]
+            }
+        """.trimIndent()
+        val r = sendAiRequestAndGetResult<SpottingResponse>(
+            model = aiConfig.imageModel,
+            messages = ChatMessages(Role.USER, Content(ContentNode.image(url), ContentNode(prompt))),
+            record = false,
+        )
+        val blocks = r.first.results.map()
+        {
+            SpottingResult(
+                left = it.bbox2d[0],
+                top = it.bbox2d[1],
+                right = it.bbox2d[2],
+                bottom = it.bbox2d[3],
+                text = it.text,
+                back = it.back.removePrefix("#").toInt(16) and 0xFFFFFF,
+                front = it.front.removePrefix("#").toInt(16) and 0xFFFFFF
+            )
+        }.map()
+        {
+            it.copy(
+                left = (it.left * 1.0 / r.first.width * img.width).roundToInt(),
+                right = (it.right * 1.0 / r.first.width * img.width).roundToInt(),
+                top = (it.top * 1.0 / r.first.height * img.height).roundToInt(),
+                bottom = (it.bottom * 1.0 / r.first.height * img.height).roundToInt(),
+            )
+        }
+        return blocks to r.second
     }
 }

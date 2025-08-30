@@ -27,6 +27,7 @@ import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.ContentNode
+import moe.tachyon.quiz.utils.ai.aiNegotiationJson
 import moe.tachyon.quiz.version
 import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
@@ -132,13 +133,15 @@ object MCP
             val tools = client.value.listTools()?.tools ?: return@registerTool emptyList()
             tools.map()
             { t ->
-                val schema = AiTools.aiNegotiationJson.encodeToJsonElement(t.inputSchema).jsonObject
+                val schema = aiNegotiationJson.encodeToJsonElement(t.inputSchema).jsonObject
                 val description = t.description ?: ""
                 val name = t.name
                 val displayName = t.annotations?.title ?: name
                 AiToolInfo<JsonObject>(
                     name = name,
-                    displayName = displayName,
+                    display = {
+                        AiToolInfo.DisplayToolInfo(displayName, Content())
+                    },
                     description = description,
                     dataSchema = JsonSchema.UnknownJsonSchema(schema),
                     type = typeOf<JsonObject>(),

@@ -5,6 +5,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
+import moe.tachyon.quiz.utils.ai.aiNegotiationJson
 
 object Math
 {
@@ -221,7 +222,7 @@ object Math
         {
             AiToolInfo.ToolResult(
                 Content("展示数学公式成功"),
-                showingContent = AiTools.aiNegotiationJson.encodeToString(it.parm),
+                showingContent = aiNegotiationJson.encodeToString(it.parm),
                 showingType = AiTools.ToolData.Type.MATH,
             )
         }

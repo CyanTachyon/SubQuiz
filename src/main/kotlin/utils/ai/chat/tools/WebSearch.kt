@@ -113,6 +113,11 @@ object WebSearch
             description = """
                 进行网络搜索，将返回若干相关的搜索结果及来源url等，如有需要可以再使用`web_extract`工具提取网页内容
             """.trimIndent(),
+            display = {
+                if (it.parm != null)
+                    Content("查找网页: ${it.parm.key.split(" ").joinToString(" ") { s -> "`$s`" }}")
+                else Content()
+            }
         )
         { (chat, model, parm) ->
             val data = parm.key
@@ -127,6 +132,11 @@ object WebSearch
             description = """
                 提取网页内容，将读取指定url的内容并返回
             """.trimIndent(),
+            display = {
+                if (it.parm != null)
+                    Content("读取网页: `${it.parm.url}`")
+                else Content()
+            }
         )
         { (chat, model, parm) ->
             val data = parm.url
