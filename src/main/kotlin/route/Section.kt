@@ -18,6 +18,7 @@ import moe.tachyon.quiz.database.Sections
 import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.COS
 import moe.tachyon.quiz.utils.HttpStatus
+import moe.tachyon.quiz.utils.isWithinChineseCharLimit
 import moe.tachyon.quiz.utils.statuses
 import moe.tachyon.quiz.utils.toEnumOrNull
 
@@ -344,6 +345,7 @@ private suspend fun Context.getSections(): Nothing
 ////////////////////////
 
 @Serializable
+@Suppress("unused")
 enum class ImageType(val contentType: ContentType)
 {
     GIF(ContentType.Image.GIF),
@@ -401,6 +403,8 @@ private fun Context.getSectionImages()
 private suspend fun Context.newSectionType(sectionType: SectionType): Nothing
 {
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    if (!isWithinChineseCharLimit(sectionType.name, 8))
+        finishCall(HttpStatus.BadRequest.subStatus("知识点名称过长", 1))
     val kp = get<KnowledgePoints>().getKnowledgePoint(sectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)
     if (loginUser.permission < Permission.ADMIN && get<Permissions>().getPermission(loginUser.id, kp.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
@@ -419,6 +423,8 @@ private suspend fun Context.getSectionType(): Nothing
 private suspend fun Context.updateSectionType(sectionType: SectionType): Nothing
 {
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    if (!isWithinChineseCharLimit(sectionType.name, 8))
+        finishCall(HttpStatus.BadRequest.subStatus("知识点名称过长", 1))
     val sectionTypes = get<SectionTypes>()
     val oldSectionType = sectionTypes.getSectionType(sectionType.id) ?: finishCall(HttpStatus.NotFound)
     val kp = get<KnowledgePoints>().getKnowledgePoint(oldSectionType.knowledgePoint) ?: finishCall(HttpStatus.NotFound)

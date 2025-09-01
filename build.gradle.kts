@@ -26,7 +26,7 @@ fun getCurrentDateTime(): String
 }
 
 group = "moe.tachyon.quiz"
-version = "3.0.3.0-${getCurrentDateTime()}"
+version = "3.2.3.0-${getCurrentDateTime()}"
 
 application {
     mainClass.set("moe.tachyon.quiz.SubQuizKt")

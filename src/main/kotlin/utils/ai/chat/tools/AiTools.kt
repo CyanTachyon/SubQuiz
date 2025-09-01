@@ -187,6 +187,19 @@ data class AiToolInfo<T: Any>(
 
         inline operator fun <reified T: Any> invoke(
             name: String,
+            displayName: String,
+            description: String,
+            noinline display: suspend (T?) -> Content,
+            noinline block: suspend (T) -> ToolResult
+        ): AiToolInfo<T> = AiToolInfo(
+            name = name,
+            description = description,
+            display = { DisplayToolInfo(displayName, display(it)) },
+            block = block,
+        )
+
+        inline operator fun <reified T: Any> invoke(
+            name: String,
             description: String,
             noinline display: suspend (T?) -> DisplayToolInfo?,
             noinline block: suspend (T) -> ToolResult

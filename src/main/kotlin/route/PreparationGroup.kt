@@ -19,6 +19,7 @@ import io.github.smiley4.ktorswaggerui.dsl.routing.*
 import io.ktor.server.routing.Route
 import moe.tachyon.quiz.route.utils.get
 import moe.tachyon.quiz.route.utils.getLoginUser
+import moe.tachyon.quiz.utils.isWithinChineseCharLimit
 
 fun Route.preparationGroup() = route("/preparationGroup", {
     tags("preparationGroup")
@@ -111,6 +112,8 @@ private suspend fun Context.getGroup(): Nothing
 private suspend fun Context.updateGroup(preparationGroup: PreparationGroup): Nothing
 {
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    if (!isWithinChineseCharLimit(preparationGroup.name, 8))
+        finishCall(HttpStatus.BadRequest.subStatus("知识点名称过长", 1))
     if (!loginUser.hasGlobalAdmin() && get<Permissions>().getPermission(loginUser.id, preparationGroup.id) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
     val group = get<PreparationGroups>().getPreparationGroup(preparationGroup.id) ?: finishCall(HttpStatus.NotFound)
@@ -125,6 +128,8 @@ private suspend fun Context.updateGroup(preparationGroup: PreparationGroup): Not
 private suspend fun Context.newGroup(preparationGroup: PreparationGroup): Nothing
 {
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    if (!isWithinChineseCharLimit(preparationGroup.name, 8))
+        finishCall(HttpStatus.BadRequest.subStatus("知识点名称过长", 1))
     if (!loginUser.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
     if (get<PreparationGroups>().getPreparationGroup(preparationGroup.name) != null)
         finishCall(HttpStatus.Conflict.subStatus("已有重名备课组", 1))

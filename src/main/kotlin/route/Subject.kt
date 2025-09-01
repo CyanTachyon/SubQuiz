@@ -13,9 +13,11 @@ import moe.tachyon.quiz.dataClass.Permission
 import moe.tachyon.quiz.dataClass.Subject
 import moe.tachyon.quiz.dataClass.SubjectId
 import moe.tachyon.quiz.dataClass.SubjectId.Companion.toSubjectIdOrNull
+import moe.tachyon.quiz.dataClass.hasGlobalAdmin
 import moe.tachyon.quiz.database.Subjects
 import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
+import moe.tachyon.quiz.utils.isWithinChineseCharLimit
 import moe.tachyon.quiz.utils.statuses
 
 fun Route.subject() = route("/subject", {
@@ -102,6 +104,8 @@ private suspend fun Context.newSubject(): Nothing
     val subjects = get<Subjects>()
     if (user.permission < Permission.ADMIN) finishCall(HttpStatus.Forbidden)
     val body = call.receive<SubjectInfo>()
+    if (!isWithinChineseCharLimit(body.name, 8))
+        finishCall(HttpStatus.BadRequest.subStatus("学科名称过长", 1))
     val id = subjects.createSubject(body.name, body.description) ?: finishCall(HttpStatus.Conflict.subStatus("已有重名科目", 1))
     finishCall(HttpStatus.OK, id)
 }
@@ -110,7 +114,8 @@ private suspend fun Context.getSubject(): Nothing
 {
     val id = call.pathParameters["id"]?.toSubjectIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val subjects = get<Subjects>()
-    val subject = subjects.getSubject(id) ?: finishCall(HttpStatus.NotFound)
+    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val subject = subjects.getSubject((user.id.value < 0).takeUnless { user.hasGlobalAdmin() }, id) ?: finishCall(HttpStatus.NotFound)
     finishCall(HttpStatus.OK, subject)
 }
 
@@ -120,6 +125,8 @@ private suspend fun Context.editSubject(): Nothing
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     if (loginUser.permission < Permission.ADMIN) finishCall(HttpStatus.Forbidden)
     val body = call.receive<SubjectInfo>()
+    if (!isWithinChineseCharLimit(body.name, 8))
+        finishCall(HttpStatus.BadRequest.subStatus("学科名称过长", 1))
     get<Subjects>().updateSubject(id, body.name, body.description)
     finishCall(HttpStatus.OK)
 }
@@ -128,5 +135,6 @@ private suspend fun Context.getSubjectList(): Nothing
 {
     val (begin, count) = call.getPage()
     val subjects = get<Subjects>()
-    finishCall(HttpStatus.OK, subjects.getSubjects(begin, count))
+    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    finishCall(HttpStatus.OK, subjects.getSubjects((user.id.value < 0).takeUnless { user.hasGlobalAdmin() }, begin, count))
 }

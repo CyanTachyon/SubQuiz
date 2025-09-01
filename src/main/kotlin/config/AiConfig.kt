@@ -1,10 +1,10 @@
 package moe.tachyon.quiz.config
 
 import com.charleskorn.kaml.YamlComment
+import com.charleskorn.kaml.YamlMap
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class AiConfig(
@@ -50,7 +50,7 @@ data class AiConfig(
         val thinkingBudget: Int? = null,
         val key: List<String> = listOf("your api key"),
 
-        val customRequestParms: JsonObject = JsonObject(mapOf())
+        val customRequestParms: YamlMap? = null
     )
     {
         val semaphore by lazy { Semaphore(maxConcurrency) }

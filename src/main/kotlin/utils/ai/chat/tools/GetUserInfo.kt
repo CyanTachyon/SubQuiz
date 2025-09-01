@@ -39,7 +39,10 @@ data object GetUserInfo
             description = """
                 获取当前正在和你对话的用户的信息。
                 将获得用户的ID、昵称、实名、学号/工号等信息。
-            """.trimIndent()
+            """.trimIndent(),
+            display = {
+                Content("获取`用户ID` `昵称` `实名` `学工号` `邮箱`" )
+            }
         )
         { (chat, model, parm) ->
             val getter = Getter(chat.user)

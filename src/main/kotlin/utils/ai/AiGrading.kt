@@ -27,7 +27,7 @@ object AiGrading: KoinComponent
             sectionTypes.getSectionType(type)?.knowledgePoint
                 ?.let { knowledgePoints.getKnowledgePoint(it) }?.group
                 ?.let { preparationGroups.getPreparationGroup(it) }?.subject
-                ?.let { subjects.getSubject(it) }
+                ?.let { subjects.getSubject(null, it) }
         var totalTokens = TokenUsage()
         val job = SupervisorJob()
         val coroutineScope = CoroutineScope(Dispatchers.IO + job)

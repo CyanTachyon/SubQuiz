@@ -12,6 +12,7 @@ class Subjects: SqlDao<Subjects.SubjectTable>(SubjectTable)
     object SubjectTable: IdTable<SubjectId>("subjects")
     {
         override val id = subjectId("id").autoIncrement().entityId()
+        val forCustomUser = bool("for_custom_user").default(false)
         val name = text("name").uniqueIndex()
         val description = text("description")
         override val primaryKey = PrimaryKey(id)
@@ -34,17 +35,27 @@ class Subjects: SqlDao<Subjects.SubjectTable>(SubjectTable)
         }?.value
     }
 
-    suspend fun getSubject(id: SubjectId) = query()
+    suspend fun getSubject(forCustomUser: Boolean?, id: SubjectId) = query()
     {
         selectAll()
-            .where { table.id eq id }
+            .andWhere { table.id eq id }
+            .apply()
+            {
+                if (forCustomUser != null)
+                    andWhere { table.forCustomUser eq forCustomUser }
+            }
             .singleOrNull()
             ?.let(::deserialize)
     }
 
-    suspend fun getSubjects(begin: Long, count: Int) = query()
+    suspend fun getSubjects(forCustomUser: Boolean?, begin: Long, count: Int) = query()
     {
         selectAll()
+            .apply()
+            {
+                if (forCustomUser != null)
+                    andWhere { table.forCustomUser eq forCustomUser }
+            }
             .orderBy(table.id to SortOrder.ASC)
             .asSlice(begin, count)
             .map(::deserialize)

@@ -32,6 +32,7 @@ import moe.tachyon.quiz.utils.ai.chat.ContextCompressor
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.getKoin
 import moe.tachyon.quiz.utils.ktorClientEngineFactory
+import moe.tachyon.quiz.utils.toJsonElement
 import kotlin.uuid.ExperimentalUuidApi
 
 @Serializable
@@ -319,7 +320,7 @@ suspend fun sendAiRequest(
         stop = stop,
     ).let(contentNegotiationJson::encodeToJsonElement)
         .jsonObject
-        .plus(model.customRequestParms)
+        .plus(model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
         .let(::JsonObject)
 
     var res: JsonElement? = null
@@ -459,7 +460,7 @@ suspend fun sendAiStreamRequest(
                 val rBody = body.copy(messages = rMessages)
                     .let(contentNegotiationJson::encodeToJsonElement)
                     .jsonObject
-                    .plus(model.customRequestParms)
+                    .plus(model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
                     .let(::JsonObject)
                     .let(contentNegotiationJson::encodeToString)
                 logger.config("流式请求$url : $rBody")

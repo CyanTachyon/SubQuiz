@@ -74,6 +74,11 @@ object GlobalMemory: KoinComponent
                     你应该有选择地存储记忆，确保每条记忆都是有意义且有用的，且不和已有记忆重复。
                     
                 """.trimIndent(),
+                display = { parm ->
+                    if (parm != null)
+                        Content("存储条目: `${parm.key}` = `${parm.value}`")
+                    else Content()
+                }
             )
             { parm ->
                 val success = users.setGlobalMemory(chat.user, parm.key, parm.value)
@@ -93,7 +98,11 @@ object GlobalMemory: KoinComponent
                 参数：
                 - key: 记忆的键名
                 - value: 新的记忆内容
-            """.trimIndent()
+            """.trimIndent(),
+            display = {
+                if (it.parm != null) Content("更新条目: `${it.parm.key}` = `${it.parm.value}`")
+                else Content()
+            }
         )
         { (chat, model, parm) ->
             val success = users.setGlobalMemory(chat.user, parm.key, parm.value)
@@ -110,7 +119,11 @@ object GlobalMemory: KoinComponent
                 
                 参数：
                 - key: 指定要获取的记忆键名
-            """.trimIndent()
+            """.trimIndent(),
+            display = {
+                if (it.parm != null) Content("查询条目: `${it.parm.key}`")
+                else Content()
+            }
         )
         { (chat, model, parm) ->
             val memory = users.getGlobalMemory(chat.user)
@@ -134,7 +147,11 @@ object GlobalMemory: KoinComponent
                 
                 参数：
                 - key: 要删除的记忆键名
-            """.trimIndent()
+            """.trimIndent(),
+            display = {
+                if (it.parm != null) Content("删除条目: `${it.parm.key}`")
+                else Content()
+            }
         )
         { (chat, model, parm) ->
             val success = users.removeGlobalMemory(chat.user, parm.key)

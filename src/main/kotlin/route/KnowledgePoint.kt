@@ -18,6 +18,7 @@ import moe.tachyon.quiz.route.utils.finishCall
 import moe.tachyon.quiz.route.utils.get
 import moe.tachyon.quiz.route.utils.getLoginUser
 import moe.tachyon.quiz.utils.HttpStatus
+import moe.tachyon.quiz.utils.isWithinChineseCharLimit
 import moe.tachyon.quiz.utils.statuses
 
 fun Route.knowledgePoint() = route("/knowledgePoint", {
@@ -181,6 +182,8 @@ private suspend fun Context.newKnowledgePoint(knowledgePoint: KnowledgePoint): N
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     if (!loginUser.hasGlobalAdmin() && get<Permissions>().getPermission(loginUser.id, knowledgePoint.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
+    if (!isWithinChineseCharLimit(knowledgePoint.name, 10))
+        finishCall(HttpStatus.BadRequest.subStatus("知识点名称过长", 1))
     val knowledgePoints = get<KnowledgePoints>()
     val father = knowledgePoint.father?.let { knowledgePoints.getKnowledgePoint(it) ?: finishCall(HttpStatus.NotFound) }
     if (father != null && father.group != knowledgePoint.group)
@@ -201,6 +204,8 @@ private suspend fun Context.updateKnowledgePoint(knowledgePoint: KnowledgePoint)
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     if (!loginUser.hasGlobalAdmin() && get<Permissions>().getPermission(loginUser.id, knowledgePoint.group) < Permission.ADMIN)
         finishCall(HttpStatus.Forbidden)
+    if (!isWithinChineseCharLimit(knowledgePoint.name, 10))
+        finishCall(HttpStatus.BadRequest.subStatus("知识点名称过长", 1))
     val knowledgePoints = get<KnowledgePoints>()
     val oldKnowledgePoint = knowledgePoints.getKnowledgePoint(knowledgePoint.id) ?: finishCall(HttpStatus.NotFound)
     if (oldKnowledgePoint.group != knowledgePoint.group)
