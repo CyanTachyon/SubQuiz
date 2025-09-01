@@ -75,9 +75,9 @@ interface CommandHandler
 }
 
 suspend fun CommandHandler.handleCommandInvoke(sender: CommandSender, line: String) =
-    handleCommandInvoke(sender, LineParser.parse(line, line.length, Parser.ParseContext.ACCEPT_LINE) as ParsedLine)
+    handleCommandInvoke(sender, LineParser.parse(line, line.length + 1, Parser.ParseContext.ACCEPT_LINE) as ParsedLine)
 suspend fun CommandHandler.handleTabComplete(sender: CommandSender, line: String) =
-    handleTabComplete(sender, LineParser.parse(line, line.length, Parser.ParseContext.COMPLETE) as ParsedLine)
+    handleTabComplete(sender, LineParser.parse(line, line.length + 1, Parser.ParseContext.COMPLETE) as ParsedLine)
 
 abstract class CommandSender(val name: String)
 {
@@ -87,20 +87,20 @@ abstract class CommandSender(val name: String)
 
     var handler: CommandHandler = CommandSet
 
-    suspend fun invokeCommand(line: String) = invokeCommand(LineParser.parse(line, line.length, Parser.ParseContext.ACCEPT_LINE) as ParsedLine)
+    suspend fun invokeCommand(line: String) = invokeCommand(LineParser.parse(line, line.length + 1, Parser.ParseContext.ACCEPT_LINE) as ParsedLine)
     suspend fun invokeCommand(line: ParsedLine) = logger.severe("An error occurred while processing the command: $line")
     {
         handler.handleCommandInvoke(this, line)
     }.getOrElse { true }
 
-    suspend fun invokeTabComplete(line: String) = invokeTabComplete(LineParser.parse(line, line.length, Parser.ParseContext.COMPLETE) as ParsedLine)
+    suspend fun invokeTabComplete(line: String) = invokeTabComplete(LineParser.parse(line, line.length + 1, Parser.ParseContext.COMPLETE) as ParsedLine)
     suspend fun invokeTabComplete(line: ParsedLine) = logger.severe("An error occurred while processing the command tab: $line")
     {
         handler.handleTabComplete(this, line)
     }.getOrElse { emptyList() }
 
     suspend fun invokeTabCompleteToStrings(line: String) =
-        invokeTabCompleteToStrings(LineParser.parse(line, line.length, Parser.ParseContext.COMPLETE) as ParsedLine)
+        invokeTabCompleteToStrings(LineParser.parse(line, line.length + 1, Parser.ParseContext.COMPLETE) as ParsedLine)
     suspend fun invokeTabCompleteToStrings(line: ParsedLine): List<String>
     {
         val words = line.words()
@@ -126,16 +126,12 @@ object LineParser: DefaultParser()
     private val openingQuoteGetter by lazy()
     {
         val getter = FieldAccessor.getField(ArgumentList::class.java, "openingQuote")
-        if (getter != null) return@lazy {
-            it: ArgumentList -> getter.get(it)
-        }
+        if (getter != null) return@lazy { it: ArgumentList -> getter.get(it) }
         runCatching()
         {
             val field = ArgumentList::class.java.getDeclaredField("openingQuote")
             field.isAccessible = true
-            return@lazy { it: ArgumentList ->
-                field.get(it)
-            }
+            return@lazy { it: ArgumentList -> field.get(it) }
         }
         return@lazy { _: ArgumentList -> null }
     }
@@ -143,10 +139,9 @@ object LineParser: DefaultParser()
         line: String,
         cursor: Int,
         context: Parser.ParseContext?
-    ): org.jline.reader.ParsedLine?
+    ): ParsedLine?
     {
-        val l = super.parse(line, cursor, context) as? ArgumentList
-        if (l == null) return null
+        val l = super.parse(line, cursor, context) as? ArgumentList ?: return null
         return ParsedLineImpl(
             rawLine = line,
             line = l.line(),

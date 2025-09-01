@@ -14,7 +14,7 @@ import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.*
-import moe.tachyon.quiz.utils.ai.ask.AskService
+import moe.tachyon.quiz.utils.ai.chat.AskService
 import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.safeWithContext

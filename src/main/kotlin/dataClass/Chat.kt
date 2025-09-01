@@ -4,7 +4,6 @@ import kotlinx.serialization.Contextual
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
 import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
 import moe.tachyon.quiz.utils.ai.ChatMessages

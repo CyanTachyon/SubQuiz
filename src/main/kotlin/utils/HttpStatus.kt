@@ -121,7 +121,7 @@ fun OpenApiResponses.statuses(vararg statuses: HttpStatus, @Language("Markdown")
             description = it.message
             body<Response<Nothing?>> {
                 description = bodyDescription
-                example("固定值", Response<Nothing?>(it, null))
+                example("固定值", Response(it, null))
             }
         }
     }
@@ -166,7 +166,7 @@ fun OpenApiResponses.statuses(contentType: ContentType, vararg statuses: HttpSta
             description = "code: ${it.code.value}, message: ${it.message}"
             body<Response<Nothing?>> {
                 description = bodyDescription
-                example("固定值", Response<Nothing?>(it, null))
+                example("固定值", Response(it, null))
                 mediaTypes(contentType)
             }
         }

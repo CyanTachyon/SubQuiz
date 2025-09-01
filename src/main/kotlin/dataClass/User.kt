@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package moe.tachyon.quiz.dataClass
 
 import kotlinx.serialization.Serializable

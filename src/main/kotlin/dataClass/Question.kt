@@ -1,16 +1,15 @@
 @file:OptIn(ExperimentalSerializationApi::class)
 package moe.tachyon.quiz.dataClass
 
-import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.NothingSerializer
 import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonClassDiscriminator
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
 import kotlin.reflect.KClass
 
 @JsonClassDiscriminator("type")

@@ -27,7 +27,7 @@ import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.*
-import moe.tachyon.quiz.utils.ai.ask.AskService
+import moe.tachyon.quiz.utils.ai.chat.AskService
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.statuses

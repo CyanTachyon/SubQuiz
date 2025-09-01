@@ -128,8 +128,8 @@ data class Section<out Answer, out UserAnswer, out Analysis: JsonElement?>(
             var id: SectionId? = null
             var type: SectionTypeId? = null
             var description: JsonElement? = null
-            var weight: Int = 50
-            var available: Boolean = true
+            var weight = 50
+            var available = true
             var questions: List<Question<Answer, UserAnswer, Analysis>>? = null
             loop@ while (true)
             {

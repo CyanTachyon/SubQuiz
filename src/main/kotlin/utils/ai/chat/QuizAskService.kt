@@ -1,11 +1,10 @@
-package moe.tachyon.quiz.utils.ai.ask
+package moe.tachyon.quiz.utils.ai.chat
 
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.utils.ai.*
-import moe.tachyon.quiz.utils.ai.chat.AiContextCompressor
 import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiStreamRequest
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools

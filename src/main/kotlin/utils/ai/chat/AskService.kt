@@ -1,4 +1,4 @@
-package moe.tachyon.quiz.utils.ai.ask
+package moe.tachyon.quiz.utils.ai.chat
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope

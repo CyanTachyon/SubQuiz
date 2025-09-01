@@ -147,8 +147,9 @@ object Config: TreeCommand(
             if (args.isEmpty())
             {
                 val map = JsonObject(
-                    ConfigLoader.configs().associate {
-                        it to ConfigLoader.getConfigLoader(it)!!.let { config ->
+                    ConfigLoader.configs().associateWith()
+                    {
+                        ConfigLoader.getConfigLoader(it)!!.let { config ->
                             showJson.encodeToJsonElement(showJson.serializersModule.serializer(config.type), config.config)
                         }
                     }

@@ -9,7 +9,7 @@ class AiRetryFailedException(
 sealed class AiResponseException(msg: String, cause: Throwable? = null): Exception(msg, cause)
 class AiResponseFormatException(
     val response: ChatMessages,
-    val msg: String = "AI的响应格式无效",
+    msg: String = "AI的响应格式无效",
     cause: Throwable? = null
 ): AiResponseException(
     "$msg: ${showJson.encodeToString(response)}",

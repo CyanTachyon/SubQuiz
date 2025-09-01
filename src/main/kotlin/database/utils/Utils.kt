@@ -136,7 +136,7 @@ class CustomExpression<T>(
     {
         queryBuilder.append(expression)
     }
-    override fun toString(): String = expression.toString()
+    override fun toString(): String = expression
 }
 
 fun <T>Expression<T>.withColumnType(columnType: ColumnType<T & Any>): ExpressionWithColumnType<T> =

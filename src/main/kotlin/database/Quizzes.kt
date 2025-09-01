@@ -1,17 +1,16 @@
 package moe.tachyon.quiz.database
 
+import kotlinx.datetime.Clock
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.serializer
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.Slice
 import moe.tachyon.quiz.database.utils.asSlice
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
-import kotlinx.datetime.Clock
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.serializer
 import moe.tachyon.quiz.utils.ai.TokenUsage
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.json.extract
 import org.jetbrains.exposed.sql.json.jsonb
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp
 import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
@@ -133,21 +132,5 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
                 it[table.tokenUsage] = tokenUsage
             }
         }
-    }
-
-    suspend fun getQuizzesOrderByTokenUsage(begin: Long, count: Int): Slice<Quiz<Any, Any?, JsonElement>> = query()
-    {
-        selectAll()
-            .orderBy(tokenUsage.extract<Long>("total_tokens", toScalar = false) to SortOrder.DESC)
-            .asSlice(begin, count)
-            .map(::deserialize)
-    }
-
-    suspend fun getQuizzesOrderByQuestionCount(begin: Long, count: Int): Slice<Quiz<Any, Any?, JsonElement>> = query()
-    {
-        selectAll()
-            .orderBy(CustomFunction("jsonb_array_length", LongColumnType(), table.sections) to SortOrder.DESC)
-            .asSlice(begin, count)
-            .map(::deserialize)
     }
 }

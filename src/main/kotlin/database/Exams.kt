@@ -15,7 +15,6 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.json.jsonb
 import org.jetbrains.exposed.sql.transactions.TransactionManager
-import org.koin.core.component.inject
 
 class Exams: SqlDao<Exams.ExamTable>(ExamTable)
 {
