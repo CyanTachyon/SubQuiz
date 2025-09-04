@@ -1,6 +1,7 @@
 package moe.tachyon.quiz.console.command
 
 import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.utils.ai.chat.tools.CodeRunner
 
 /**
  * Command set.

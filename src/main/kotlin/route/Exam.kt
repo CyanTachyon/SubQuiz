@@ -112,7 +112,7 @@ fun Route.exam() = route("/exam", {
             response()
             {
                 statuses<Quiz<Nothing?, Nothing?, Nothing?>>(HttpStatus.OK, example = Quiz.example.hideAnswer().withoutUserAnswer())
-                statuses(HttpStatus.Unauthorized, HttpStatus.Forbidden, HttpStatus.BadRequest, HttpStatus.NotFound, HttpStatus.NotAcceptable.subStatus("已有未完成的测试"))
+                statuses(HttpStatus.Unauthorized, HttpStatus.Forbidden, HttpStatus.BadRequest, HttpStatus.NotFound, HttpStatus.Conflict.subStatus("请重试", 1), HttpStatus.BadRequest.subStatus("考试不可用", 2), HttpStatus.NotFound.subStatus("考试中的部分题目已失效，请联系管理员", 3))
             }
         }, Context::startExam)
 
@@ -227,9 +227,7 @@ private suspend fun Context.startExam()
     if (history != null) finishCall(HttpStatus.OK, if (history.finished) history else history.hideAnswer())
     val quiz = quizzes.addQuiz(user.id, sections, exam.id)?.hideAnswer()
     if (quiz != null) finishCall(HttpStatus.OK, quiz)
-    val unfinished = quizzes.getUnfinishedQuiz(user.id)!!.hideAnswer()
-    if (unfinished.exam == examId) finishCall(HttpStatus.OK, unfinished)
-    finishCall(HttpStatus.NotAcceptable.subStatus("已有未完成的测试", 1), unfinished)
+    finishCall(HttpStatus.Conflict.subStatus("请重试", 1))
 }
 
 private suspend fun Context.getExamScores(): Nothing

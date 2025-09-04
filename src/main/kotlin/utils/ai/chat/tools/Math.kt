@@ -5,7 +5,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
-import moe.tachyon.quiz.utils.ai.aiNegotiationJson
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.aiNegotiationJson
 
 object Math
 {

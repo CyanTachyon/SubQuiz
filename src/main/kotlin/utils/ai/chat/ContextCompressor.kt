@@ -7,9 +7,20 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
+import moe.tachyon.quiz.utils.ai.internal.llm.BeforeLlmRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.LlmLoopPlugin
+import moe.tachyon.quiz.utils.ai.internal.llm.addTokenUsage
+import moe.tachyon.quiz.utils.ai.internal.llm.allMessages
+import moe.tachyon.quiz.utils.ai.internal.llm.onReceive
+import moe.tachyon.quiz.utils.ai.internal.llm.requestMessage
+import moe.tachyon.quiz.utils.ai.internal.llm.responseMessage
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
 import org.intellij.lang.annotations.Language
 import kotlin.math.max
 import kotlin.uuid.ExperimentalUuidApi
@@ -22,6 +33,32 @@ interface ContextCompressor
 {
     suspend fun shouldCompress(messages: ChatMessages): Boolean
     suspend fun compress(messages: ChatMessages): Pair<ChatMessages, TokenUsage>
+}
+
+fun ContextCompressor.toLlmPlugin(): BeforeLlmRequest = BeforeLlmRequest()
+{
+    val systemPrompt = requestMessage.indexOfFirst { it.role != Role.SYSTEM }.let { if (it == -1) requestMessage else requestMessage.subList(0, it) }
+    val messageWithoutSystem = requestMessage.drop(systemPrompt.size)
+    val index = messageWithoutSystem.indexOfLast { it.role == Role.CONTEXT_COMPRESSION }
+    val uncompressed =
+        (if (index == -1) messageWithoutSystem
+        else
+        {
+            val com = dataJson.decodeFromString<ChatMessages>(messageWithoutSystem[index].content.toText())
+            com + messageWithoutSystem.subList(index + 1, messageWithoutSystem.size)
+        }).toChatMessages()
+    if (shouldCompress(uncompressed))
+    {
+        onReceive(StreamAiResponseSlice.ContextCompression)
+        val compressed = compress(uncompressed)
+        addTokenUsage(compressed.second)
+        responseMessage += ChatMessage(
+            role = Role.CONTEXT_COMPRESSION,
+            content = dataJson.encodeToString(compressed.first)
+        )
+        requestMessage = systemPrompt + compressed.first
+    }
+    else requestMessage = systemPrompt + uncompressed
 }
 
 /**
@@ -67,13 +104,13 @@ class TailContextCompressor(val maxSize: Int = 20): ContextCompressor
  * 该压缩器会自动跳过（保留）位于最开始的若干个System消息以及设置的keepTail消息。支持设置压缩率
  *
  * @param model 小模型
- * @param compressLength 当待压缩的内容超过多少条时开始压缩（不算被保留的消息），该限制并非强限制，将提供给模型由模型自行决定压缩到多少条
+ * @param compressLength 当待压缩的内容字数超过该值时才会进行压缩，默认10240
  * @param keepTail 保留最后的消息数
  * @param compressingRate 压缩率，0~1之间，表示压缩后消息数与压缩前消息数的比例，默认2/3
  */
 class AiContextCompressor(
     val model: AiConfig.LlmModel,
-    val compressLength: Int = 40,
+    val compressLength: Int = 10240,
     val keepTail: Int = 5,
     val compressingRate: Double = 2.0/3,
 ): ContextCompressor
@@ -88,7 +125,10 @@ class AiContextCompressor(
     }
 
     override suspend fun shouldCompress(messages: ChatMessages): Boolean =
-        needCompress(messages) >= compressLength
+        messages.subList(0, needCompress(messages)).sumOf()
+        {
+            it.content.toText().length + it.toolCalls.sumOf { t -> t.name.length + t.arguments.length + 20 }
+        } > compressLength
 
     @OptIn(ExperimentalSerializationApi::class)
     @Serializable
@@ -108,9 +148,11 @@ class AiContextCompressor(
     private fun List<Compress>.toChatMessages(): ChatMessages
     {
         val res = mutableListOf<ChatMessage>()
-        var id = Uuid.random().toHexString()
+        var id: String? = null
         for (c in this)
         {
+            if (c.role != Role.TOOL && id != null)
+                error("an assistant message with toolCall must be followed by a tool message")
             val toolCalls =
                 if (c.toolCall == null) emptyList()
                 else
@@ -120,11 +162,16 @@ class AiContextCompressor(
                 }
             when (c.role)
             {
-                Role.USER                -> res.add(ChatMessage(Role.USER, content = c.content))
                 Role.SYSTEM              -> Unit
-                Role.ASSISTANT           -> res.add(ChatMessage(Role.ASSISTANT, content = c.content, toolCalls = toolCalls))
-                Role.TOOL                -> res.add(ChatMessage(Role.TOOL, content = c.content, toolCallId = id))
                 Role.CONTEXT_COMPRESSION -> Unit
+                Role.USER                -> res.add(ChatMessage(Role.USER, content = c.content))
+                Role.ASSISTANT           -> res.add(ChatMessage(Role.ASSISTANT, content = c.content, toolCalls = toolCalls))
+                Role.TOOL                ->
+                {
+                    id ?: error("tool message must follow an assistant message with toolCall")
+                    res.add(ChatMessage(Role.TOOL, content = c.content, toolCallId = id))
+                    id = null
+                }
             }
         }
         return res.toChatMessages()
@@ -271,7 +318,7 @@ class AiContextCompressor(
             - 将多条工具调用合并为少数几条工具调用
             - 总结工具调用结果，替换掉冗长的工具调用结果
             等方式来达到压缩的目的。
-            接下来，请你压缩下面的聊天记录，你需要将他们压缩到${max(2, (messages.size * compressingRate).toInt())}条消息以内。
+            接下来，请你压缩下面的聊天记录，你需要将他们压缩到${max(2, (messages.sumOf { it.content.toText().length } * compressingRate).toInt())}字以内。
             注意你的回复必须是一个合法的json数组，格式如上文所示。
             
             ```json
@@ -303,8 +350,13 @@ class AiContextCompressor(
     {
         if (messages.size <= keepTail) return 0
         var splitIndex = messages.size - keepTail
-        while (keepTail != 0 && splitIndex > 0 && messages[splitIndex].role !in setOf(Role.USER, Role.SYSTEM))
-            splitIndex--
+        while (
+            keepTail != 0 &&
+            splitIndex > 0 && (
+                messages[splitIndex].role == Role.ASSISTANT && messages[splitIndex - 1].role in setOf(Role.USER, Role.SYSTEM) ||
+                messages[splitIndex].role == Role.TOOL
+            )
+        ) splitIndex--
         return splitIndex
     }
 
@@ -317,12 +369,18 @@ class AiContextCompressor(
         val tail = messages.subList(splitIndex, messages.size)
         @Language("JSON")
         val prompt = makePrompt(toCompress)
-        val res = sendAiRequestAndGetResult<List<Compress>>(
+        val res = sendAiRequestAndGetResult<ChatMessages>(
             model = model,
             message = prompt,
             retryType = RetryType.ADD_MESSAGE,
+            resultType = object: ResultType<ChatMessages>
+            {
+                private val impl = ResultType<List<Compress>>()
+                override fun getValue(str: String): ChatMessages =
+                    impl.getValue(str).toChatMessages()
+            }
         )
-        val r = (res.first.toChatMessages() + tail)
+        val r = res.first + tail
         logger.config("successfully compressed ${messages.size} messages to ${r.size} messages, used tokens: ${res.second}")
         return r to res.second
     }

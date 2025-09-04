@@ -26,7 +26,7 @@ import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.ContentNode
-import moe.tachyon.quiz.utils.ai.aiNegotiationJson
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.aiNegotiationJson
 import moe.tachyon.quiz.utils.ktorClientEngineFactory
 import moe.tachyon.quiz.version
 import java.lang.ref.ReferenceQueue

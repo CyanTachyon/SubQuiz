@@ -93,19 +93,19 @@ abstract class CommandSender(val name: String)
         handler.handleCommandInvoke(this, line)
     }.getOrElse { true }
 
-    suspend fun invokeTabComplete(line: String) = invokeTabComplete(LineParser.parse(line, line.length + 1, Parser.ParseContext.COMPLETE) as ParsedLine)
+    suspend fun invokeTabComplete(line: String) = invokeTabComplete(LineParser.parse(line, line.length, Parser.ParseContext.COMPLETE) as ParsedLine)
     suspend fun invokeTabComplete(line: ParsedLine) = logger.severe("An error occurred while processing the command tab: $line")
     {
         handler.handleTabComplete(this, line)
     }.getOrElse { emptyList() }
 
     suspend fun invokeTabCompleteToStrings(line: String) =
-        invokeTabCompleteToStrings(LineParser.parse(line, line.length + 1, Parser.ParseContext.COMPLETE) as ParsedLine)
+        invokeTabCompleteToStrings(LineParser.parse(line, line.length, Parser.ParseContext.COMPLETE) as ParsedLine)
     suspend fun invokeTabCompleteToStrings(line: ParsedLine): List<String>
     {
         val words = line.words()
         val lastWord =
-            if (words.size > line.wordIndex()) words[line.wordIndex()]
+            if (line.wordIndex() in words.indices) words[line.wordIndex()] ?: ""
             else ""
         return invokeTabComplete(line)
             .groupBy { it.key() ?: it.value() }

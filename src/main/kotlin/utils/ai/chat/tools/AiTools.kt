@@ -7,7 +7,7 @@ import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
-import moe.tachyon.quiz.utils.ai.aiNegotiationJson
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.aiNegotiationJson
 import moe.tachyon.quiz.utils.generateSchema
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
@@ -37,6 +37,7 @@ object AiTools
             ImageGeneration,
             MCP,
             ShowQuestion,
+            CodeRunner,
         ).let()
         {
             logger.fine("Loaded AI Tools: ${it.joinToString { tool -> tool::class.simpleName ?: "Unknown" }}")

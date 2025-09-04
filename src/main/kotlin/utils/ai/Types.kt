@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
+import java.util.function.IntFunction
 
 @Serializable
 enum class Role
@@ -67,6 +68,8 @@ sealed interface ContentNode
         fun text(content: String): ContentNode = Text(content)
         @JvmStatic
         fun image(image: String): ContentNode = Image(Image.Image(image))
+        @JvmStatic
+        fun file(filename: String, url: String): ContentNode = File(File.File(filename, url))
     }
 
     @Serializable
@@ -85,11 +88,21 @@ sealed interface ContentNode
         override val type: String = "image_url"
         @Serializable data class Image(val url: String)
     }
+
+    @Serializable
+    @SerialName("file")
+    data class File(@SerialName("file") val file: File): ContentNode
+    {
+        @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+        override val type: String = "file"
+        @Serializable data class File(@SerialName("filename") val filename: String, @SerialName("file_data") val url: String)
+    }
 }
 
 @JvmInline
 @Serializable
-value class Content(@Serializable(ContentSerializer::class) val content: List<ContentNode>)
+@Suppress("JavaDefaultMethodsNotOverriddenByDelegation")
+value class Content(@Serializable(ContentSerializer::class) val content: List<ContentNode>): List<ContentNode> by content
 {
     constructor(vararg content: ContentNode): this(content.toList())
     constructor(content: String): this(listOf(ContentNode.Text(content)))
@@ -123,7 +136,7 @@ value class Content(@Serializable(ContentSerializer::class) val content: List<Co
         return content.joinToString(separator = "") { (it as? ContentNode.Text)?.text ?: "" }
     }
 
-    fun isEmpty(): Boolean
+    override fun isEmpty(): Boolean
     {
         return content.isEmpty() || content.all { it is ContentNode.Text && it.text.isBlank() }
     }

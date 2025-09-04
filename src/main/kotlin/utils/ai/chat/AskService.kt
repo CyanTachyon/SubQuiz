@@ -6,16 +6,24 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.JsonElement
+import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.config.cosConfig
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.Section
+import moe.tachyon.quiz.dataClass.UserId
+import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
+import moe.tachyon.quiz.route.utils.get
 import moe.tachyon.quiz.utils.COS
 import moe.tachyon.quiz.utils.ai.*
-import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
+import moe.tachyon.quiz.utils.ai.internal.llm.AiResult
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
 import moe.tachyon.quiz.utils.richTextToString
 import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
 
 abstract class AskService
 {
@@ -68,8 +76,8 @@ abstract class AskService
             }
         }
 
-        fun getService(model: String): AskService? =
-            QuizAskService.getService(model)
+        suspend fun getService(user: UserId, model: String): AskService? =
+            QuizAskService.getService(user, model)
 
         suspend fun check(content: String, uncheckedList: List<StreamAiResponseSlice.Message>): Pair<Boolean, TokenUsage>
         {
@@ -136,7 +144,12 @@ abstract class AskService
                 
                 请严格按照上述规则分析输入内容，并返回JSON格式结果：
             """.trimIndent())
-            return sendAiRequestAndGetResult(aiConfig.checkerModel, sb.toString(), ResultType.BOOLEAN, RetryType.ADD_MESSAGE)
+            return sendAiRequestAndGetResult(
+                model = aiConfig.checkerModel,
+                message = sb.toString(),
+                resultType = ResultType.BOOLEAN,
+                retryType = RetryType.ADD_MESSAGE
+            )
         }
 
         suspend fun nameChat(chat: Chat): String
@@ -228,9 +241,9 @@ abstract class AskService
             """.trimIndent()
 
             val result = sendAiRequestAndGetResult(
-                aiConfig.chatNamerModel,
-                prompt,
-                ResultType.STRING
+                model = aiConfig.chatNamerModel,
+                message = prompt,
+                resultType = ResultType.STRING
             )
             return result.first
         }
@@ -483,5 +496,5 @@ abstract class AskService
         chat: Chat,
         content: Content,
         onRecord: suspend (StreamAiResponseSlice) -> Unit,
-    ): StreamAiResult
+    ): AiResult
 }

@@ -3,7 +3,10 @@ package moe.tachyon.quiz.utils.ai
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
-import moe.tachyon.quiz.utils.ai.internal.llm.sendAiStreamRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
 import java.awt.Color
 import java.awt.Font
 import java.awt.Graphics2D
@@ -82,15 +85,16 @@ object AiTranslate
             现在请将上面<translate_input>中包裹的内容进行翻译，确保遵循上述规则。请注意，翻译结果应当自然流畅，符合目标语言的文化习惯和表达方式。
         """.trimIndent())
 
-        sendAiStreamRequest(
+        sendAiRequest(
             model = aiConfig.translatorModel,
             messages = ChatMessages(Role.SYSTEM, sb.toString()),
+            stream = true
         )
         {
             it as? StreamAiResponseSlice.Message ?: run()
             {
                 logger.severe("Unexpected response slice: $it")
-                return@sendAiStreamRequest
+                return@sendAiRequest
             }
             onMessage(it.content, it.reasoningContent)
         }

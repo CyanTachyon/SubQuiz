@@ -10,6 +10,7 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
@@ -77,7 +78,8 @@ fun Route.terminal() = route("/terminal", {
 
         val sender = WebSocketCommandSender(loginUser)
 
-        runCatching {
+        runCatching()
+        {
             while (true)
             {
                 val packet = receiveDeserialized<Packet<String>>()
@@ -88,9 +90,12 @@ fun Route.terminal() = route("/terminal", {
                     MESSAGE, CLEAR -> Unit
                 }
             }
-        }.onFailure { exception ->
-            logger.info("WebSocket exception: ${exception.localizedMessage}")
-        }.also {
+        }.onFailure()
+        {
+            if (it is ClosedReceiveChannelException) return@onFailure
+            logger.warning("WebSocket exception:", it)
+        }.also()
+        {
             job.cancel()
         }
     }

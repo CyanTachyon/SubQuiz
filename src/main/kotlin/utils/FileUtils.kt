@@ -2,7 +2,9 @@ package moe.tachyon.quiz.utils
 
 import io.ktor.http.ContentType
 import io.ktor.http.fromFilePath
+import io.ktor.util.encodeBase64
 import kotlinx.serialization.Serializable
+import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.dataDir
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
@@ -94,6 +96,7 @@ object AiLibraryFiles
     }
 }
 
+@OptIn(ExperimentalUuidApi::class)
 object ChatFiles
 {
     /**
@@ -115,13 +118,23 @@ object ChatFiles
         val mimeType get() = ContentType.fromFilePath(name).firstOrNull()
     }
 
+    fun parseUrl(chat: ChatId, url: String): String? =
+        if (!url.startsWith("uuid:")) url
+        else getChatFile(chat, Uuid.parseHex(url.removePrefix("uuid:")))
+            ?.let { f -> "data:${f.first.mimeType};base64,${f.second.encodeBase64()}" }
+
+    fun getChatFilesDir(chat: ChatId): File
+    {
+        val dir = File(chatFiles, chat.toString()).apply(File::mkdirs)
+        return dir
+    }
+
     fun deleteChatFiles(chat: ChatId)
     {
         val dir = File(chatFiles, chat.toString())
         if (dir.exists()) require(dir.deleteRecursively())
     }
 
-    @OptIn(ExperimentalUuidApi::class)
     fun addChatFile(chat: ChatId, fileName: String, type: AiTools.ToolData.Type, data: ByteArray): Uuid
     {
         val dir = File(chatFiles, chat.toString()).apply(File::mkdirs)
@@ -133,7 +146,6 @@ object ChatFiles
         return uuid
     }
 
-    @OptIn(ExperimentalUuidApi::class)
     fun getChatFile(chat: ChatId, uuid: Uuid): Pair<FileInfo, ByteArray>?
     {
         val dir = File(chatFiles, chat.toString()).apply(File::mkdirs)
@@ -143,5 +155,62 @@ object ChatFiles
         val data = dataFile.readBytes()
         val info = dataJson.decodeFromString<FileInfo>(infoFile.readText())
         return info to data
+    }
+
+    fun deleteChatFile(chat: ChatId, uuid: Uuid): Boolean
+    {
+        val dir = File(chatFiles, chat.toString())
+        val infoFile = File(dir, uuid.toHexString() + ".info")
+        val dataFile = File(dir, uuid.toHexString() + ".data")
+        var success = true
+        if (infoFile.exists()) success = success && infoFile.delete()
+        if (dataFile.exists()) success = success && dataFile.delete()
+        return success
+    }
+
+    fun getFiles(chat: ChatId): List<Uuid>
+    {
+        val dir = File(chatFiles, chat.toString())
+        if (!dir.exists() || !dir.isDirectory) return emptyList()
+        return dir.listFiles()?.mapNotNull()
+        {
+            val name = it.name
+            if (name.endsWith(".info") || name.endsWith(".data"))
+            {
+                val uuidStr = name.removeSuffix(".info").removeSuffix(".data")
+                return@mapNotNull runCatching { Uuid.parseHex(uuidStr) }.getOrNull()
+            }
+            return@mapNotNull null
+        }?.distinct() ?: emptyList()
+    }
+
+    fun getUsedChatFileSize(chat: Chat): Long
+    {
+        val files = getFiles(chat.id).toSet()
+        val str = dataJson.encodeToString(chat)
+        val usedFiles = files.filter { str.contains(it.toHexString(), ignoreCase = true) }.toSet()
+        var size = 0L
+        usedFiles.forEach()
+        {
+            val f = getChatFile(chat.id, it)
+            if (f != null) size += f.second.size
+        }
+        return size
+    }
+
+    fun clearUnusedChatFiles(chat: Chat)
+    {
+        val files = getFiles(chat.id).toSet()
+        val str = dataJson.encodeToString(chat)
+        val usedFiles = files.filter { str.contains(it.toHexString(), ignoreCase = true) }.toSet()
+        val unusedFiles = files - usedFiles
+        unusedFiles.forEach { deleteChatFile(chat.id, it) }
+    }
+
+    fun getChatFileSize(chat: ChatId): Long
+    {
+        val dir = File(chatFiles, chat.toString())
+        if (!dir.exists() || !dir.isDirectory) return 0L
+        return dir.walk().filter { it.isFile }.filter { it.extension == "data" }.map { it.length() }.sum()
     }
 }

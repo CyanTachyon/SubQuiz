@@ -1,0 +1,198 @@
+package moe.tachyon.quiz.utils.ai.chat.tools
+
+import kotlinx.serialization.Serializable
+import moe.tachyon.quiz.dataClass.ChatId
+import moe.tachyon.quiz.utils.ChatFiles
+import moe.tachyon.quiz.utils.JsonSchema
+import moe.tachyon.quiz.utils.Sandbox
+import moe.tachyon.quiz.utils.ai.Content
+import java.io.File
+import kotlin.uuid.ExperimentalUuidApi
+
+@OptIn(ExperimentalUuidApi::class)
+object CodeRunner
+{
+    suspend fun executeInSandbox(chat: ChatId, timeout: Long, persistent: Boolean, cmd: List<String>): String
+    {
+        val dockerOut = File(ChatFiles.getChatFilesDir(chat), ".docker_out")
+        dockerOut.mkdirs()
+        val sandbox = Sandbox(
+            id = "subquiz-ai-code-runner-$chat",
+            containerTarFile = File(ChatFiles.getChatFilesDir(chat), ".code-runner-container.tar"),
+            baseImage = "python:3.9-alpine",
+            memoryLimit = "512m",
+            cpuLimit = "0.5",
+            dirs = listOf(
+                Triple(ChatFiles.getChatFilesDir(chat), "/workspace/input", false),
+                Triple(dockerOut, "/workspace/output", true),
+            ),
+            init = listOf(
+                listOf("python3", "-m", "pip", "config", "set", "global.index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"),
+                listOf("python3", "-m", "pip", "config", "set", "install.trusted-host", "pypi.tuna.tsinghua.edu.cn"),
+                listOf("python3", "-m", "pip", "install", "--upgrade", "pip"),
+                listOf("python3", "-m", "pip", "install", "PyPDF2"),
+            ),
+        )
+
+        val (exitCode, output, error) = sandbox.run(
+            cmd = cmd,
+            maxOut = 10480,
+            maxErr = 2048,
+            timeout = timeout,
+            persistent = persistent,
+        )
+
+        return buildString()
+        {
+            append("Exit Code: ${exitCode ?: "程序未退出"}\n")
+            if (output.isNotBlank())
+            {
+                append("stdout:\n```\n")
+                append(output)
+                append("\n```\n")
+            }
+            if (error.isNotBlank())
+            {
+                append("stderr:\n```\n")
+                append(error)
+                append("\n```\n")
+            }
+        }
+    }
+
+    @Serializable
+    private data class CodeRunnerParm(
+        @JsonSchema.Description("代码运行超时时间，单位毫秒，默认5000毫秒，不得超过20000毫秒")
+        val timeoutMs: Long = 5000,
+        @JsonSchema.Description("是否保留你在虚拟机内的修改，例如创建的文件、安装的软件包等")
+        val persistent: Boolean,
+        @JsonSchema.Description("需要运行的Python代码")
+        val code: String,
+    )
+
+    @Serializable
+    private data class CmdParm(
+        @JsonSchema.Description("命令运行超时时间，单位毫秒，默认5000毫秒，不得超过120_000毫秒")
+        val timeoutMs: Long = 5000,
+        @JsonSchema.Description("是否保留你在虚拟机内的修改，例如创建的文件、安装的软件包等")
+        val persistent: Boolean,
+        @JsonSchema.Description("需要运行的命令")
+        val cmd: List<String>,
+    )
+
+    @Serializable
+    private data class ShowFileParm(
+        @JsonSchema.Description("文件路径，注意必须以`/workspace/output/`开头")
+        val path: String,
+    )
+
+    init
+    {
+        AiTools.registerTool<CodeRunnerParm>(
+            name = "run_python",
+            displayName = "运行代码",
+            description = """
+                在受限环境中运行Python代码，返回其输出结果
+                - 当你需要进行一些复杂数学计算时你可以编写Python代码来完成计算
+                - 当你需要处理数据时你可以编写Python代码来处理数据
+                - 默认的工作目录是"/workspace"
+                - 重要：当用户上传文件给你之后，你应该使用Python代码来处理这些文件。
+                - 用户上传到聊天的文件会被放在"/workspace/input"中，你可以读取这些文件，但注意：
+                  - 文件上传后会变成两个文件，一个为{uuid}.info，另一个为{uuid}.data
+                  - 你可以读取{uuid}.info文件来获取文件的原始文件名等信息
+                  - 你可以读取{uuid}.data为文件的内容（二进制）除非你确定它是文本文件，否则请不要尝试直接打印它
+                  - 已经预装了python的PyPDF2包，你可以用它来处理PDF文件
+                [[重要]]关于持久化的说明：
+                每次你调用run_python或run_cmd工具时，将从最近的一次你使用了 persistent=true 的调用中恢复虚拟机的状态。
+                但是，input和output不受持久化控制，因此你可以在非persistent的情况下运行代码，将文件放入output，然后使用upload_file工具将文件发送给用户。
+                而其他位置的文件，均受到持久化控制。
+                所以如果你：
+                - 需要创建一个文件，并在后续需要使用：要么带有 persistent=true ，要么将文件放在output目录中
+                - 需要用pip安装环境等：务必带有 persistent=true 参数
+                - 仅读取文件/写入output中的文件，无需修改环境和其他文件：建议使用 persistent=false 参数
+                总之，系统环境和除去`/input` `/output`外的全部文件系统都会恢复到上次persistent=true。
+                [[重要]]如果你希望你的文件/环境被保留请启用persistent
+            """.trimIndent(),
+            display = {
+                if (it.parm != null) return@registerTool Content("```python\n${it.parm.code.replace("```", "` ` `")}\n```")
+                else return@registerTool Content()
+            }
+        )
+        { (chat, model, parm) ->
+            if (parm.code.isBlank()) return@registerTool AiToolInfo.ToolResult(
+                Content("error: code must not be empty")
+            )
+            val timeout = parm.timeoutMs.coerceIn(1000, 20000)
+            return@registerTool try
+            {
+                val r = executeInSandbox(
+                    chat = chat.id,
+                    cmd = listOf("python3", "-c", parm.code),
+                    persistent = parm.persistent,
+                    timeout = timeout
+                ) + if (!parm.persistent) "由于持久化未启用，本次操作除/output目录中的内容外均会被回滚" else ""
+                AiToolInfo.ToolResult(Content(r))
+            }
+            catch (e: Exception)
+            {
+                AiToolInfo.ToolResult(Content("error: ${e.message}"))
+            }
+        }
+
+        AiTools.registerTool<CmdParm>(
+            name = "run_cmd",
+            displayName = "运行命令",
+            description = """
+                在环境中运行命令，例如安装python包等，以便后续运行Python代码时可以使用这些包。该工具和run_python工具使用相同的受限环境。
+            """.trimIndent(),
+            display = {
+                if (it.parm != null) return@registerTool Content("```bash\n${it.parm.cmd.joinToString(" ")}\n```")
+                else return@registerTool Content()
+            }
+        )
+        { (chat, model, parm) ->
+            if (parm.cmd.isEmpty()) return@registerTool AiToolInfo.ToolResult(
+                Content("error: cmd must not be empty")
+            )
+            val timeout = parm.timeoutMs.coerceIn(1000, 120_000)
+            return@registerTool try
+            {
+                val r = executeInSandbox(chat = chat.id, cmd = parm.cmd, persistent = parm.persistent, timeout = timeout)
+                AiToolInfo.ToolResult(Content(r))
+            }
+            catch (e: Exception)
+            {
+                AiToolInfo.ToolResult(Content("error: ${e.message}"))
+            }
+        }
+
+        AiTools.registerTool<ShowFileParm>(
+            name = "upload_file",
+            displayName = null,
+            description = """
+                如果你需要将虚拟运行环境中的一个文件上传给用户，你需要：
+                - 将文件放在"/workspace/output/"目录下
+                - 使用该工具并传入你的文件路径（必须以"/workspace/output/"开头）
+                当你使用了该工具后
+                - 你指定的文件将会被转移，变成input中的两个文件{uuid}.info和{uuid}.data
+                - 用户将会受到该文件
+                - output中你指定的文件将被删除
+            """.trimIndent(),
+        )
+        { (chat, model, parm) ->
+            if (!parm.path.startsWith("/workspace/output/"))
+                return@registerTool AiToolInfo.ToolResult(Content("error: path must start with /workspace/output/"))
+            val path = parm.path.removePrefix("/workspace/output/").removePrefix("/")
+            val file = File(ChatFiles.getChatFilesDir(chat.id), ".docker_out/$path")
+            if (!file.exists() || !file.isFile)
+                return@registerTool AiToolInfo.ToolResult(Content("error: file not found"))
+            val uuid = ChatFiles.addChatFile(chat.id, path.substringAfterLast("/"), AiTools.ToolData.Type.FILE, file.readBytes())
+            file.delete()
+            return@registerTool AiToolInfo.ToolResult(
+                content = Content("file uploaded: uuid:${uuid.toHexString()}"),
+                showingContent = uuid.toHexString(),
+                showingType = AiTools.ToolData.Type.FILE
+            )
+        }
+    }
+}

@@ -18,7 +18,7 @@ class CallFinish(message: String, val block: suspend ApplicationCall.() -> Unit)
 
 inline fun finishCall(httpStatus: HttpStatus): Nothing =
     throw CallFinish(httpStatus.toString()) { respond(httpStatus) }
-inline fun <reified T: Any>finishCall(httpStatus: HttpStatus, body: T): Nothing =
+inline fun <reified T>finishCall(httpStatus: HttpStatus, body: T): Nothing =
     throw CallFinish(httpStatus.toString()) { respond<T>(httpStatus, body) }
 inline fun finishCallWithText(httpStatus: HttpStatus, text: String, contentType: ContentType? = null): Nothing =
     throw CallFinish(httpStatus.toString()) { respondText(text, contentType, httpStatus.code) }

@@ -1,5 +1,6 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
+import io.ktor.http.parseUrl
 import io.ktor.util.encodeBase64
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.config.aiConfig
@@ -8,6 +9,7 @@ import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetReply
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -22,11 +24,6 @@ object ReadImage
         val prompt: String,
     )
 
-    fun parseUrl(chat: ChatId, url: String): String? =
-        if (!url.startsWith("uuid:")) url
-        else ChatFiles.getChatFile(chat, Uuid.parseHex(url.removePrefix("uuid:")))
-            ?.let { f -> "data:${f.first.mimeType};base64,${f.second.encodeBase64()}" }
-
     init
     {
         AiTools.registerTool()
@@ -39,6 +36,7 @@ object ReadImage
                     如果你需要知道一个/一组图片中的内容，但是你无法直接查看图片内容，你可以使用该工具来获取图片中的内容。
                     该工具会将全部图片和你的提示词一起给一个VLM模型，并将模型的输出结果返回给你。
                     你应该只让vlm模型描述图片内容，而不是进行其他操作，而进一步的操作（如解答用户问题）则应由你自己完成。
+                    重要：该工具仅支持图片输入！如果不是图片请不要调用该工具！
                     examples:
                     {
                         "imageUrls": ["https://example.com/image1.png", "https://example.com/image2.png"],
@@ -58,7 +56,7 @@ object ReadImage
                 val (imgUrl, prompt) = parm
                 val imgContent = imgUrl.map()
                 {
-                    parseUrl(chat.id, it)
+                    ChatFiles.parseUrl(chat.id, it)
                     ?: throw IllegalArgumentException("Image URL '$it' not found in chat ${chat.id}")
                 }.map(ContentNode::image)
                 val sb = StringBuilder()
@@ -73,11 +71,11 @@ object ReadImage
                 """.trimIndent()
                 )
                 val content = Content(imgContent + ContentNode.text(sb.toString()))
-                val description = sendAiRequest(
+                val description = sendAiRequestAndGetReply(
                     model = aiConfig.imageModel,
                     messages = ChatMessages(Role.USER to content),
                     temperature = 0.1,
-                ).first.content.toText()
+                ).first
                 return@AiToolInfo AiToolInfo.ToolResult(Content(description))
             })
         }

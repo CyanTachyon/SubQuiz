@@ -1,4 +1,4 @@
-@file:Suppress("unused", "PackageDirectoryMismatch")
+@file:Suppress("unused")
 @file:OptIn(ExperimentalUuidApi::class)
 
 package moe.tachyon.quiz.utils.ai.internal.llm
@@ -20,19 +20,17 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import moe.tachyon.quiz.config.AiConfig
-import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.database.Records
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
-import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
-import moe.tachyon.quiz.utils.ai.chat.ContextCompressor
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.getKoin
 import moe.tachyon.quiz.utils.ktorClientEngineFactory
 import moe.tachyon.quiz.utils.toJsonElement
+import kotlin.collections.set
 import kotlin.uuid.ExperimentalUuidApi
 
 @Serializable
@@ -240,7 +238,16 @@ private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
 {
     fun ChatMessage.toRequestMessage(): AiRequest.Message?
     {
-        if (this.showingType != null) return null
+        when (this.role)
+        {
+            Role.USER                               -> Unit
+            Role.SYSTEM                             -> Unit
+            Role.ASSISTANT if (showingType != null) -> return null
+            Role.ASSISTANT                          -> Unit
+            Role.TOOL                               -> Unit
+            Role.CONTEXT_COMPRESSION                -> return null
+        }
+
         return AiRequest.Message(
             role = this.role,
             content = this.content,
@@ -249,12 +256,8 @@ private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
             toolCalls = this.toolCalls.map { AiResponse.Choice.Message.ToolCall(it.id, AiResponse.Choice.Message.ToolCall.Function(it.name, it.arguments)) },
         )
     }
-    val index = this.indexOfLast { it.role == Role.CONTEXT_COMPRESSION }
-    if (index == -1) return this.mapNotNull(ChatMessage::toRequestMessage)
-    val tail = this.subList(index + 1, this.size)
-    val head = dataJson.decodeFromString<ChatMessages>(this[index].content.toText())
-    val systemPrompt = this.indexOfFirst { it.role != Role.SYSTEM }.let { if (it == -1) this else this.subList(0, it) }
-    return (systemPrompt + head + tail).toRequestMessages()
+
+    return this.mapNotNull(ChatMessage::toRequestMessage)
 }
 
 private val logger = SubQuizLogger.getLogger()
@@ -282,18 +285,22 @@ private val defaultAiClient = HttpClient(ktorClientEngineFactory)
     }
 }
 
-
 private val records: Records by getKoin().inject()
 
-sealed class StreamAiResult(val messages: ChatMessages, val usage: TokenUsage)
+sealed class AiResult(val messages: ChatMessages, val usage: TokenUsage)
 {
-    class Success(messages: ChatMessages, usage: TokenUsage): StreamAiResult(messages, usage)
-    class TooManyRequests(messages: ChatMessages, usage: TokenUsage) : StreamAiResult(messages, usage)
-    class ServiceError(messages: ChatMessages, usage: TokenUsage) : StreamAiResult(messages, usage)
-    class Cancelled(messages: ChatMessages, usage: TokenUsage) : StreamAiResult(messages, usage)
-    class UnknownError(messages: ChatMessages, usage: TokenUsage, val error: Throwable) : StreamAiResult(messages, usage)
+    class Success(messages: ChatMessages, usage: TokenUsage): AiResult(messages, usage)
+    class TooManyRequests(messages: ChatMessages, usage: TokenUsage) : AiResult(messages, usage)
+    class ServiceError(messages: ChatMessages, usage: TokenUsage) : AiResult(messages, usage)
+    class Cancelled(messages: ChatMessages, usage: TokenUsage) : AiResult(messages, usage)
+    class UnknownError(messages: ChatMessages, usage: TokenUsage, val error: Throwable) : AiResult(messages, usage)
 }
 
+/**
+ * 发送流式AI请求，通过`onReceive`回调接收流式响应。最终结果通过返回值返回。
+ *
+ * 该函数理应永远不会抛出任何错误，返回详见[AiResult]
+ */
 suspend fun sendAiRequest(
     model: AiConfig.LlmModel,
     messages: ChatMessages,
@@ -303,235 +310,93 @@ suspend fun sendAiRequest(
     presencePenalty: Double? = null,
     stop: List<String>? = null,
     record: Boolean = true,
-) = model.semaphore.withPermit()
-{
-    val url = model.url
-
-    val body = AiRequest(
-        model = model.model,
-        messages = messages.toRequestMessages(),
-        stream = false,
-        maxTokens = model.maxTokens,
-        thinkingBudget = model.thinkingBudget,
-        temperature = temperature,
-        topP = topP,
-        frequencyPenalty = frequencyPenalty,
-        presencePenalty = presencePenalty,
-        stop = stop,
-    ).let(contentNegotiationJson::encodeToJsonElement)
-        .jsonObject
-        .plus(model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
-        .let(::JsonObject)
-
-    var res: JsonElement? = null
-    try
-    {
-        res = withTimeout(aiConfig.timeout)
-        {
-            logger.config("发送AI请求: $url")
-            val res = defaultAiClient.post(url)
-            {
-                bearerAuth(model.key.random())
-                contentType(ContentType.Application.Json)
-                accept(ContentType.Application.Json)
-                setBody(body)
-            }
-            val body = res.bodyAsText()
-            logger.severe("AI请求返回不是合法JSON: $body")
-            {
-                contentNegotiationJson.parseToJsonElement(body)
-            }.getOrThrow()
-        }
-        val r = runCatching()
-        {
-            contentNegotiationJson.decodeFromJsonElement<DefaultAiResponse>(res)
-        }.onFailure()
-        {
-            logger.warning("AI请求返回异常: ${contentNegotiationJson.encodeToString(res)}")
-        }.getOrThrow()
-
-        ChatMessage(
-            role = Role.ASSISTANT,
-            content = r.choices.firstOrNull()?.message?.content ?: "",
-            reasoningContent = r.choices.firstOrNull()?.message?.reasoningContent ?: "",
-        ) to r.usage
-    }
-    finally
-    {
-        if (record) runCatching()
-        {
-            withContext(NonCancellable)
-            {
-                records.addRecord(url, body, res)
-            }
-        }
-    }
-}
-
-/**
- * 发送流式AI请求，通过`onReceive`回调接收流式响应。最终结果通过返回值返回。
- *
- * 该函数理应永远不会抛出任何错误，返回详见[StreamAiResult]
- */
-suspend fun sendAiStreamRequest(
-    model: AiConfig.LlmModel,
-    messages: ChatMessages,
-    temperature: Double? = null,
-    topP: Double? = null,
-    frequencyPenalty: Double? = null,
-    presencePenalty: Double? = null,
-    stop: List<String>? = null,
-    record: Boolean = true,
     tools: List<AiToolInfo<*>> = emptyList(),
-    contextCompressor: ContextCompressor? = null,
-    onReceive: suspend (StreamAiResponseSlice) -> Unit,
-): StreamAiResult = model.semaphore.withPermit()
+    plugins: List<LlmLoopPlugin> = emptyList(),
+    stream: Boolean,
+    onReceive: suspend (StreamAiResponseSlice) -> Unit = {},
+): AiResult = model.semaphore.withPermit()
 {
-    val url = model.url
-    val body = AiRequest(
-        model = model.model,
-        messages = emptyList(),
-        stream = true,
-        maxTokens = model.maxTokens,
-        thinkingBudget = model.thinkingBudget,
-        temperature = temperature,
-        topP = topP,
-        frequencyPenalty = frequencyPenalty,
-        presencePenalty = presencePenalty,
-        stop = stop,
-        tools = tools.map()
-        {
-            AiRequest.Tool(
-                function = AiRequest.Tool.Function(
-                    name = it.name,
-                    description = it.description,
-                    parameters = it.dataSchema,
-                )
-            )
-        },
-    )
-
-    val list = mutableListOf<StreamAiResponse>()
     val res = mutableListOf<ChatMessage>()
     var send = true
     var usage = TokenUsage()
-    var usage0: TokenUsage
-    var curMsg = ChatMessage(Role.ASSISTANT, "")
     try
     {
+        val context = LlmLoopPlugin.Context(
+            model,
+            messages,
+            temperature,
+            topP,
+            frequencyPenalty,
+            presencePenalty,
+            stop,
+            tools,
+            res,
+
+            onReceive = onReceive,
+            addTokenUsage = { usage += it },
+        )
+
+        plugins.filterIsInstance<BeforeLlmLoop>().forEach()
+        {
+            context(context)
+            {
+                it.beforeLoop()
+            }
+        }
+
         while (send)
         {
-            val waitingTools = mutableMapOf<String, Pair<String, String>>()
-            var lstToolId = ""
-            usage0 = TokenUsage()
-
-            val rMessages = (messages + res).let()
-            { messages0 ->
-                val systemPrompt = messages0.indexOfFirst { it.role != Role.SYSTEM }.let { if (it == -1) messages0 else messages0.subList(0, it) }
-                val messageWithoutSystem = messages0.drop(systemPrompt.size)
-                val index = messageWithoutSystem.indexOfLast { it.role == Role.CONTEXT_COMPRESSION }
-                val uncompressed =
-                    (if (index == -1) messageWithoutSystem
-                    else
-                    {
-                        val com = dataJson.decodeFromString<ChatMessages>(messageWithoutSystem[index].content.toText())
-                        com + messageWithoutSystem.subList(index + 1, messageWithoutSystem.size)
-                    }).toChatMessages()
-
-                if (contextCompressor != null && contextCompressor.shouldCompress(uncompressed))
+            val beforeLlmRequestContext = BeforeLlmRequest.BeforeRequestContext(context.allMessages)
+            plugins.filterIsInstance<BeforeLlmRequest>().forEach()
+            {
+                context(context, beforeLlmRequestContext)
                 {
-                    onReceive(StreamAiResponseSlice.ContextCompression)
-                    val compressed = contextCompressor.compress(uncompressed)
-                    usage += compressed.second
-                    res += ChatMessage(
-                        role = Role.CONTEXT_COMPRESSION,
-                        content = dataJson.encodeToString(compressed.first)
-                    )
+                    it.beforeRequest()
                 }
-                (messages + res).toRequestMessages()
             }
 
+            val url = context.model.url
+            val key = context.model.key.random()
+            val body = AiRequest(
+                model = context.model.model,
+                messages = beforeLlmRequestContext.requestMessage.toRequestMessages(),
+                stream = stream,
+                maxTokens = context.model.maxTokens,
+                thinkingBudget = context.model.thinkingBudget,
+                temperature = context.temperature,
+                topP = context.topP,
+                frequencyPenalty = context.frequencyPenalty,
+                presencePenalty = context.presencePenalty,
+                stop = context.stop,
+                tools = context.tools.map()
+                {
+                    AiRequest.Tool(
+                        function = AiRequest.Tool.Function(
+                            name = it.name,
+                            description = it.description,
+                            parameters = it.dataSchema,
+                        )
+                    )
+                },
+            ).let(contentNegotiationJson::encodeToJsonElement)
+                .jsonObject
+                .plus(context.model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
+                .let(::JsonObject)
 
-            streamAiClient.sse(url, {
-                method = HttpMethod.Post
-                bearerAuth(model.key.random())
-                contentType(ContentType.Application.Json)
-                accept(ContentType.Any)
-                val rBody = body.copy(messages = rMessages)
-                    .let(contentNegotiationJson::encodeToJsonElement)
-                    .jsonObject
-                    .plus(model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
-                    .let(::JsonObject)
-                    .let(contentNegotiationJson::encodeToString)
-                logger.config("流式请求$url : $rBody")
-                setBody(rBody)
-            })
+            val requestResult = sendRequest(url, key, body, stream, record, onReceive)
+
+            plugins.filterIsInstance<AfterLlmResponse>().forEach()
             {
-                incoming
-                    .mapNotNull { it.data }
-                    .filterNot { it == "[DONE]" }
-                    .mapNotNull {
-                        logger.severe("AI流式请求返回异常: $it")
-                        {
-                            contentNegotiationJson.decodeFromString<StreamAiResponse>(it)
-                        }.getOrNull()
-                    }
-                    .collect()
-                    {
-                        list.add(it)
-                        if (it.usage.totalTokens > usage0.totalTokens)
-                            usage0 = it.usage
-                        it.choices.forEach()
-                        { c ->
-                            c.message.toolCalls.forEach()
-                            { tool ->
-                                if (tool.id != null)
-                                {
-                                    waitingTools[tool.id] = "" to ""
-                                    lstToolId = tool.id
-                                }
-                                if (!tool.function.name.isNullOrEmpty() || !tool.function.arguments.isNullOrEmpty())
-                                {
-                                    val l = waitingTools[lstToolId]
-                                    if (l == null)
-                                        logger.warning("出现错误: 工具调用ID丢失，无法将工具调用名称与参数对应。lstToolId=$lstToolId，waitingTools=$waitingTools, tool=$tool")
-                                    else
-                                    {
-                                        val newName = l.first + (tool.function.name ?: "")
-                                        val newArg = l.second + (tool.function.arguments ?: "")
-                                        waitingTools[lstToolId] = newName to newArg
-                                    }
-                                }
-                            }
+                context(context, requestResult)
+                {
+                    it.afterResponse()
+                }
+            }
 
-                            if (!c.message.content.isNullOrEmpty() || !c.message.reasoningContent.isNullOrEmpty())
-                            {
-                                onReceive(
-                                    StreamAiResponseSlice.Message(
-                                        content = c.message.content ?: "",
-                                        reasoningContent = c.message.reasoningContent ?: "",
-                                    )
-                                )
-                            }
-                            curMsg += ChatMessage(
-                                role = Role.ASSISTANT,
-                                content = c.message.content ?: "",
-                                reasoningContent = c.message.reasoningContent ?: "",
-                            )
-                        }
-                    }
-            }
-            waitingTools.forEach()
-            {
-                curMsg += ChatMessage(
-                    role = Role.ASSISTANT,
-                    content = Content(),
-                    toolCalls = listOf(ChatMessage.ToolCall(it.key, it.value.first, it.value.second)),
-                )
-            }
-            res += curMsg
-            curMsg = ChatMessage(Role.ASSISTANT, "")
+            val (waitingTools, curMsg, usage0, e) = requestResult
+            if (!curMsg.content.isEmpty() || !curMsg.reasoningContent.isEmpty() || !curMsg.toolCalls.isEmpty()) res += curMsg
             usage += usage0
+            if (e != null) throw e
             if (waitingTools.isNotEmpty())
             {
                 val parseToolCalls = parseToolCalls(waitingTools, tools, onReceive)
@@ -546,26 +411,180 @@ suspend fun sendAiStreamRequest(
     }
     catch (e: Throwable)
     {
-        if (!curMsg.content.isEmpty() || !curMsg.reasoningContent.isEmpty()) res += curMsg
         return when (e)
         {
-            is CancellationException -> StreamAiResult.Cancelled(res.toChatMessages(), usage)
-            is SSEClientException if (e.response?.status?.value == 429) -> StreamAiResult.TooManyRequests(res.toChatMessages(), usage)
-            is SSEClientException if (e.response?.status?.value in listOf(500, 502, 504)) -> StreamAiResult.ServiceError(res.toChatMessages(), usage)
-            else -> StreamAiResult.UnknownError(res.toChatMessages(), usage, e)
+            is CancellationException -> AiResult.Cancelled(res.toChatMessages(), usage)
+            is SSEClientException if (e.response?.status?.value == 429) -> AiResult.TooManyRequests(res.toChatMessages(), usage)
+            is SSEClientException if (e.response?.status?.value in listOf(500, 502, 504)) -> AiResult.ServiceError(res.toChatMessages(), usage)
+            else -> AiResult.UnknownError(res.toChatMessages(), usage, e)
         }
     }
-    finally
+    AiResult.Success(res.toChatMessages(), usage)
+}
+
+data class RequestResult(
+    var toolCalls : Map<String, Pair<String, String>>,
+    var message: ChatMessage,
+    var usage: TokenUsage,
+    var error: Throwable?,
+)
+
+private suspend fun sendRequest(
+    url: String,
+    key: String,
+    body: JsonElement,
+    stream: Boolean,
+    record: Boolean,
+    onReceive: suspend (StreamAiResponseSlice) -> Unit,
+): RequestResult
+{
+    logger.config("AI请求$url : $body")
+
+    if (!stream) runCatching()
     {
+        val response = defaultAiClient.post(url)
+        {
+            bearerAuth(key)
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            setBody(body)
+        }
+        val responseBody = response.bodyAsText()
+        val json = logger.severe("AI请求返回不是合法JSON: $responseBody")
+        {
+            contentNegotiationJson.parseToJsonElement(responseBody)
+        }.getOrThrow()
+        val res = runCatching()
+        {
+            contentNegotiationJson.decodeFromJsonElement<DefaultAiResponse>(json)
+        }.onFailure()
+        {
+            logger.warning("AI请求返回异常: ${contentNegotiationJson.encodeToString(response)}")
+        }.getOrThrow()
+        val msg = ChatMessage(
+            role = Role.ASSISTANT,
+            content = res.choices.joinToString { it.message.content }.let(::Content),
+            reasoningContent = res.choices.joinToString { it.message.reasoningContent ?: "" }
+        )
+        val usage = res.usage
         if (record) runCatching()
         {
             withContext(NonCancellable)
             {
-                records.addRecord(url, body, list)
+                records.addRecord(url, body, json)
             }
         }
+        val calls = res.choices.mapNotNull { it.message.toolCalls }.flatten().mapNotNull()
+        {
+            it.id ?: return@mapNotNull null
+            it.id to ((it.function.name ?: "") to (it.function.arguments ?: ""))
+        }.toMap()
+        return RequestResult(calls, msg, usage, null)
+    }.onFailure()
+    {
+        runCatching()
+        {
+            withContext(NonCancellable)
+            {
+                records.addRecord(url, body, null)
+            }
+        }
+        return RequestResult(emptyMap(), ChatMessage(Role.ASSISTANT, ""), TokenUsage(), it)
     }
-    StreamAiResult.Success(res.toChatMessages(), usage)
+
+
+    var usage0 = TokenUsage()
+    val waitingTools = mutableMapOf<String, Pair<String, String>>()
+    var lstToolId = ""
+    var curMsg = ChatMessage(Role.ASSISTANT, "")
+    val responses = mutableListOf<StreamAiResponse>()
+
+    val r = runCatching()
+    {
+        streamAiClient.sse(url, {
+            method = HttpMethod.Post
+            bearerAuth(key)
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Any)
+            setBody(contentNegotiationJson.encodeToString(body))
+        })
+        {
+            if (!call.response.status.isSuccess())
+                throw SSEClientException(call.response, message = "AI请求返回异常，HTTP状态码 ${call.response.status.value}, 响应体: ${call.response.bodyAsText()}")
+            incoming
+                .mapNotNull { it.data }
+                .filterNot { it == "[DONE]" }
+                .mapNotNull {
+                    logger.severe("AI请求返回异常: $it")
+                    {
+                        contentNegotiationJson.decodeFromString<StreamAiResponse>(it)
+                    }.getOrNull()
+                }
+                .collect()
+                {
+                    responses += it
+                    if (it.usage.totalTokens > usage0.totalTokens)
+                        usage0 = it.usage
+                    it.choices.forEach()
+                    { c ->
+                        c.message.toolCalls.forEach()
+                        { tool ->
+                            if (tool.id != null)
+                            {
+                                waitingTools[tool.id] = "" to ""
+                                lstToolId = tool.id
+                            }
+                            if (!tool.function.name.isNullOrEmpty() || !tool.function.arguments.isNullOrEmpty())
+                            {
+                                val l = waitingTools[lstToolId]
+                                if (l == null)
+                                    logger.warning("出现错误: 工具调用ID丢失，无法将工具调用名称与参数对应。lstToolId=$lstToolId，waitingTools=$waitingTools, tool=$tool")
+                                else
+                                {
+                                    val newName = l.first + (tool.function.name ?: "")
+                                    val newArg = l.second + (tool.function.arguments ?: "")
+                                    waitingTools[lstToolId] = newName to newArg
+                                }
+                            }
+                        }
+
+                        if (!c.message.content.isNullOrEmpty() || !c.message.reasoningContent.isNullOrEmpty())
+                        {
+                            onReceive(
+                                StreamAiResponseSlice.Message(
+                                    content = c.message.content ?: "",
+                                    reasoningContent = c.message.reasoningContent ?: "",
+                                )
+                            )
+                        }
+                        curMsg += ChatMessage(
+                            role = Role.ASSISTANT,
+                            content = c.message.content ?: "",
+                            reasoningContent = c.message.reasoningContent ?: "",
+                        )
+                    }
+                }
+        }
+
+        waitingTools.forEach()
+        {
+            curMsg += ChatMessage(
+                role = Role.ASSISTANT,
+                content = Content(),
+                toolCalls = listOf(ChatMessage.ToolCall(it.key, it.value.first, it.value.second)),
+            )
+        }
+    }
+
+    runCatching()
+    {
+        withContext(NonCancellable)
+        {
+            if (record) records.addRecord(url, body, responses)
+        }
+    }
+
+    return RequestResult(waitingTools, curMsg, usage0, r.exceptionOrNull())
 }
 
 private suspend fun parseToolCalls(

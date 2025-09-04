@@ -8,7 +8,8 @@ import moe.tachyon.quiz.dataClass.SectionId
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.COS
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
-import moe.tachyon.quiz.utils.ai.internal.llm.sendAiStreamRequest
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetReply
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
@@ -64,32 +65,34 @@ object AiImage
     /**
      * 图像转文字
      */
-    suspend fun imageToMarkdown(imageUrl: String, onMessage: suspend (msg: String) -> Unit) = sendAiStreamRequest(
+    suspend fun imageToMarkdown(imageUrl: String, onMessage: suspend (msg: String) -> Unit) = sendAiRequest(
         model = aiConfig.imageModel,
         messages = ChatMessages(Role.USER, Content(ContentNode.image(imageUrl), ContentNode(IMAGE_TO_MARKDOWN_PROMPT))),
         temperature = 0.1,
         record = false,
+        stream = true,
     )
     {
         it as? StreamAiResponseSlice.Message ?: run()
         {
             logger.severe("Unexpected response slice: $it")
-            return@sendAiStreamRequest
+            return@sendAiRequest
         }
         onMessage(it.content)
     }
 
-    suspend fun imageToText(imageUrl: String, onMessage: suspend (msg: String) -> Unit) = sendAiStreamRequest(
+    suspend fun imageToText(imageUrl: String, onMessage: suspend (msg: String) -> Unit) = sendAiRequest(
         model = aiConfig.imageModel,
         messages = ChatMessages(Role.USER, Content(ContentNode.image(imageUrl), ContentNode(IMAGE_TO_TEXT_PROMPT))),
         temperature = 0.1,
         record = false,
+        stream = true,
     )
     {
         it as? StreamAiResponseSlice.Message ?: run()
         {
             logger.severe("Unexpected response slice: $it")
-            return@sendAiStreamRequest
+            return@sendAiRequest
         }
         onMessage(it.content)
     }
@@ -97,7 +100,7 @@ object AiImage
     /**
      * 描述图像内容
      */
-    suspend fun describeImage(imageUrl: String) = sendAiRequest(
+    suspend fun describeImage(imageUrl: String) = sendAiRequestAndGetReply(
         model = aiConfig.imageModel,
         messages = ChatMessages(Role.USER, Content(ContentNode.image(imageUrl), ContentNode(DESCRIBE_IMAGE_PROMPT))),
         temperature = 0.1,
@@ -107,7 +110,7 @@ object AiImage
     suspend fun describeImage(sectionId: SectionId, imageHash: String): String
     {
         COS.getImageDescription(sectionId, imageHash)?.let { return it }
-        val res = describeImage(COS.getImageUrl(sectionId, imageHash)).first.content.toText()
+        val res = describeImage(COS.getImageUrl(sectionId, imageHash)).first
         COS.putImageDescription(sectionId, imageHash, res)
         return res
     }

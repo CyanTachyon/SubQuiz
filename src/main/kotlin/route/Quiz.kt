@@ -50,7 +50,7 @@ fun Route.quiz() = route("/quiz", {
                 }
             }
             response {
-                statuses<Quiz<Nothing?, Any?, Nothing?>>(HttpStatus.NotAcceptable.subStatus("已有未完成的测试"), HttpStatus.OK, example = Quiz.example.hideAnswer())
+                statuses<Quiz<Nothing?, Any?, Nothing?>>(HttpStatus.OK, example = Quiz.example.hideAnswer())
                 statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest, HttpStatus.NotEnoughQuestions, HttpStatus.Conflict.subStatus("仍有测试在批阅中"))
             }
         }, Context::newQuiz)
@@ -88,9 +88,9 @@ fun Route.quiz() = route("/quiz", {
         }
     }, Context::saveQuiz)
 
-    get("/{id}/analysis", {
-        summary = "获取测试分析"
-        description = "获取已完成的测试的分析"
+    get("/{id}", {
+        summary = "获取测试"
+        description = "若测试已完成, 则返回完整的测试内容, 否则返回隐藏了答案的测试内容. 若当前用户不是测试的创建者, 则需要有相应的权限"
 
         request()
         {
@@ -103,10 +103,21 @@ fun Route.quiz() = route("/quiz", {
 
         response()
         {
-            statuses<Quiz<Any, Any, JsonElement>>(HttpStatus.OK, example = Quiz.example)
-            statuses(HttpStatus.NotAcceptable.subStatus("该测试还未结束", 1), HttpStatus.NotFound, HttpStatus.QuestionMarking)
+            statuses<Quiz<Any?, Any?, JsonElement?>>(HttpStatus.OK, example = Quiz.example)
+            statuses(HttpStatus.NotFound, HttpStatus.QuestionMarking)
         }
-    }) { getAnalysis() }
+    }, Context::getQuiz)
+
+    get("/unfinished", {
+        summary = "获取未完成的测试"
+        description = "获取未完成的测试, 若有多个则返回最近的一个"
+
+        response()
+        {
+            statuses<List<Quiz<Nothing?, Any?, Nothing?>>>(HttpStatus.OK, example = listOf(Quiz.example.hideAnswer()))
+            statuses(HttpStatus.Unauthorized, HttpStatus.NotFound, HttpStatus.QuestionMarking)
+        }
+    }, Context::getUnfinishedQuizzes)
 
     get("/histories", {
         summary = "获取测试历史记录"
@@ -135,7 +146,8 @@ private suspend fun Context.newQuiz(): Nothing
     if (sections.count < count) finishCall(HttpStatus.NotEnoughQuestions)
     val quiz = quizzes.addQuiz(user, sections.list, null)?.hideAnswer()
     if (quiz != null) finishCall(HttpStatus.OK, quiz)
-    finishCall(HttpStatus.NotAcceptable.subStatus("已有未完成的测试"), quizzes.getUnfinishedQuiz(user)!!.hideAnswer())
+    logger.warning("用户 $user 创建测试时发生意料外的冲突")
+    finishCall(HttpStatus.Conflict)
 }
 
 private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, JsonElement?>): Nothing
@@ -144,8 +156,7 @@ private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, JsonElement?>): Noth
     val id = call.pathParameters["id"]?.toQuizIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val finish = call.parameters["finish"].toBoolean()
     val quizzes: Quizzes = get()
-    val q = quizzes.getUnfinishedQuiz(user) ?: finishCall(HttpStatus.NotFound)
-    if (q.id != id) finishCall(HttpStatus.NotFound)
+    val q = quizzes.getUnfinishedQuizzes(user).firstOrNull { it.id == body.id } ?: finishCall(HttpStatus.NotFound)
     val q1 = runCatching { q.mergeUserAnswer(body) }.getOrElse { finishCall(HttpStatus.BadRequest.subStatus("作答情况与测试题目不匹配", 1)) }
 
     if (finish)
@@ -201,7 +212,7 @@ private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, JsonElement?>): Noth
     finishCall(HttpStatus.OK)
 }
 
-private suspend fun Context.getAnalysis(): Nothing
+private suspend fun Context.getQuiz(): Nothing
 {
     val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val id = call.pathParameters["id"]?.toQuizIdOrNull() ?: finishCall(HttpStatus.BadRequest)
@@ -221,8 +232,17 @@ private suspend fun Context.getAnalysis(): Nothing
         if (clazz.withMembers().members.all { it.user != user.id })
             finishCall(HttpStatus.NotFound)
     }
-    val finished = q.checkFinished() ?: finishCall(HttpStatus.NotAcceptable.subStatus("该测试还未结束", 1))
-    finishCall(HttpStatus.OK, finished)
+    val finished = q.checkFinished()
+    if (finished != null) finishCall(HttpStatus.OK, finished)
+    else finishCall(HttpStatus.OK, q.hideAnswer())
+}
+
+private suspend fun Context.getUnfinishedQuizzes(): Nothing
+{
+    val user = getLoginUser()?.id ?: finishCall(HttpStatus.Unauthorized)
+    val quizzes: Quizzes = get()
+    val q = quizzes.getUnfinishedQuizzes(user).map { it.hideAnswer() }
+    finishCall(HttpStatus.OK, q)
 }
 
 private suspend fun Context.getHistories(): Nothing

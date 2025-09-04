@@ -1,5 +1,6 @@
 package moe.tachyon.quiz.database
 
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
 import moe.tachyon.quiz.dataClass.DatabaseUser
 import moe.tachyon.quiz.dataClass.Permission
@@ -13,6 +14,8 @@ import moe.tachyon.quiz.utils.ai.TokenUsage
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.json.jsonb
+import kotlin.reflect.KType
+import kotlin.reflect.typeOf
 
 class Users: SqlDao<Users.UserTable>(UserTable)
 {
@@ -25,6 +28,7 @@ class Users: SqlDao<Users.UserTable>(UserTable)
         val permission = enumeration<Permission>("permission").default(Permission.NORMAL)
         val tokenUsage = jsonb<TokenUsage>("token_usage", dataJson, dataJson.serializersModule.serializer()).default(TokenUsage())
         val globalMemory = jsonb<Map<String, String>>("global_memory", dataJson, dataJson.serializersModule.serializer()).default(emptyMap())
+        val customSettings = jsonb<Map<String, JsonElement>>("custom_settings", dataJson, dataJson.serializersModule.serializer()).default(emptyMap())
         override val primaryKey = PrimaryKey(id)
     }
 
@@ -81,5 +85,28 @@ class Users: SqlDao<Users.UserTable>(UserTable)
     suspend fun clearGlobalMemory(id: UserId): Boolean = query()
     {
         update({ UserTable.id eq id }) { it[globalMemory] = emptyMap() } > 0
+    }
+
+    suspend inline fun <reified T: Any> getCustomSetting(id: UserId, key: String): T? =
+        getCustomSetting(id, key, typeOf<T>())
+
+    suspend fun <T: Any> getCustomSetting(id: UserId, key: String, type: KType): T? = query()
+    {
+        val settings = select(customSettings).where { UserTable.id eq id }.singleOrNull()?.get(customSettings) ?: return@query null
+        val value = settings[key] ?: return@query null
+        @Suppress("UNCHECKED_CAST")
+        dataJson.decodeFromJsonElement(dataJson.serializersModule.serializer(type), value) as T
+    }
+
+    suspend inline fun <reified T: Any> setCustomSetting(id: UserId, key: String, value: T?): Boolean =
+        setCustomSetting(id, key, value, typeOf<T>())
+
+    suspend fun <T: Any> setCustomSetting(id: UserId, key: String, value: T?, type: KType): Boolean = query()
+    {
+        val currentSettings = select(customSettings).where { UserTable.id eq id }.singleOrNull()?.get(customSettings) ?: emptyMap()
+        val updatedSettings =
+            if (value == null) currentSettings - key
+            else currentSettings + (key to dataJson.encodeToJsonElement(dataJson.serializersModule.serializer(type), value))
+        update({ UserTable.id eq id }) { it[customSettings] = updatedSettings } > 0
     }
 }

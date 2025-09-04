@@ -1,7 +1,10 @@
-package moe.tachyon.quiz.utils.ai
+@file:Suppress("PackageDirectoryMismatch")
+
+package moe.tachyon.quiz.utils.ai.internal.llm.utils
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
@@ -9,7 +12,19 @@ import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
+import moe.tachyon.quiz.utils.ai.AiResponseException
+import moe.tachyon.quiz.utils.ai.AiResponseFormatException
+import moe.tachyon.quiz.utils.ai.AiRetryFailedException
+import moe.tachyon.quiz.utils.ai.ChatMessage
+import moe.tachyon.quiz.utils.ai.ChatMessages
+import moe.tachyon.quiz.utils.ai.Role
+import moe.tachyon.quiz.utils.ai.TokenUsage
+import moe.tachyon.quiz.utils.ai.UnknownAiResponseException
+import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
+import moe.tachyon.quiz.utils.ai.internal.llm.AiResult
+import moe.tachyon.quiz.utils.ai.internal.llm.LlmLoopPlugin
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
+import kotlin.collections.plusAssign
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
@@ -90,40 +105,71 @@ enum class RetryType
 suspend inline fun <reified T: Any> sendAiRequestAndGetResult(
     model: AiConfig.LlmModel,
     message: String,
+    temperature: Double? = null,
+    topP: Double? = null,
+    frequencyPenalty: Double? = null,
+    presencePenalty: Double? = null,
+    stop: List<String>? = null,
+    tools: List<AiToolInfo<*>> = emptyList(),
+    plugins: List<LlmLoopPlugin> = emptyList(),
     resultType: ResultType<T> = ResultType<T>(),
     retryType: RetryType = RetryType.RESEND,
     record: Boolean = true,
 ): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
     model = model,
     messages = ChatMessages(Role.USER, message),
+    temperature = temperature,
+    topP = topP,
+    frequencyPenalty = frequencyPenalty,
+    presencePenalty = presencePenalty,
+    stop = stop,
+    tools = tools,
+    plugins = plugins,
     resultType = resultType,
     retryType = retryType,
     record = record,
-    impl = Unit,
 )
 
 suspend inline fun <reified T: Any> sendAiRequestAndGetResult(
     model: AiConfig.LlmModel,
     messages: ChatMessages,
-    resultType: ResultType<T> = ResultType<T>(),
+    temperature: Double? = null,
+    topP: Double? = null,
+    frequencyPenalty: Double? = null,
+    presencePenalty: Double? = null,
+    stop: List<String>? = null,
+    tools: List<AiToolInfo<*>> = emptyList(),
+    plugins: List<LlmLoopPlugin> = emptyList(),
     retryType: RetryType = RetryType.RESEND,
     record: Boolean = true,
 ): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
     model = model,
     messages = messages,
-    resultType = resultType,
+    temperature = temperature,
+    topP = topP,
+    frequencyPenalty = frequencyPenalty,
+    presencePenalty = presencePenalty,
+    stop = stop,
+    tools = tools,
+    plugins = plugins,
+    resultType = ResultType<T>(),
     retryType = retryType,
     record = record,
-    impl = Unit,
 )
 
 suspend fun <T: Any> sendAiRequestAndGetResult(
     model: AiConfig.LlmModel,
     messages: ChatMessages,
+    temperature: Double? = null,
+    topP: Double? = null,
+    frequencyPenalty: Double? = null,
+    presencePenalty: Double? = null,
+    stop: List<String>? = null,
+    tools: List<AiToolInfo<*>> = emptyList(),
+    plugins: List<LlmLoopPlugin> = emptyList(),
     resultType: ResultType<T>,
     retryType: RetryType,
     record: Boolean,
-    @Suppress("unused") impl: Unit
 ): Pair<T, TokenUsage>
 {
     var totalTokens = TokenUsage()
@@ -134,11 +180,28 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
         val res: Pair<ChatMessage, TokenUsage>
         try
         {
-            res = sendAiRequest(
-                model = model,
-                messages = messages,
-                record = record,
-            )
+            res = withTimeout(aiConfig.timeout)
+            {
+                sendAiRequest(
+                    model = model,
+                    messages = messages,
+                    temperature = temperature,
+                    topP = topP,
+                    frequencyPenalty = frequencyPenalty,
+                    presencePenalty = presencePenalty,
+                    stop = stop,
+                    tools = tools,
+                    plugins = plugins,
+                    record = record,
+                    stream = false,
+                )
+            }.let { it as AiResult.Success }
+                .let()
+                {
+                    if (it.messages.size == 1) return@let it.messages.first() to it.usage
+                    errors += AiResponseFormatException(it.messages, "AI错误的返回了多条消息")
+                    return@repeat
+                }
             totalTokens += res.second
         }
         catch (e: Throwable)
@@ -170,6 +233,7 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
                 RetryType.RESEND      -> Unit
                 RetryType.ADD_MESSAGE ->
                 {
+                    messages += res.first
                     messages += ChatMessages(
                         Role.USER,
                         "你返回的内容格式不符合规定，请严格按照要求的JSON格式返回: ${e.message}\n\n" +
@@ -178,6 +242,64 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
                 }
             }
         }
+    }
+    currentCoroutineContext().ensureActive()
+    throw AiRetryFailedException(errors)
+}
+
+suspend fun sendAiRequestAndGetReply(
+    model: AiConfig.LlmModel,
+    messages: ChatMessages,
+    temperature: Double? = null,
+    topP: Double? = null,
+    frequencyPenalty: Double? = null,
+    presencePenalty: Double? = null,
+    stop: List<String>? = null,
+    tools: List<AiToolInfo<*>> = emptyList(),
+    plugins: List<LlmLoopPlugin> = emptyList(),
+    record: Boolean = true,
+): Pair<String, TokenUsage>
+{
+    var totalTokens = TokenUsage()
+    val errors = mutableListOf<AiResponseException>()
+    repeat(aiConfig.retry)
+    {
+        val res: Pair<ChatMessage, TokenUsage>
+        try
+        {
+            res = withTimeout(aiConfig.timeout)
+            {
+                sendAiRequest(
+                    model = model,
+                    messages = messages,
+                    temperature = temperature,
+                    topP = topP,
+                    frequencyPenalty = frequencyPenalty,
+                    presencePenalty = presencePenalty,
+                    stop = stop,
+                    tools = tools,
+                    plugins = plugins,
+                    record = record,
+                    stream = false,
+                )
+            }.let { it as AiResult.Success }
+                .let()
+                {
+                    if (it.messages.size == 1) return@let it.messages.first() to it.usage
+                    errors += AiResponseFormatException(it.messages, "AI错误的返回了多条消息")
+                    return@repeat
+                }
+            totalTokens += res.second
+        }
+        catch (e: Throwable)
+        {
+            currentCoroutineContext().ensureActive()
+            errors.add(UnknownAiResponseException(e))
+            logger.config("发送AI请求失败", e)
+            return@repeat
+        }
+
+        return res.first.content.toText().trim() to totalTokens
     }
     currentCoroutineContext().ensureActive()
     throw AiRetryFailedException(errors)

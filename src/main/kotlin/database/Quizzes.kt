@@ -32,7 +32,6 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
 
         init
         {
-            uniqueIndex(user, filterCondition = { finished eq false })
             uniqueIndex(user, exam, filterCondition = { exam.isNotNull() })
         }
     }
@@ -49,13 +48,13 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             tokenUsage = row[table.tokenUsage],
         )
 
-    suspend fun getUnfinishedQuiz(user: UserId): Quiz<Any, Any?, JsonElement>? = query()
+    suspend fun getUnfinishedQuizzes(user: UserId): List<Quiz<Any, Any?, JsonElement>> = query()
     {
         selectAll()
             .where { finished eq false }
             .andWhere { table.user eq user }
-            .singleOrNull()
-            ?.let(::deserialize)
+            .orderBy(table.time, SortOrder.DESC)
+            .map(::deserialize)
     }
 
     suspend fun getQuiz(id: QuizId): Quiz<Any, Any?, JsonElement>? = query()

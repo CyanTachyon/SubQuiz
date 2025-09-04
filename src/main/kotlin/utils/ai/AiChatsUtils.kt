@@ -15,8 +15,8 @@ import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.chat.AskService
-import moe.tachyon.quiz.utils.ai.internal.llm.StreamAiResult
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
+import moe.tachyon.quiz.utils.ai.internal.llm.AiResult
 import moe.tachyon.quiz.utils.safeWithContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -24,6 +24,7 @@ import java.io.ByteArrayOutputStream
 import java.util.*
 import javax.imageio.ImageIO
 import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 private typealias MessageSlice = StreamAiResponseSlice
 private typealias TextMessage = StreamAiResponseSlice.Message
@@ -108,7 +109,7 @@ object AiChatsUtils: KoinComponent
                             this@ChatInfo::putMessage
                         )
                     }
-                }.getOrElse { StreamAiResult.UnknownError(ChatMessages.empty(), TokenUsage(), it) }
+                }.getOrElse { AiResult.UnknownError(ChatMessages.empty(), TokenUsage(), it) }
 
                 try
                 {
@@ -122,22 +123,22 @@ object AiChatsUtils: KoinComponent
 
                 when (res)
                 {
-                    is StreamAiResult.Cancelled,
-                    is StreamAiResult.Success ->
+                    is AiResult.Cancelled,
+                    is AiResult.Success      ->
                     {
                         finish(withBanned = false, res.messages)
                     }
 
-                    is StreamAiResult.ServiceError,
-                    is StreamAiResult.TooManyRequests,
-                    is StreamAiResult.UnknownError ->
+                    is AiResult.ServiceError,
+                    is AiResult.TooManyRequests,
+                    is AiResult.UnknownError ->
                     {
                         when (res)
                         {
-                            is StreamAiResult.ServiceError    -> logger.warning("Got service error in chat ${chat.id}")
-                            is StreamAiResult.TooManyRequests -> logger.warning("Got too many requests in chat ${chat.id} use service $service")
-                            is StreamAiResult.UnknownError    -> logger.warning("Got unknown error in chat ${chat.id}", res.error)
-                            else -> {}
+                            is AiResult.ServiceError    -> logger.warning("Got service error in chat ${chat.id}")
+                            is AiResult.TooManyRequests -> logger.warning("Got too many requests in chat ${chat.id} use service $service")
+                            is AiResult.UnknownError    -> logger.warning("Got unknown error in chat ${chat.id}", res.error)
+                            else                        -> Unit
                         }
 
                         val endMsg = if (res.messages.isNotEmpty()) "\n---\n$ERROR_MESSAGE" else ERROR_MESSAGE
@@ -356,29 +357,89 @@ object AiChatsUtils: KoinComponent
     }
 
     @OptIn(ExperimentalUuidApi::class)
-    fun makeContent(chat: ChatId, content: String, images: List<String>): MakeContentResult
+    fun makeContent(chat: Chat, content: Content): MakeContentResult
     {
-        if (images.size > 5) return MakeContentResult.Failure("最多只能上传5张图片")
-        if (images.any { it.length > 1030 * 1024 * 4 / 3 }) // 1030KB,稍作余量, base64会膨胀到4/3倍，因此这里乘以4/3
+        if (content.count { it is ContentNode.Image || it is ContentNode.File } > 10)
+            return MakeContentResult.Failure("最多只能上传10个附件")
+
+        if (content.filterIsInstance<ContentNode.Image>().any { it.image.url.length > 1030 * 1024 * 4 / 3 }) // 1030KB,稍作余量, base64会膨胀到4/3倍，因此这里乘以4/3
             return MakeContentResult.Failure("图片过大，单张图片不能超过1MB")
-        val imageContents = images.map()
-        {
-            if (it.startsWith("uuid:")) return@map ContentNode.image(it)
-            runCatching()
+        if (content.filterIsInstance<ContentNode.File>().any { it.file.url.length > 10 * 1030 * 1024 * 4 / 3 }) // 10MB
+            return MakeContentResult.Failure("文件过大，单个文件不能超过10MB")
+
+        val fileBytes = mutableMapOf<Int, ByteArray>()
+
+        content.forEachIndexed()
+        { index, it ->
+            when (it)
             {
-                val img = ImageIO.read(it.decodeBase64Bytes().inputStream())
-                val output = ByteArrayOutputStream()
-                ImageIO.write(img, "png", output)
-                output.flush()
-                output.close()
-                val bytes = output.toByteArray()
-                val uuid = ChatFiles.addChatFile(chat, "img.png", AiTools.ToolData.Type.IMAGE, bytes)
-                ContentNode.image("uuid:" + uuid.toHexString())
-            }.getOrElse()
-            {
-                return MakeContentResult.Failure("图片格式错误或无法读取")
+                is ContentNode.Text  -> return@forEachIndexed
+                is ContentNode.File  ->
+                {
+                    runCatching()
+                    {
+                        if (it.file.url.startsWith("uuid:")) return@forEachIndexed
+                        val bytes = it.file.url.decodeBase64Bytes()
+                        if (bytes.size > 10 * 1024 * 1024) // 10MB
+                            return MakeContentResult.Failure("文件过大，单个文件不能超过10MB")
+                        fileBytes[index] = bytes
+                    }.getOrElse()
+                    {
+                        return MakeContentResult.Failure("图片格式错误或无法读取")
+                    }
+                }
+                is ContentNode.Image ->
+                {
+                    runCatching()
+                    {
+                        if (it.image.url.startsWith("uuid:")) return@forEachIndexed
+                        val img = ImageIO.read(it.image.url.decodeBase64Bytes().inputStream())
+                        val output = ByteArrayOutputStream()
+                        ImageIO.write(img, "png", output)
+                        output.flush()
+                        output.close()
+                        val bytes = output.toByteArray()
+                        if (bytes.size > 1024 * 1024) // 1MB
+                            return MakeContentResult.Failure("图片过大，单张图片不能超过1MB")
+                        fileBytes[index] = bytes
+                    }.getOrElse()
+                    {
+                        return MakeContentResult.Failure("图片格式错误或无法读取")
+                    }
+                }
             }
         }
-        return MakeContentResult.Success(Content(imageContents + ContentNode.text(content)))
+
+        val usedSize = ChatFiles.getUsedChatFileSize(chat.copy(histories = chat.histories + ChatMessage(Role.USER, content)))
+
+        if (usedSize + fileBytes.values.sumOf { it.size } > 50 * 1024 * 1024)
+            return MakeContentResult.Failure("文件过大，当前聊天记录中总文件不能超过50MB")
+
+        val rContent = content.mapIndexed()
+        { index, it ->
+            when (it)
+            {
+                is ContentNode.Text  -> it
+                is ContentNode.File  ->
+                {
+                    if (it.file.url.startsWith("uuid:")) return@mapIndexed it
+                    val bytes = fileBytes[index]!!
+                    val uuid = ChatFiles.addChatFile(chat.id, it.file.filename, AiTools.ToolData.Type.FILE, bytes)
+                    ContentNode.file(it.file.filename, "uuid:${uuid.toHexString()}")
+                }
+
+                is ContentNode.Image ->
+                {
+                    if (it.image.url.startsWith("uuid:")) return@mapIndexed it
+                    val bytes = fileBytes[index]!!
+                    val uuid = ChatFiles.addChatFile(chat.id, "img.png", AiTools.ToolData.Type.IMAGE, bytes)
+                    ContentNode.image("uuid:${uuid.toHexString()}")
+                }
+            }
+        }.let(::Content)
+
+        ChatFiles.clearUnusedChatFiles(chat.copy(histories = chat.histories + ChatMessage(Role.USER, rContent)))
+
+        return MakeContentResult.Success(rContent)
     }
 }

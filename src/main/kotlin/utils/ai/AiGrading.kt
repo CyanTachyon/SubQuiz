@@ -8,6 +8,9 @@ import moe.tachyon.quiz.database.SectionTypes
 import moe.tachyon.quiz.database.Subjects
 import moe.tachyon.quiz.logger.SubQuizLogger
 import kotlinx.coroutines.*
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.getValue
@@ -37,7 +40,8 @@ object AiGrading: KoinComponent
             {
                 when (it)
                 {
-                    is FillQuestion, is EssayQuestion -> runCatching {
+                    is FillQuestion, is EssayQuestion -> runCatching()
+                    {
                         checkAnswer(
                             subject?.name,
                             this@checkAnswer.description.toString(),
@@ -73,10 +77,10 @@ object AiGrading: KoinComponent
         userAnswer: String,
         standard: String,
     ) = sendAiRequestAndGetResult(
-        aiConfig.answerCheckerModel,
-        makePrompt(subjectName, sectionDescription, questionDescription, userAnswer, standard),
-        ResultType.BOOLEAN,
-        RetryType.ADD_MESSAGE,
+        model = aiConfig.answerCheckerModel,
+        message = makePrompt(subjectName, sectionDescription, questionDescription, userAnswer, standard),
+        resultType = ResultType.BOOLEAN,
+        retryType = RetryType.ADD_MESSAGE,
     )
 
     private val codeBlockRegex = Regex("```.*\\n?")

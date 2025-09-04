@@ -16,10 +16,12 @@ import io.ktor.util.decodeBase64Bytes
 import io.ktor.util.encodeBase64
 import kotlinx.serialization.*
 import kotlinx.serialization.json.JsonElement
+import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.ChatId.Companion.toChatIdOrNull
 import moe.tachyon.quiz.database.Chats
+import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
@@ -28,6 +30,7 @@ import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.chat.AskService
+import moe.tachyon.quiz.utils.ai.chat.QuizAskService
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.statuses
@@ -84,6 +87,32 @@ fun Route.ai() = route("/ai", {
                 statuses(HttpStatus.Unauthorized)
             }
         }, Context::getChatModels)
+
+        get("/customModel", {
+            description = "获取自定义AI聊天模型"
+            response()
+            {
+                statuses<QuizAskService.CustomModelSetting?>(HttpStatus.OK)
+                statuses(HttpStatus.Unauthorized)
+            }
+        }, Context::getCustomModel)
+
+        put("/customModel", {
+            description = "设置自定义AI聊天模型"
+            request()
+            {
+                body<QuizAskService.CustomModelSetting>()
+                {
+                    required = true
+                    description = "自定义模型设置"
+                }
+            }
+            response()
+            {
+                statuses(HttpStatus.OK)
+                statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
+            }
+        }, Context::setCustomModel)
 
         get({
             description = "获取AI聊天列表"
@@ -259,9 +288,8 @@ private class SectionSerializer: KSerializer<Section<Any, Any, JsonElement>> by 
 private data class CreateChatRequest(
     @Serializable(SectionSerializer::class)
     val section: Section<@Contextual Any, @Contextual Any, JsonElement>?,
-    val content: String,
     val model: String,
-    val images: List<String> = emptyList()
+    val content: Content,
 )
 
 private suspend fun Context.newChat(): Nothing
@@ -272,10 +300,10 @@ private suspend fun Context.newChat(): Nothing
     val chat = chats.createChat(user.id, body.section)
     val res = logger.warning("Failed to start chat for user ${user.id} with model ${body.model}")
     {
-        val content = AiChatsUtils.makeContent(chat.id, body.content, body.images)
+        val content = AiChatsUtils.makeContent(chat, body.content)
         if (content !is AiChatsUtils.MakeContentResult.Success)
             finishCall(HttpStatus.BadRequest.subStatus(content.error))
-        val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
+        val service = AskService.getService(user.id, body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
         AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
         chat.id
     }.onFailure { AiChatsUtils.deleteChat(chat.id, user.id) }.getOrThrow()
@@ -285,10 +313,9 @@ private suspend fun Context.newChat(): Nothing
 @Serializable
 private data class SendChatMessageRequest(
     val chatId: ChatId,
-    val content: String,
     val model: String,
     val hash: String,
-    val images: List<String> = emptyList(),
+    val content: Content,
     val regenerate: Boolean = false,
 )
 
@@ -311,12 +338,28 @@ private suspend fun Context.sendChatMessage()
     if (chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chat.hash != body.hash) finishCall(HttpStatus.Conflict)
     if (chat.banned) finishCall(HttpStatus.Forbidden.copy(message = AiChatsUtils.BANNED_MESSAGE))
-    val service = AskService.getService(body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
-    val content = AiChatsUtils.makeContent(chat.id, body.content, body.images)
+    val service = AskService.getService(loginUser.id, body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
+    val content = AiChatsUtils.makeContent(chat, body.content)
     if (content !is AiChatsUtils.MakeContentResult.Success)
         finishCall(HttpStatus.BadRequest.subStatus(content.error))
     val hash = AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, SendChatMessageResponse(content.content, hash))
+}
+
+private suspend fun Context.getCustomModel()
+{
+    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(user.id, QuizAskService.CUSTOM_MODEL_CONFIG_KEY)
+    finishCall(HttpStatus.OK, customModel)
+}
+
+private suspend fun Context.setCustomModel()
+{
+    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val body = call.receive<QuizAskService.CustomModelSetting>()
+    if (body.model.isBlank()) get<Users>().setCustomSetting(user.id, QuizAskService.CUSTOM_MODEL_CONFIG_KEY, null)
+    else get<Users>().setCustomSetting(user.id, QuizAskService.CUSTOM_MODEL_CONFIG_KEY, body)
+    finishCall(HttpStatus.OK)
 }
 
 @Serializable
@@ -326,10 +369,23 @@ private data class ChatModelResponse(
     val toolable: Boolean,
 )
 
-private fun Context.getChatModels()
+private suspend fun Context.getChatModels()
 {
-    call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    finishCall(HttpStatus.OK, aiConfig.chats.map { ChatModelResponse(it.model, it.displayName, aiConfig.models[it.model]!!.toolable) })
+    val id = call.getLoginUser()?.id ?: finishCall(HttpStatus.Unauthorized)
+    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(id, QuizAskService.CUSTOM_MODEL_CONFIG_KEY)
+    val displayName =
+        if (customModel == null) null
+        else if (customModel.model.length <= 12) customModel.model
+        else customModel.model.take(9) + "..."
+    val models = aiConfig.chats.map { ChatModelResponse(it.model, it.displayName, aiConfig.models[it.model]!!.toolable) }
+    val rModels =
+        if (customModel != null)
+            listOf(ChatModelResponse(QuizAskService.CUSTOM_MODEL_NAME, displayName!!, customModel.toolable)) + models
+        else models
+    finishCall(
+        HttpStatus.OK,
+        rModels,
+    )
 }
 
 private fun Context.sseHeaders()

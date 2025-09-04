@@ -11,7 +11,11 @@ import moe.tachyon.quiz.database.utils.asSlice
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import kotlinx.serialization.serializer
+import moe.tachyon.quiz.utils.ai.ChatMessage
 import moe.tachyon.quiz.utils.ai.ChatMessages
+import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
+import moe.tachyon.quiz.utils.ai.Content
+import moe.tachyon.quiz.utils.ai.ContentNode
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.ResultRow
@@ -61,12 +65,12 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
     {
         val id = insertAndGetId()
         {
-            it[ChatTable.user] = user
-            it[ChatTable.section] = section
-            it[ChatTable.histories] = ChatMessages.empty()
-            it[ChatTable.hash] = hash
-            it[ChatTable.banned] = false
-            it[ChatTable.lastModified] = Clock.System.now()
+            it[table.user] = user
+            it[table.section] = section
+            it[table.histories] = ChatMessages.empty()
+            it[table.hash] = hash
+            it[table.banned] = false
+            it[table.lastModified] = Clock.System.now()
         }.value
         Chat(
             id = id,
@@ -124,7 +128,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
     {
         update({ table.id eq chatId })
         {
-            it[table.histories] = histories
+            it[table.histories] = histories.removeUnsupportedChars()
             if (newHash != null) it[table.hash] = newHash
             if (ban) it[table.banned] = true
             it[table.lastModified] = Clock.System.now()
@@ -153,4 +157,45 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             .singleOrNull()
             ?.get(table.hash) == hash
     }
+
+    /**
+     * 删除不支持的字符，防止数据库报错
+     */
+    private fun ChatMessages.removeUnsupportedChars(): ChatMessages
+    {
+        val unsupportedChars = setOf('\u0000')
+        val cleanedMessages = this.map()
+        { message ->
+            ChatMessage(
+                role = message.role,
+                content = message.content.removeUnsupportedChars(unsupportedChars),
+                reasoningContent = message.reasoningContent.removeUnsupportedChars(unsupportedChars),
+                toolCallId = message.toolCallId.removeUnsupportedChars(unsupportedChars),
+                toolCalls = message.toolCalls.map()
+                {
+                    ChatMessage.ToolCall(
+                        it.id.removeUnsupportedChars(unsupportedChars),
+                        it.name.removeUnsupportedChars(unsupportedChars),
+                        it.arguments.removeUnsupportedChars(unsupportedChars),
+                    )
+                },
+                showingType = message.showingType,
+            )
+        }
+        return cleanedMessages.toChatMessages()
+    }
+
+    private fun Content.removeUnsupportedChars(unsupportedChars: Set<Char>): Content =
+        map()
+        {
+            when (it)
+            {
+                is ContentNode.File  -> ContentNode.file(it.file.filename.removeUnsupportedChars(unsupportedChars), it.file.url.removeUnsupportedChars(unsupportedChars))
+                is ContentNode.Image -> ContentNode.image(it.image.url.removeUnsupportedChars(unsupportedChars))
+                is ContentNode.Text  -> ContentNode.text(it.text.removeUnsupportedChars(unsupportedChars))
+            }
+        }.let(::Content)
+    
+    private fun String.removeUnsupportedChars(unsupportedChars: Set<Char>): String =
+        this.filterNot { c -> c in unsupportedChars }
 }
