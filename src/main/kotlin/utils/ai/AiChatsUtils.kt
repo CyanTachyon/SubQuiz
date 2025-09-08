@@ -2,7 +2,7 @@
 
 package moe.tachyon.quiz.utils.ai.chatUtils
 
-import io.ktor.util.decodeBase64Bytes
+import io.ktor.util.*
 import kotlinx.coroutines.*
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.dataClass.Chat
@@ -18,13 +18,11 @@ import moe.tachyon.quiz.utils.ai.chat.AskService
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.ai.internal.llm.AiResult
 import moe.tachyon.quiz.utils.safeWithContext
+import moe.tachyon.quiz.utils.toJpegBytes
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import java.io.ByteArrayOutputStream
 import java.util.*
-import javax.imageio.ImageIO
 import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 
 private typealias MessageSlice = StreamAiResponseSlice
 private typealias TextMessage = StreamAiResponseSlice.Message
@@ -196,7 +194,7 @@ object AiChatsUtils: KoinComponent
             {
                 val res = AskService.check(this@ChatInfo.content.toText(), uncheckedList)
                 users.addTokenUsage(chat.user, res.second)
-                if (res.first) return@launch banned()
+                if (res.first.getOrThrow()) return@launch banned()
             }
         }
 
@@ -393,12 +391,7 @@ object AiChatsUtils: KoinComponent
                     runCatching()
                     {
                         if (it.image.url.startsWith("uuid:")) return@forEachIndexed
-                        val img = ImageIO.read(it.image.url.decodeBase64Bytes().inputStream())
-                        val output = ByteArrayOutputStream()
-                        ImageIO.write(img, "png", output)
-                        output.flush()
-                        output.close()
-                        val bytes = output.toByteArray()
+                        val bytes = it.image.url.decodeBase64Bytes().toJpegBytes()
                         if (bytes.size > 1024 * 1024) // 1MB
                             return MakeContentResult.Failure("图片过大，单张图片不能超过1MB")
                         fileBytes[index] = bytes
@@ -432,7 +425,7 @@ object AiChatsUtils: KoinComponent
                 {
                     if (it.image.url.startsWith("uuid:")) return@mapIndexed it
                     val bytes = fileBytes[index]!!
-                    val uuid = ChatFiles.addChatFile(chat.id, "img.png", AiTools.ToolData.Type.IMAGE, bytes)
+                    val uuid = ChatFiles.addChatFile(chat.id, "img.jpeg", AiTools.ToolData.Type.IMAGE, bytes)
                     ContentNode.image("uuid:${uuid.toHexString()}")
                 }
             }

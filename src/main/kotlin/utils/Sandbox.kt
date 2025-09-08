@@ -3,6 +3,7 @@ package moe.tachyon.quiz.utils
 import kotlinx.coroutines.*
 import moe.tachyon.quiz.logger.SubQuizLogger
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class Sandbox(
@@ -15,8 +16,61 @@ class Sandbox(
 
     val dirs: List<Triple<File, String, Boolean>> = emptyList(), // Pair<hostDir, containerDir, writeable>
     val init: List<List<String>> = emptyList(), // 初始化命令列表
+
+    val liveTime: Long = 5 * 60 * 1000, // 毫秒
 )
 {
+    companion object
+    {
+        private val running = ConcurrentHashMap.newKeySet<String>()
+        private val sandboxJobs = ConcurrentHashMap<String, Pair<Job, Boolean>>()
+        private val locks = Locks<String>()
+
+        init
+        {
+            Runtime.getRuntime().addShutdownHook(Thread()
+            {
+                val logger = SubQuizLogger.getLogger("Sandbox-ShutdownHook")
+                logger.info("JVM关闭，清理所有运行中的容器...")
+                running.forEach()
+                { id ->
+                    Sandbox(
+                        id = id,
+                        containerTarFile = File(""),
+                        baseImage = "alpine",
+                        memoryLimit = "128m",
+                        cpuLimit = "0.1",
+                    ).apply()
+                    {
+                        logger.severe("清理容器${id}失败")
+                        {
+                            cleanupContainer()
+                        }
+                    }
+                }
+            })
+        }
+
+        fun execCommand(command: List<String>): Triple<Int, String, String>
+        {
+            val process = ProcessBuilder(command).start()
+            val stdout = StringBuilder()
+            val stderr = StringBuilder()
+
+            process.inputStream.bufferedReader().use { reader ->
+                reader.forEachLine { line -> stdout.append(line).append("\n") }
+            }
+
+            process.errorStream.bufferedReader().use { reader ->
+                reader.forEachLine { line -> stderr.append(line).append("\n") }
+            }
+
+            val exitCode = process.waitFor()
+            return Triple(exitCode, stdout.toString(), stderr.toString())
+        }
+    }
+
+
     init
     {
         if (id.lowercase() != id) error("Container ID must be lowercase.")
@@ -40,75 +94,117 @@ class Sandbox(
         maxErr: Int,
         timeout: Long,
         persistent: Boolean,
-    ): Triple<Int?, String, String>
+    ): Triple<Int?, String, String> = locks.withLock(id)
     {
         try
         {
-            val (baseImage, firstRun) = if (containerTarFile.exists())
-            {
-                logger.fine("从保存的容器文件系统恢复镜像...")
-                val importImageResult = execCommand(listOf("docker", "import", containerTarFile.absolutePath, "${id}_restored"))
-                if (importImageResult.first != 0)
-                    error("导入容器文件系统失败: ${importImageResult.third}")
-                "${id}_restored" to false
-            }
-            else
-            {
-                logger.fine("使用基础镜像创建容器...")
-                this.baseImage to true
-            }
-
-            // 2. 启动容器
-            logger.info("启动容器: $id")
-            val runCommand = listOf(
-                dockerPath, "run", "-d",
-                "--name", id,
-                "--memory", memoryLimit,
-                "--cpus", cpuLimit,
-                "--pids-limit", "100",
-                "--tmpfs", "/tmp:rw,size=200m",
-            ) + dirs.flatMap()
-            { (hostDir, containerDir, writeable) ->
-                listOf("-v", "${hostDir.absolutePath}:$containerDir:${if (writeable) "rw" else "ro"}")
-            } + listOf(
-                "-w", "/workspace",
-                "--log-driver", "none",
-                baseImage,
-                "tail", "-f", "/dev/null"
-            )
-
-            val runResult = execCommand(runCommand)
-            if (runResult.first != 0)
-                error("启动容器失败: ${runResult.third}")
-            Thread.sleep(1000)
-            if (firstRun && init.isNotEmpty())
-            {
-                logger.fine("执行初始化命令...")
-                for (initCmd in init)
-                {
-                    val initResult = executeWithTimeout(initCmd, 0, 0, 60_000)
-                    if (initResult.first != 0)
-                        error("初始化命令执行失败: ${initCmd.joinToString(" ")}\n${initResult.third}")
-                }
-            }
+            startSandbox()
             val execResult = executeWithTimeout(cmd, maxOut, maxErr, timeout)
+            return@withLock execResult
+        }
+        catch (e: Exception)
+        {
+            logger.warning("执行出错: ${e.message}")
+            throw e
+        }
+        finally
+        {
+            addCloseJob(persistent)
+        }
+    }
+
+    private suspend fun startSandbox(): Unit = locks.withLock(id)
+    {
+        if (!running.add(id)) return@withLock
+        val (baseImage, firstRun) = if (containerTarFile.exists())
+        {
+            logger.fine("从保存的容器文件系统恢复镜像...")
+            val importImageResult = execCommand(listOf("docker", "import", containerTarFile.absolutePath, "${id}_restored"))
+            if (importImageResult.first != 0)
+                error("导入容器文件系统失败: ${importImageResult.third}")
+            "${id}_restored" to false
+        }
+        else
+        {
+            logger.fine("使用基础镜像创建容器...")
+            this.baseImage to true
+        }
+
+        // 2. 启动容器
+        logger.info("启动容器: $id")
+        val runCommand = listOf(
+            dockerPath, "run", "-d",
+            "--name", id,
+            "--memory", memoryLimit,
+            "--cpus", cpuLimit,
+            "--pids-limit", "100",
+            "--tmpfs", "/tmp:rw,size=200m",
+        ) + dirs.flatMap()
+        { (hostDir, containerDir, writeable) ->
+            listOf("-v", "${hostDir.absolutePath}:$containerDir:${if (writeable) "rw" else "ro"}")
+        } + listOf(
+            "-w", "/workspace",
+            "--log-driver", "none",
+            baseImage,
+            "tail", "-f", "/dev/null"
+        )
+
+        val runResult = execCommand(runCommand)
+        if (runResult.first != 0)
+            error("启动容器失败: ${runResult.third}")
+        // 删除临时镜像
+        execCommand(listOf("docker", "rmi", "${id}_restored"))
+        Thread.sleep(1000)
+        if (firstRun && init.isNotEmpty())
+        {
+            logger.fine("执行初始化命令...")
+            for (initCmd in init)
+            {
+                println("run $initCmd")
+                val initResult = executeWithTimeout(initCmd, 0, 0, 60_000)
+                if (initResult.first != 0)
+                    error("初始化命令执行失败: ${initCmd.joinToString(" ")}\n${initResult.third}")
+            }
+            logger.info("容器${id}初始化完成")
+        }
+    }
+
+    private suspend fun addCloseJob(persistent: Boolean) = locks.withLock(id)
+    {
+        val (oldJob, oldPersistent) = sandboxJobs[id] ?: (null to false)
+        oldJob?.cancel()
+        val newJob = closeJob(persistent || oldPersistent)
+        sandboxJobs[id] = newJob to (persistent || oldPersistent)
+    }
+
+    private fun closeJob(persistent: Boolean) = CoroutineScope(Dispatchers.IO).launch()
+    {
+        logger.info("add close job for container $id, liveTime=${liveTime}ms, persistent=$persistent")
+        delay(liveTime)
+        close(persistent)
+    }
+
+    private suspend fun close(persistent: Boolean) = locks.withLock(id)
+    {
+        try
+        {
             if (persistent)
             {
                 logger.fine("保存容器${id}状态...")
                 saveContainerState()
             }
-            return execResult
-        }
-        catch (e: Exception)
-        {
-            logger.warning("执行出错: ${e.message}")
-            cleanupContainer()
-            throw e
         }
         finally
         {
-            cleanupContainer()
-            execCommand(listOf("docker", "rmi", "${id}_restored"))
+            try
+            {
+                cleanupContainer()
+            }
+            finally
+            {
+                running.remove(id)
+                sandboxJobs.remove(id)
+            }
         }
     }
 
@@ -136,6 +232,7 @@ class Sandbox(
             var read: Int
             while (reader.read(buffer).also { read = it } != -1)
             {
+                currentCoroutineContext().ensureActive()
                 if (stdout.length > maxOut) continue
                 stdout.append(buffer, 0, read)
                 if (stdout.length > maxOut)
@@ -150,6 +247,7 @@ class Sandbox(
             var read: Int
             while (reader.read(buffer).also { read = it } != -1)
             {
+                currentCoroutineContext().ensureActive()
                 if (stderr.length > maxErr) continue
                 stderr.append(buffer, 0, read)
                 if (stderr.length > maxErr)
@@ -200,31 +298,11 @@ class Sandbox(
         {
             execCommand(listOf("docker", "stop", id))
             execCommand(listOf("docker", "rm", id))
+            logger.info("容器${id}已清理")
         }
         catch (e: Exception)
         {
             logger.warning("清理容器时出错: ${e.message}")
         }
-    }
-
-    /**
-     * 执行系统命令
-     */
-    private fun execCommand(command: List<String>): Triple<Int, String, String>
-    {
-        val process = ProcessBuilder(command).start()
-        val stdout = StringBuilder()
-        val stderr = StringBuilder()
-
-        process.inputStream.bufferedReader().use { reader ->
-            reader.forEachLine { line -> stdout.append(line).append("\n") }
-        }
-
-        process.errorStream.bufferedReader().use { reader ->
-            reader.forEachLine { line -> stderr.append(line).append("\n") }
-        }
-
-        val exitCode = process.waitFor()
-        return Triple(exitCode, stdout.toString(), stderr.toString())
     }
 }

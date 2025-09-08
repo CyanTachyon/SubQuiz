@@ -37,7 +37,7 @@ fun Route.section() = route("/section", {
             {
                 required = true
                 description = "section信息, 其中的id将会被忽略"
-                example("example", Section.example)
+                example("example", Section.example.withoutUserAnswer())
             }
         }
         response()
@@ -89,7 +89,7 @@ fun Route.section() = route("/section", {
             {
                 required = true
                 description = "section信息"
-                example("example", Section.example)
+                example("example", Section.example.withoutUserAnswer())
             }
         }
         response()

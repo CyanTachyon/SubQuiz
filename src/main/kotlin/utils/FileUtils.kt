@@ -8,6 +8,7 @@ import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.dataDir
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
+import moe.tachyon.quiz.utils.ChatFiles.FileInfo.Companion.toDataUrl
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import java.io.File
 import kotlin.uuid.ExperimentalUuidApi
@@ -116,18 +117,25 @@ object ChatFiles
     )
     {
         val mimeType get() = ContentType.fromFilePath(name).firstOrNull()
+        companion object
+        {
+            fun Pair<FileInfo, ByteArray>.toDataUrl(): String = "data:${first.mimeType};base64,${second.encodeBase64()}"
+        }
     }
 
     fun parseUrl(chat: ChatId, url: String): String? =
-        if (!url.startsWith("uuid:")) url
-        else getChatFile(chat, Uuid.parseHex(url.removePrefix("uuid:")))
-            ?.let { f -> "data:${f.first.mimeType};base64,${f.second.encodeBase64()}" }
+        if (url.startsWith("uuid:", true))
+            getChatFile(chat, Uuid.parseHex(url.removePrefix("uuid:")))?.toDataUrl()
+        else if (url.startsWith("output:", true))
+            File(sandboxOutputDir(chat), url.removePrefix("output:").removePrefix("/"))
+                .takeIf { it.exists() && it.isFile }
+                ?.let { FileInfo(it.name, AiTools.ToolData.Type.FILE) to it.readBytes() }
+                ?.toDataUrl()
+        else url
 
-    fun getChatFilesDir(chat: ChatId): File
-    {
-        val dir = File(chatFiles, chat.toString()).apply(File::mkdirs)
-        return dir
-    }
+    fun getChatFilesDir(chat: ChatId): File = File(chatFiles, chat.toString()).apply(File::mkdirs)
+    fun sandboxOutputDir(chat: ChatId): File = File(getChatFilesDir(chat), ".docker_out").apply(File::mkdirs)
+    fun sandboxImageFile(chat: ChatId): File = File(getChatFilesDir(chat), ".code-runner-container.tar")
 
     fun deleteChatFiles(chat: ChatId)
     {

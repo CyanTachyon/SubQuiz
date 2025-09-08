@@ -25,8 +25,8 @@ data class AiConfig(
     val reranker: Model = Model(),
     val models: Map<String, LlmModel> = mapOf(
         "ds-r1" to LlmModel(model = "deepseek-reasoner"),
-        "qwen-vl" to LlmModel(url = "https://api.siliconflow.cn/v1/chat/completions", model = "Qwen/Qwen2.5-VL-72B-Instruct", maxTokens = 4096, imageable = true),
-        "ds-r1-qwen3-8b" to LlmModel(url = "https://api.siliconflow.cn/v1/chat/completions", model = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B", maxTokens = 8192),
+        "qwen-vl" to LlmModel(url = "https://api.siliconflow.cn/v1/chat/completions", model = "Qwen/Qwen2.5-VL-72B-Instruct", imageable = true),
+        "ds-r1-qwen3-8b" to LlmModel(url = "https://api.siliconflow.cn/v1/chat/completions", model = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"),
     ),
 )
 {
@@ -41,7 +41,6 @@ data class AiConfig(
     data class LlmModel(
         val url: String = "https://api.deepseek.com/chat/completions",
         val model: String = "deepseek-reasoner",
-        val maxTokens: Int = 16384,
         val maxConcurrency: Int = 50,
         val imageable: Boolean = false,
         val toolable: Boolean = false,

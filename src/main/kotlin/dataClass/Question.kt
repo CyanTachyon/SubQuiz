@@ -62,7 +62,9 @@ sealed interface Question<out Answer, out UserAnswer, out Analysis: JsonElement?
     {
         @Suppress("UNCHECKED_CAST")
         private fun<A, S: Any> getKSerializer(a: KSerializer<A>, b: KSerializer<S>): KSerializer<A> =
-            (if (a.descriptor.isNullable) b.nullable else b) as KSerializer<A>
+            if (a == NothingSerializer().nullable) NothingSerializer().nullable as KSerializer<A>
+            else if (a.descriptor.isNullable) b.nullable as KSerializer<A>
+            else b as KSerializer<A>
 
         @Suppress("unused", "UNCHECKED_CAST")
         @OptIn(InternalSerializationApi::class)
@@ -102,11 +104,31 @@ sealed interface Question<out Answer, out UserAnswer, out Analysis: JsonElement?
                     EssayQuestion::class as KClass<Question<A, UA, Ana>>,
                 ),
                 arrayOf(
-                    SingleChoiceQuestion.serializer(getKSerializer(a, Int.serializer()), getKSerializer(ua, Int.serializer()), ana),
-                    MultipleChoiceQuestion.serializer(getKSerializer(a, ListSerializer(Int.serializer())), getKSerializer(ua, ListSerializer(Int.serializer())), ana),
-                    JudgeQuestion.serializer(getKSerializer(a, Boolean.serializer()), getKSerializer(ua, Boolean.serializer()), ana),
-                    FillQuestion.serializer(getKSerializer(a, JsonElement.serializer ()), getKSerializer(ua, String.serializer()), ana),
-                    EssayQuestion.serializer(getKSerializer(a, JsonElement.serializer()), getKSerializer(ua, String.serializer()), ana)
+                    SingleChoiceQuestion.serializer(
+                        getKSerializer(a, Int.serializer()),
+                        getKSerializer(ua, Int.serializer()),
+                        ana
+                    ),
+                    MultipleChoiceQuestion.serializer(
+                        getKSerializer(a, ListSerializer(Int.serializer())),
+                        getKSerializer(ua, ListSerializer(Int.serializer())),
+                        ana
+                    ),
+                    JudgeQuestion.serializer(
+                        getKSerializer(a, Boolean.serializer()),
+                        getKSerializer(ua, Boolean.serializer()),
+                        ana
+                    ),
+                    FillQuestion.serializer(
+                        getKSerializer(a, JsonElement.serializer()),
+                        getKSerializer(ua, String.serializer()),
+                        ana
+                    ),
+                    EssayQuestion.serializer(
+                        getKSerializer(a, JsonElement.serializer()),
+                        getKSerializer(ua, String.serializer()),
+                        ana
+                    )
                 )
             )
         }

@@ -15,6 +15,7 @@ sealed interface LlmLoopPlugin
     data class Context(
         var model: AiConfig.LlmModel,
         var messages: ChatMessages,
+        var maxTokens: Int?,
         var temperature: Double?,
         var topP: Double?,
         var frequencyPenalty: Double?,
@@ -33,6 +34,7 @@ sealed interface LlmLoopPlugin
 
 context(c: Context) var model get() = c.model; set(value) { c.model = value }
 context(c: Context) var messages get() = c.messages; set(value) { c.messages = value }
+context(c: Context) var maxTokens get() = c.maxTokens; set(value) { c.maxTokens = value }
 context(c: Context) var temperature get() = c.temperature; set(value) { c.temperature = value }
 context(c: Context) var topP get() = c.topP; set(value) { c.topP = value }
 context(c: Context) var frequencyPenalty get() = c.frequencyPenalty; set(value) { c.frequencyPenalty = value }

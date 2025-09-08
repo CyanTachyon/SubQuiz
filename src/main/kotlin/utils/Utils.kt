@@ -2,25 +2,17 @@
 
 package moe.tachyon.quiz.utils
 
-import com.charleskorn.kaml.Yaml
-import com.charleskorn.kaml.YamlList
-import com.charleskorn.kaml.YamlMap
-import com.charleskorn.kaml.YamlNode
-import com.charleskorn.kaml.YamlNull
-import com.charleskorn.kaml.YamlScalar
-import com.charleskorn.kaml.YamlTaggedNode
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
+import com.charleskorn.kaml.*
+import kotlinx.serialization.json.*
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import org.koin.mp.KoinPlatformTools
+import java.awt.Color
+import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 import java.io.PrintStream
 import java.util.*
+import javax.imageio.ImageIO
 
 @Suppress("unused")
 fun String?.toUUIDOrNull(): UUID? = runCatching { UUID.fromString(this) }.getOrNull()
@@ -127,3 +119,20 @@ fun YamlNode.toJsonElement(): JsonElement
 
 fun JsonElement.toYamlNode(): YamlNode =
     Yaml.default.parseToYamlNode(this.toString())
+
+fun ByteArray.toJpegBytes(): ByteArray =
+    ByteArrayOutputStream().also()
+    {
+        ImageIO.write(ImageIO.read(this.inputStream()).withoutAlpha(), "jpeg", it)
+    }.toByteArray()
+
+fun BufferedImage.withoutAlpha(): BufferedImage
+{
+    val rImg = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    val graphics = rImg.createGraphics()
+    graphics.color = Color.WHITE
+    graphics.fillRect(0, 0, rImg.width, rImg.height)
+    graphics.drawImage(this, 0, 0, null)
+    graphics.dispose()
+    return rImg
+}

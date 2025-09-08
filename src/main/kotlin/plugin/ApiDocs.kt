@@ -16,7 +16,9 @@ import io.github.smiley4.schemakenerator.swagger.withTitle
 import io.ktor.server.application.*
 import io.ktor.server.plugins.ratelimit.*
 import kotlinx.serialization.serializer
+import moe.tachyon.quiz.logger.SubQuizLogger
 
+private val logger = SubQuizLogger.getLogger()
 /**
  * 在/api-docs 路径下安装SwaggerUI
  */
@@ -58,7 +60,13 @@ fun Application.installApiDoc() = install(SwaggerUI)
         { type, example ->
             when (type)
             {
-                is KTypeDescriptor -> showJson.encodeToString(showJson.serializersModule.serializer(type.type), example)
+                is KTypeDescriptor ->
+                {
+                    logger.warning("failed to encode example for type: ${type.type}, object: $example")
+                    {
+                        showJson.encodeToString(showJson.serializersModule.serializer(type.type), example)
+                    }.getOrElse { "" }
+                }
                 else -> example
             }
         }

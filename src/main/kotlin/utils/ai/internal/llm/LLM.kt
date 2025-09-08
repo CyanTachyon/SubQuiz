@@ -32,6 +32,7 @@ import moe.tachyon.quiz.utils.ktorClientEngineFactory
 import moe.tachyon.quiz.utils.toJsonElement
 import kotlin.collections.set
 import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 @Serializable
 private sealed interface AiResponse
@@ -304,6 +305,7 @@ sealed class AiResult(val messages: ChatMessages, val usage: TokenUsage)
 suspend fun sendAiRequest(
     model: AiConfig.LlmModel,
     messages: ChatMessages,
+    maxTokens: Int? = null,
     temperature: Double? = null,
     topP: Double? = null,
     frequencyPenalty: Double? = null,
@@ -324,6 +326,7 @@ suspend fun sendAiRequest(
         val context = LlmLoopPlugin.Context(
             model,
             messages,
+            maxTokens,
             temperature,
             topP,
             frequencyPenalty,
@@ -361,7 +364,7 @@ suspend fun sendAiRequest(
                 model = context.model.model,
                 messages = beforeLlmRequestContext.requestMessage.toRequestMessages(),
                 stream = stream,
-                maxTokens = context.model.maxTokens,
+                maxTokens = context.maxTokens,
                 thinkingBudget = context.model.thinkingBudget,
                 temperature = context.temperature,
                 topP = context.topP,
@@ -515,10 +518,7 @@ private suspend fun sendRequest(
                 .mapNotNull { it.data }
                 .filterNot { it == "[DONE]" }
                 .mapNotNull {
-                    logger.severe("AI请求返回异常: $it")
-                    {
-                        contentNegotiationJson.decodeFromString<StreamAiResponse>(it)
-                    }.getOrNull()
+                    contentNegotiationJson.decodeFromString<StreamAiResponse>(it)
                 }
                 .collect()
                 {
@@ -593,7 +593,12 @@ private suspend fun parseToolCalls(
     onReceive: suspend (StreamAiResponseSlice) -> Unit,
 ): ChatMessages
 {
-    return waitingTools.flatMap()
+    return waitingTools.map()
+    {
+        val (id, t) = it
+        if (id.isEmpty()) Uuid.random().toHexString() to t
+        else id to t
+    }.flatMap()
     { (id, t) ->
         val (toolName, parm) = t
         val tool = tools.firstOrNull { it.name == toolName } ?: return@flatMap run()

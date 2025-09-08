@@ -12,11 +12,9 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.sse.*
-import io.ktor.util.decodeBase64Bytes
-import io.ktor.util.encodeBase64
+import io.ktor.util.*
 import kotlinx.serialization.*
 import kotlinx.serialization.json.JsonElement
-import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.ChatId.Companion.toChatIdOrNull
@@ -31,8 +29,8 @@ import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.chat.AskService
 import moe.tachyon.quiz.utils.ai.chat.QuizAskService
-import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
+import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.statuses
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
@@ -684,8 +682,8 @@ private suspend fun Context.translateImage()
     val img = runCatching { ImageIO.read(body.data.split(",").last().decodeBase64Bytes().inputStream()) }
         .getOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("无法解析图片"))
     val res = AiTranslate.translate(img, body.lang0, body.lang1, body.twoWay)
-    val bytes = ByteArrayOutputStream().also { ImageIO.write(res, "png", it) }.toByteArray().encodeBase64()
-    finishCall(HttpStatus.OK, TranslatedImage("data:image/png;base64,$bytes"))
+    val bytes = ByteArrayOutputStream().also { ImageIO.write(res, "jpeg", it) }.toByteArray().encodeBase64()
+    finishCall(HttpStatus.OK, TranslatedImage("data:image/jpeg;base64,$bytes"))
 }
 
 @Serializable

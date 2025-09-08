@@ -145,7 +145,7 @@ object AiImage
 
     suspend fun spottingImage(img: BufferedImage): Pair<List<SpottingResult>, TokenUsage>
     {
-        val url = "data:image/png;base64," + ByteArrayOutputStream().also { ImageIO.write(img, "png", it) }.toByteArray().encodeBase64()
+        val url = "data:image/jpeg;base64," + ByteArrayOutputStream().also { ImageIO.write(img, "jpeg", it) }.toByteArray().encodeBase64()
         val prompt = """
             Spotting all the text in the image with block-level, and output in JSON format:
             {
@@ -166,7 +166,7 @@ object AiImage
             model = aiConfig.imageModel,
             messages = ChatMessages(Role.USER, Content(ContentNode.image(url), ContentNode(prompt))),
             record = false,
-        )
+        ).let { it.first.getOrThrow() to it.second }
         val blocks = r.first.results.map()
         {
             SpottingResult(

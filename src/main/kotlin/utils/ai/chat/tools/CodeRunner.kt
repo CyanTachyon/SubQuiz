@@ -12,27 +12,28 @@ import kotlin.uuid.ExperimentalUuidApi
 @OptIn(ExperimentalUuidApi::class)
 object CodeRunner
 {
+    fun getSandbox(chat: ChatId) = Sandbox(
+        id = "subquiz-ai-code-runner-$chat",
+        containerTarFile = ChatFiles.sandboxImageFile(chat),
+        baseImage = "python:3.9-alpine",
+        memoryLimit = "512m",
+        cpuLimit = "0.5",
+
+        dirs = listOf(
+            Triple(ChatFiles.getChatFilesDir(chat), "/workspace/input", false),
+            Triple(ChatFiles.sandboxOutputDir(chat).apply(File::mkdirs), "/workspace/output", true),
+        ),
+        init = listOf(
+            listOf("python3", "-m", "pip", "config", "set", "global.index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"),
+            listOf("python3", "-m", "pip", "config", "set", "install.trusted-host", "pypi.tuna.tsinghua.edu.cn"),
+            listOf("python3", "-m", "pip", "install", "--upgrade", "pip"),
+            listOf("python3", "-m", "pip", "install", "PyPDF2"),
+        ),
+    )
+
     suspend fun executeInSandbox(chat: ChatId, timeout: Long, persistent: Boolean, cmd: List<String>): String
     {
-        val dockerOut = File(ChatFiles.getChatFilesDir(chat), ".docker_out")
-        dockerOut.mkdirs()
-        val sandbox = Sandbox(
-            id = "subquiz-ai-code-runner-$chat",
-            containerTarFile = File(ChatFiles.getChatFilesDir(chat), ".code-runner-container.tar"),
-            baseImage = "python:3.9-alpine",
-            memoryLimit = "512m",
-            cpuLimit = "0.5",
-            dirs = listOf(
-                Triple(ChatFiles.getChatFilesDir(chat), "/workspace/input", false),
-                Triple(dockerOut, "/workspace/output", true),
-            ),
-            init = listOf(
-                listOf("python3", "-m", "pip", "config", "set", "global.index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"),
-                listOf("python3", "-m", "pip", "config", "set", "install.trusted-host", "pypi.tuna.tsinghua.edu.cn"),
-                listOf("python3", "-m", "pip", "install", "--upgrade", "pip"),
-                listOf("python3", "-m", "pip", "install", "PyPDF2"),
-            ),
-        )
+        val sandbox = getSandbox(chat)
 
         val (exitCode, output, error) = sandbox.run(
             cmd = cmd,
@@ -92,7 +93,7 @@ object CodeRunner
             name = "run_python",
             displayName = "运行代码",
             description = """
-                在受限环境中运行Python代码，返回其输出结果
+                在虚拟机（操作系统为alpine Linux）中运行Python代码，返回其输出结果
                 - 当你需要进行一些复杂数学计算时你可以编写Python代码来完成计算
                 - 当你需要处理数据时你可以编写Python代码来处理数据
                 - 默认的工作目录是"/workspace"
@@ -133,7 +134,7 @@ object CodeRunner
                 ) + if (!parm.persistent) "由于持久化未启用，本次操作除/output目录中的内容外均会被回滚" else ""
                 AiToolInfo.ToolResult(Content(r))
             }
-            catch (e: Exception)
+            catch (e: Throwable)
             {
                 AiToolInfo.ToolResult(Content("error: ${e.message}"))
             }
@@ -143,7 +144,11 @@ object CodeRunner
             name = "run_cmd",
             displayName = "运行命令",
             description = """
-                在环境中运行命令，例如安装python包等，以便后续运行Python代码时可以使用这些包。该工具和run_python工具使用相同的受限环境。
+                在虚拟机中运行命令，例如安装python包等。
+                注意
+                - 操作系统为alpine Linux
+                - 命令要以数组形式传入，例如 ["ls", "-al"]，而不是 ["ls -al"]
+                - 安装任何软件包后的第一件事情是更换国内镜像源，例如当你安装完npm后，需要在使用前先更换国内镜像
             """.trimIndent(),
             display = {
                 if (it.parm != null) return@registerTool Content("```bash\n${it.parm.cmd.joinToString(" ")}\n```")
@@ -160,7 +165,7 @@ object CodeRunner
                 val r = executeInSandbox(chat = chat.id, cmd = parm.cmd, persistent = parm.persistent, timeout = timeout)
                 AiToolInfo.ToolResult(Content(r))
             }
-            catch (e: Exception)
+            catch (e: Throwable)
             {
                 AiToolInfo.ToolResult(Content("error: ${e.message}"))
             }

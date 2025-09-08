@@ -35,14 +35,14 @@ object ImageGeneration
             val byteArrays = images.map()
             {
                 val output = ByteArrayOutputStream()
-                ImageIO.write(it, "png", output)
+                ImageIO.write(it, "jpeg", output)
                 output.flush()
                 output.close()
                 output.toByteArray()
             }
             val uuids = byteArrays.map()
             {
-                ChatFiles.addChatFile(chat.id, "img.png", AiTools.ToolData.Type.IMAGE, it)
+                ChatFiles.addChatFile(chat.id, "img.jpeg", AiTools.ToolData.Type.IMAGE, it)
             }
             val res = uuids.joinToString("\n") { "uuid:" + it.toHexString() }
             AiToolInfo.ToolResult(

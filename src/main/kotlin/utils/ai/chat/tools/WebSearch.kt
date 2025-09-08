@@ -123,7 +123,7 @@ object WebSearch
             val data = parm.key
             if (data.isBlank()) AiToolInfo.ToolResult(Content("error: key must not be empty"))
             else AiToolInfo.ToolResult(Content(showJson.encodeToString(search(data, parm.count.coerceIn(1, 20))) +
-                    "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\">"))
+                    "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\" />"))
         }
 
         AiTools.registerTool<AiExtractToolData>(
@@ -142,7 +142,7 @@ object WebSearch
             val data = parm.url
             if (data.isBlank()) AiToolInfo.ToolResult(Content("error: url must not be empty"))
             else AiToolInfo.ToolResult(Content(showJson.encodeToString(extract(data)) +
-                    "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\">"))
+                    "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\" />"))
         }
 
         AiTools.registerToolDataGetter("web")

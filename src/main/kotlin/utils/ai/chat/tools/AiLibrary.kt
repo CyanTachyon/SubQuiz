@@ -10,12 +10,9 @@ import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.internal.embedding.sendAiEmbeddingRequest
 import moe.tachyon.quiz.utils.ai.internal.rerank.sendRerankRequest
+import moe.tachyon.quiz.utils.toJpegBytes
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import java.awt.Color
-import java.awt.image.BufferedImage
-import java.io.ByteArrayOutputStream
-import javax.imageio.ImageIO
 import kotlin.math.max
 
 object AiLibrary: KoinComponent
@@ -125,7 +122,7 @@ object AiLibrary: KoinComponent
         )
         { (chat, model, parm) ->
             val res = searchInOrder("/bdfz/", parm.query, parm.count)
-            AiToolInfo.ToolResult(Content(showJson.encodeToString(res) + "请在你后面的回答中添加信息来源标记，type为 `lib`，path为文档路径，例如:\n<data type=\"lib\" path=\"/path/to/document.md\">"))
+            AiToolInfo.ToolResult(Content(showJson.encodeToString(res) + "请在你后面的回答中添加信息来源标记，type为 `lib`，path为文档路径，例如:\n<data type=\"lib\" path=\"/path/to/document.md\" />"))
         }
 
         AiTools.registerToolDataGetter("lib")
@@ -162,24 +159,13 @@ object AiLibrary: KoinComponent
                 if (parm.subject.isBlank()) "/books/"
                 else "/books/${parm.subject}/"
             val res = searchInOrder(path, parm.query, parm.count)
-            AiToolInfo.ToolResult(Content(showJson.encodeToString(res) + "请在你后面的回答中添加信息来源标记，type为 `book`，path为文档路径，例如:\n<data type=\"book\" path=\"/path/to/book.md\">"))
+            AiToolInfo.ToolResult(Content(showJson.encodeToString(res) + "请在你后面的回答中添加信息来源标记，type为 `book`，path为文档路径，例如:\n<data type=\"book\" path=\"/path/to/book.md\" />"))
         }
 
         AiTools.registerToolDataGetter("book")
         { _, path ->
             val file = getFileBytes(path.removeSuffix(".md") + ".png") ?: return@registerToolDataGetter null
-            val image = ImageIO.read(file.inputStream())
-            val image1 = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
-            val graphics = image1.createGraphics()
-            graphics.color = Color.WHITE
-            graphics.fillRect(0, 0, image1.width, image1.height)
-            graphics.drawImage(image, 0, 0, null)
-            graphics.dispose()
-            val outputStream = ByteArrayOutputStream()
-            ImageIO.write(image1, "png", outputStream)
-            outputStream.flush()
-            outputStream.close()
-            val base64 = "data:image/png;base64," + outputStream.toByteArray().encodeBase64()
+            val base64 = "data:image/jpeg;base64," + file.toJpegBytes().encodeBase64()
             AiTools.ToolData(
                 type = AiTools.ToolData.Type.IMAGE,
                 value = base64,

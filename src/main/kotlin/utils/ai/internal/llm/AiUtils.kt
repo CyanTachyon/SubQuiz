@@ -60,7 +60,7 @@ interface ResultType<T>
     {
         @Suppress("UNCHECKED_CAST")
         override fun getValue(str: String): T =
-            aiNegotiationJson.decodeFromString(Result.serializer(aiNegotiationJson.serializersModule.serializer(type)), str).result as T
+            aiNegotiationJson.decodeFromString(ResultWrapper.serializer(aiNegotiationJson.serializersModule.serializer(type)), str).result as T
 
         companion object
         {
@@ -83,7 +83,7 @@ inline fun <reified T: Any> ResultType(): ResultType<T>
     }
 }
 
-@Serializable private data class Result<T>(val result: T)
+@Serializable private data class ResultWrapper<T>(val result: T)
 
 /**
  * 重试方式，该方式仅决定当AI返回了内容，但AI的返回内容不符合ResultType时的处理方式
@@ -115,7 +115,7 @@ suspend inline fun <reified T: Any> sendAiRequestAndGetResult(
     resultType: ResultType<T> = ResultType<T>(),
     retryType: RetryType = RetryType.RESEND,
     record: Boolean = true,
-): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
+): Pair<Result<T>, TokenUsage> = sendAiRequestAndGetResult(
     model = model,
     messages = ChatMessages(Role.USER, message),
     temperature = temperature,
@@ -142,7 +142,7 @@ suspend inline fun <reified T: Any> sendAiRequestAndGetResult(
     plugins: List<LlmLoopPlugin> = emptyList(),
     retryType: RetryType = RetryType.RESEND,
     record: Boolean = true,
-): Pair<T, TokenUsage> = sendAiRequestAndGetResult(
+): Pair<Result<T>, TokenUsage> = sendAiRequestAndGetResult(
     model = model,
     messages = messages,
     temperature = temperature,
@@ -170,14 +170,14 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
     resultType: ResultType<T>,
     retryType: RetryType,
     record: Boolean,
-): Pair<T, TokenUsage>
+): Pair<Result<T>, TokenUsage>
 {
     var totalTokens = TokenUsage()
     val errors = mutableListOf<AiResponseException>()
     var messages = messages
     repeat(aiConfig.retry)
     {
-        val res: Pair<ChatMessage, TokenUsage>
+        val res: ChatMessage
         try
         {
             res = withTimeout(aiConfig.timeout)
@@ -195,14 +195,27 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
                     record = record,
                     stream = false,
                 )
-            }.let { it as AiResult.Success }
-                .let()
+            }.let()
+            {
+                totalTokens += it.usage
+                when (it)
                 {
-                    if (it.messages.size == 1) return@let it.messages.first() to it.usage
-                    errors += AiResponseFormatException(it.messages, "AI错误的返回了多条消息")
-                    return@repeat
+                    is AiResult.Cancelled       ->
+                    {
+                        currentCoroutineContext().ensureActive()
+                        error("The ai request was cancelled, but the coroutine is still active")
+                    }
+                    is AiResult.ServiceError    -> error("Ai service answered an error")
+                    is AiResult.Success         -> it.messages
+                    is AiResult.TooManyRequests -> error("Ai service rate limit exceeded")
+                    is AiResult.UnknownError    -> throw it.error
                 }
-            totalTokens += res.second
+            }.let()
+            {
+                if (it.size == 1) return@let it.first()
+                errors += AiResponseFormatException(it, "AI错误的返回了多条消息")
+                return@repeat
+            }
         }
         catch (e: Throwable)
         {
@@ -214,18 +227,18 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
 
         try
         {
-            val content = res.first.content.toText().trim()
+            val content = res.content.toText().trim()
             if (content.startsWith("```") && content.endsWith("```"))
             {
                 val jsonContent = content.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-                return resultType.getValue(jsonContent) to totalTokens
+                return Result.success(resultType.getValue(jsonContent)) to totalTokens
             }
-            return resultType.getValue(content) to totalTokens
+            return Result.success(resultType.getValue(content)) to totalTokens
         }
         catch (e: Throwable)
         {
             currentCoroutineContext().ensureActive()
-            val error = AiResponseFormatException(res.first, cause = e)
+            val error = AiResponseFormatException(res, cause = e)
             errors.add(error)
             logger.config("检查AI响应格式失败", error)
             when (retryType)
@@ -233,7 +246,7 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
                 RetryType.RESEND      -> Unit
                 RetryType.ADD_MESSAGE ->
                 {
-                    messages += res.first
+                    messages += res
                     messages += ChatMessages(
                         Role.USER,
                         "你返回的内容格式不符合规定，请严格按照要求的JSON格式返回: ${e.message}\n\n" +
@@ -244,7 +257,7 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
         }
     }
     currentCoroutineContext().ensureActive()
-    throw AiRetryFailedException(errors)
+    return Result.failure<T>(AiRetryFailedException(errors)) to totalTokens
 }
 
 suspend fun sendAiRequestAndGetReply(

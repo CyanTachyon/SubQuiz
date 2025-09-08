@@ -72,7 +72,6 @@ class QuizAskService private constructor(val model: AiConfig.LlmModel): AskServi
     data class CustomModelSetting(
         val model: String,
         val url: String,
-        val maxToken: Int,
         val imageable: Boolean = false,
         val toolable: Boolean = false,
         val key: String,
@@ -82,7 +81,6 @@ class QuizAskService private constructor(val model: AiConfig.LlmModel): AskServi
         fun toLlmModel(): AiConfig.LlmModel = AiConfig.LlmModel(
             model = model,
             url = url,
-            maxTokens = maxToken,
             imageable = imageable,
             toolable = toolable,
             key = listOf(key),

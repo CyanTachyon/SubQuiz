@@ -1,17 +1,15 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
-import io.ktor.http.parseUrl
-import io.ktor.util.encodeBase64
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.config.aiConfig
-import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.JsonSchema
-import moe.tachyon.quiz.utils.ai.*
-import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
+import moe.tachyon.quiz.utils.ai.ChatMessages
+import moe.tachyon.quiz.utils.ai.Content
+import moe.tachyon.quiz.utils.ai.ContentNode
+import moe.tachyon.quiz.utils.ai.Role
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetReply
 import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 
 @OptIn(ExperimentalUuidApi::class)
 object ReadImage
@@ -36,28 +34,25 @@ object ReadImage
                     如果你需要知道一个/一组图片中的内容，但是你无法直接查看图片内容，你可以使用该工具来获取图片中的内容。
                     该工具会将全部图片和你的提示词一起给一个VLM模型，并将模型的输出结果返回给你。
                     你应该只让vlm模型描述图片内容，而不是进行其他操作，而进一步的操作（如解答用户问题）则应由你自己完成。
-                    重要：该工具仅支持图片输入！如果不是图片请不要调用该工具！
-                    examples:
-                    {
-                        "imageUrls": ["https://example.com/image1.png", "https://example.com/image2.png"],
-                        "prompt": "请你详细描述图片中的内容，注意仅描述图片中的内容，不要添加任何解释或额外信息。"
-                    }
-                    {
-                        "imageUrls": ["uuid:123e4567e89b12d3a456426614174000"],
-                        "prompt": "Spotting all the text in the image with line-level, and output in JSON format."
-                    }
-                    {
-                        "imageUrls": ["uuid:123e4567e89b12d3a456426614174000", "https://example.com/image2.png"],
-                        "prompt": "请你输出图中文字内容，不做任何额外的解释、或其他额外工作、无需理会其内容是什么、是否正确，仅直接输出文字内容。"
-                    }
-                """.trimIndent()
+                    该工具支持4类图片URL：
+                    - 直接的图片URL，如 `https://example.com/image.png`，该URL必须是公开可访问的。
+                    - data URL，如 `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...`，该URL必须是合法的data URL。
+                    - 在`/input`目录中的文件的uuid，如 `uuid:123e4567-e89b-12d3-a456-426614174000`，该文件必须是图片文件。
+                    - 在`/output`目录中的文件，如`output:example.png`，example.png替换为相对/output目录的路径，该文件必须是图片文件。
+                """.trimIndent(),
+                display = {
+                    if (it == null) return@AiToolInfo Content()
+                    Content("图片URL：\n" + it.imageUrls.joinToString("\n") { url -> "- $url" })
+                }
             )
             { parm ->
                 val (imgUrl, prompt) = parm
                 val imgContent = imgUrl.map()
                 {
-                    ChatFiles.parseUrl(chat.id, it)
-                    ?: throw IllegalArgumentException("Image URL '$it' not found in chat ${chat.id}")
+                    val url = ChatFiles.parseUrl(chat.id, it) ?: error("Image URL '$it' not found in chat ${chat.id}")
+                    if (url.startsWith("data:") && !url.startsWith("data:image/"))
+                        return@AiToolInfo AiToolInfo.ToolResult(Content("错误：URL '$it' 不是图片"))
+                    url
                 }.map(ContentNode::image)
                 val sb = StringBuilder()
                 sb.append(prompt)

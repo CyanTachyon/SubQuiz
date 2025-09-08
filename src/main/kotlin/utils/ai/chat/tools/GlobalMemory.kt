@@ -12,7 +12,7 @@ object GlobalMemory: KoinComponent
     @Serializable
     private data class StoreMemoryParm(
         val key: String,
-        val value: String
+        val value: String?
     )
 
     @Serializable
@@ -20,25 +20,13 @@ object GlobalMemory: KoinComponent
         val key: String
     )
 
-    @Serializable
-    private data class UpdateMemoryParm(
-        val key: String,
-        val value: String
-    )
-
-    @Serializable
-    private data class RemoveMemoryParm(
-        val key: String
-    )
-
     init
     {
-        // 存储记忆工具
         AiTools.registerTool()
         { chat, _ ->
             AiToolInfo<StoreMemoryParm>(
-                name = "store_global_memory",
-                displayName = "存储全局记忆",
+                name = "set_global_memory",
+                displayName = "设置全局记忆",
                 description = """
                     存储一条全局记忆信息，用于记住用户的偏好、重要信息等。
                     这些记忆会在后续对话中保持，帮助AI更好地为用户服务。
@@ -57,12 +45,13 @@ object GlobalMemory: KoinComponent
                     你应该定期回顾和更新这些记忆，确保记忆的准确性和相关性。
                     如果用户提及的信息与你已有的记忆冲突，你应该更新已有记忆以反映最新信息。
                     你应该避免存储敏感信息，如密码、身份证号等，确保用户隐私和数据安全。
-                    你应该确保记忆的安全存储，防止未经授权的访问和泄露。
-                    你应该尊重用户的隐私和数据保护法规，确保记忆的合法存储和使用。
+                    你记录的主语应当是用户，例如key="喜欢的颜色"表示用户喜欢的颜色。
+                    若你要记录他人，例如用户的朋友，请明确标出，如key="朋友小明喜欢的颜色"。
                     
                     参数：
                     - key: 记忆的键名，用于标识这条记忆
-                    - value: 记忆的内容
+                    - value: 记忆的内容，若设置为null或空字符串，则表示删除该记忆。
+                    你可以通过设置已有的key来覆盖已有的记忆。
                     
                     **重要**：当前和你对话的用户已经储存的记忆的key列表：
                     ${users.getGlobalMemory(chat.user).keys.joinToString(", ") { "`$it`" }}
@@ -75,39 +64,22 @@ object GlobalMemory: KoinComponent
                     
                 """.trimIndent(),
                 display = { parm ->
-                    if (parm != null)
+                    if (parm != null && !parm.value.isNullOrBlank())
                         Content("存储条目: `${parm.key}` = `${parm.value}`")
+                    else if (parm != null)
+                        Content("删除条目: `${parm.key}`")
                     else Content()
                 }
             )
             { parm ->
-                val success = users.setGlobalMemory(chat.user, parm.key, parm.value)
+                val success =
+                    if (parm.value.isNullOrBlank())
+                        users.removeGlobalMemory(chat.user, parm.key)
+                    else
+                        users.setGlobalMemory(chat.user, parm.key, parm.value)
                 val message = if (success) "已成功存储记忆：${parm.key} = ${parm.value}" else "存储记忆失败，请稍后重试"
                 AiToolInfo.ToolResult(Content(message))
             }.let(::listOf)
-        }
-
-        // 修改记忆工具
-        AiTools.registerTool<UpdateMemoryParm>(
-            name = "update_global_memory",
-            displayName = "更新全局记忆",
-            description = """
-                修改已存在的全局记忆信息，或者创建新的记忆。
-                如果指定的key已存在，会覆盖原有内容；如果不存在，会创建新记忆。
-                
-                参数：
-                - key: 记忆的键名
-                - value: 新的记忆内容
-            """.trimIndent(),
-            display = {
-                if (it.parm != null) Content("更新条目: `${it.parm.key}` = `${it.parm.value}`")
-                else Content()
-            }
-        )
-        { (chat, model, parm) ->
-            val success = users.setGlobalMemory(chat.user, parm.key, parm.value)
-            val message = if (success) "已成功修改记忆：${parm.key} = ${parm.value}" else "修改记忆失败，请稍后重试"
-            AiToolInfo.ToolResult(Content(message))
         }
 
         // 获取记忆工具
@@ -136,41 +108,6 @@ object GlobalMemory: KoinComponent
             }
             
             AiToolInfo.ToolResult(Content(result))
-        }
-
-        // 删除记忆工具
-        AiTools.registerTool<RemoveMemoryParm>(
-            name = "remove_global_memory",
-            displayName = "删除全局记忆",
-            description = """
-                删除指定的全局记忆信息。
-                
-                参数：
-                - key: 要删除的记忆键名
-            """.trimIndent(),
-            display = {
-                if (it.parm != null) Content("删除条目: `${it.parm.key}`")
-                else Content()
-            }
-        )
-        { (chat, model, parm) ->
-            val success = users.removeGlobalMemory(chat.user, parm.key)
-            val message = if (success) "已成功删除记忆：${parm.key}" else "删除记忆失败，可能该记忆不存在或发生了其他错误"
-            AiToolInfo.ToolResult(Content(message))
-        }
-
-        AiTools.registerTool<AiTools.EmptyToolParm>(
-            name = "clear_global_memory",
-            displayName = "清空全局记忆",
-            description = """
-                清空用户的所有全局记忆信息。
-                此操作不可逆，请谨慎使用。
-            """.trimIndent()
-        )
-        { (chat, model, parm) ->
-            val success = users.clearGlobalMemory(chat.user)
-            val message = if (success) "已成功清空所有全局记忆" else "清空记忆失败，请稍后重试"
-            AiToolInfo.ToolResult(Content(message))
         }
     }
 }

@@ -169,7 +169,7 @@ object AiTranslate
                 }
             },
             retryType = RetryType.ADD_MESSAGE,
-        ).first
+        ).first.getOrThrow()
 
         val resultText = text.zip(r).map { it.first.copy(text = it.second) }
 

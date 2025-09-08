@@ -11,13 +11,7 @@ import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
-import moe.tachyon.quiz.utils.ai.internal.llm.BeforeLlmRequest
-import moe.tachyon.quiz.utils.ai.internal.llm.LlmLoopPlugin
-import moe.tachyon.quiz.utils.ai.internal.llm.addTokenUsage
-import moe.tachyon.quiz.utils.ai.internal.llm.allMessages
-import moe.tachyon.quiz.utils.ai.internal.llm.onReceive
-import moe.tachyon.quiz.utils.ai.internal.llm.requestMessage
-import moe.tachyon.quiz.utils.ai.internal.llm.responseMessage
+import moe.tachyon.quiz.utils.ai.internal.llm.*
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
@@ -369,7 +363,7 @@ class AiContextCompressor(
         val tail = messages.subList(splitIndex, messages.size)
         @Language("JSON")
         val prompt = makePrompt(toCompress)
-        val res = sendAiRequestAndGetResult<ChatMessages>(
+        val (res, usage) = sendAiRequestAndGetResult<ChatMessages>(
             model = model,
             message = prompt,
             retryType = RetryType.ADD_MESSAGE,
@@ -380,8 +374,12 @@ class AiContextCompressor(
                     impl.getValue(str).toChatMessages()
             }
         )
-        val r = res.first + tail
-        logger.config("successfully compressed ${messages.size} messages to ${r.size} messages, used tokens: ${res.second}")
-        return r to res.second
+        val r = res.getOrElse()
+        {
+            logger.warning("failed to compress messages, use jump compressor instead: ${it.message}")
+            JumpContextCompressor(step = 2).compress(toCompress).first
+        } + tail
+        logger.config("successfully compressed ${messages.size} messages to ${r.size} messages, used tokens: $usage")
+        return r to usage
     }
 }

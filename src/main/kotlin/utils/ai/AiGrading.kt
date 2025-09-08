@@ -40,23 +40,24 @@ object AiGrading: KoinComponent
             {
                 when (it)
                 {
-                    is FillQuestion, is EssayQuestion -> runCatching()
-                    {
-                        checkAnswer(
-                            subject?.name,
-                            this@checkAnswer.description.toString(),
-                            it.description.toString(),
-                            it.userAnswer.toString(),
-                            it.answer.toString()
-                        ).let { ans -> totalTokens += ans.second; ans.first }
-                    }.onFailure()
-                    { e ->
-                        logger.warning("检查答案失败, SectionID: $id, QuestionIndex: $index", e)
-                        if (e is AiRetryFailedException) e.exceptions.forEachIndexed()
-                        { i, cause ->
-                            logger.warning("Cause$i: ", cause)
-                        }
-                    }.getOrNull()
+                    is FillQuestion, is EssayQuestion -> checkAnswer(
+                        subject?.name,
+                        this@checkAnswer.description.toString(),
+                        it.description.toString(),
+                        it.userAnswer.toString(),
+                        it.answer.toString()
+                    ).let()
+                    { ans ->
+                        totalTokens += ans.second
+                        ans.first.onFailure()
+                        { e ->
+                            logger.warning("检查答案失败, SectionID: $id, QuestionIndex: $index", e)
+                            if (e is AiRetryFailedException) e.exceptions.forEachIndexed()
+                            { i, cause ->
+                                logger.warning("Cause$i: ", cause)
+                            }
+                        }.getOrNull()
+                    }
                     is JudgeQuestion, is SingleChoiceQuestion -> it.userAnswer == it.answer
                     is MultipleChoiceQuestion ->
                     {
