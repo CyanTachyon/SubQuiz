@@ -75,6 +75,7 @@ object SqlDatabase: KoinComponent
         Histories::class,
         KnowledgePoints::class,
         Permissions::class,
+        Practices::class,
         Preferences::class,
         PreparationGroups::class,
         Quizzes::class,
@@ -239,3 +240,7 @@ fun Table.chatId(name: String) = registerColumn(name, ChatIdColumnType())
 // ClassId
 class ClassIdColumnType: WrapColumnType<Int, ClassId>(IntegerColumnType(), ::ClassId, ClassId::value)
 fun Table.classId(name: String) = registerColumn(name, ClassIdColumnType())
+
+// PracticeId
+class PracticeIdColumnType: WrapColumnType<Int, PracticeId>(IntegerColumnType(), ::PracticeId, PracticeId::value)
+fun Table.practiceId(name: String) = registerColumn(name, PracticeIdColumnType())

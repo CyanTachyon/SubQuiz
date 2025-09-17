@@ -2,8 +2,6 @@
 
 package moe.tachyon.quiz.route.utils
 
-import moe.tachyon.quiz.dataClass.UserFull
-import moe.tachyon.quiz.utils.HttpStatus
 import io.github.smiley4.ktorswaggerui.data.ValueExampleDescriptor
 import io.github.smiley4.ktorswaggerui.dsl.routes.OpenApiRequest
 import io.github.smiley4.ktorswaggerui.dsl.routes.OpenApiRequestParameter
@@ -12,6 +10,15 @@ import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
+import moe.tachyon.quiz.dataClass.ClassId
+import moe.tachyon.quiz.dataClass.PreparationGroupId
+import moe.tachyon.quiz.dataClass.UserFull
+import moe.tachyon.quiz.dataClass.hasGlobalAdmin
+import moe.tachyon.quiz.database.ClassMembers
+import moe.tachyon.quiz.database.Classes
+import moe.tachyon.quiz.database.Permissions
+import moe.tachyon.quiz.utils.HttpStatus
+import moe.tachyon.quiz.utils.getKoin
 import org.koin.core.parameter.ParametersDefinition
 import org.koin.core.qualifier.Qualifier
 import org.koin.ktor.ext.get
@@ -65,10 +72,24 @@ context(context: Context)
 inline fun getLoginUser(): UserFull? = context.call.getLoginUser()
 inline fun ApplicationCall.getLoginUser(): UserFull? = this.principal<UserFull>()
 
-fun ApplicationCall.getRealIp(): String
+@get:JvmName("loginUser")
+context(context: Context)
+val loginUser: UserFull inline get() = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+@get:JvmName("loginUser")
+val ApplicationCall.loginUser: UserFull inline get() = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+
+inline fun ApplicationCall.getRealIp(): String
 {
     val xForwardedFor = request.headers["X-Forwarded-For"]
     return if (xForwardedFor.isNullOrBlank()) request.local.remoteHost else xForwardedFor
 }
 
 @Serializable data class Wrap<T>(val data: T)
+
+suspend inline fun UserFull.isAdminIn(group: PreparationGroupId): Boolean =
+    hasGlobalAdmin() || getKoin().get<Permissions>().getPermission(this.id, group).isAdmin()
+suspend inline fun UserFull.isAdminIn(clazz: ClassId): Boolean =
+    isInClass(clazz) && (hasGlobalAdmin() || getKoin().get<Classes>().getClassInfo(clazz)?.let { isAdminIn(it.group) } == true)
+
+suspend inline fun UserFull.isInClass(clazz: ClassId): Boolean =
+    hasGlobalAdmin() || getKoin().get<ClassMembers>().getClassMembers(clazz).any { it.user == this.id }

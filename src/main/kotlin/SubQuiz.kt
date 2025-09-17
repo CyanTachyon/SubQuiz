@@ -4,6 +4,7 @@ import com.charleskorn.kaml.Yaml
 import io.ktor.server.application.*
 import io.ktor.server.netty.*
 import kotlinx.serialization.encodeToString
+import moe.tachyon.quiz.JwtAuth.initJwtAuth
 import moe.tachyon.quiz.console.AnsiEffect
 import moe.tachyon.quiz.console.Console.startConsoleCommandHandler
 import moe.tachyon.quiz.console.SimpleAnsiColor
@@ -21,8 +22,6 @@ import moe.tachyon.quiz.plugin.sse.installSSE
 import moe.tachyon.quiz.plugin.statusPages.installStatusPages
 import moe.tachyon.quiz.plugin.webSockets.installWebSockets
 import moe.tachyon.quiz.route.router
-import moe.tachyon.quiz.utils.JwtAuth
-import moe.tachyon.quiz.utils.JwtAuth.initJwtAuth
 import moe.tachyon.quiz.utils.Power
 import java.io.File
 import kotlin.properties.Delegates

@@ -27,7 +27,6 @@ object CodeRunner
             listOf("python3", "-m", "pip", "config", "set", "global.index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"),
             listOf("python3", "-m", "pip", "config", "set", "install.trusted-host", "pypi.tuna.tsinghua.edu.cn"),
             listOf("python3", "-m", "pip", "install", "--upgrade", "pip"),
-            listOf("python3", "-m", "pip", "install", "PyPDF2"),
         ),
     )
 
@@ -63,8 +62,8 @@ object CodeRunner
 
     @Serializable
     private data class CodeRunnerParm(
-        @JsonSchema.Description("代码运行超时时间，单位毫秒，默认5000毫秒，不得超过20000毫秒")
-        val timeoutMs: Long = 5000,
+        @JsonSchema.Description("代码运行超时时间，单位毫秒，不得超过120000毫秒")
+        val timeoutMs: Long,
         @JsonSchema.Description("是否保留你在虚拟机内的修改，例如创建的文件、安装的软件包等")
         val persistent: Boolean,
         @JsonSchema.Description("需要运行的Python代码")
@@ -73,8 +72,8 @@ object CodeRunner
 
     @Serializable
     private data class CmdParm(
-        @JsonSchema.Description("命令运行超时时间，单位毫秒，默认5000毫秒，不得超过120_000毫秒")
-        val timeoutMs: Long = 5000,
+        @JsonSchema.Description("命令运行超时时间，单位毫秒，不得超过120000毫秒")
+        val timeoutMs: Long,
         @JsonSchema.Description("是否保留你在虚拟机内的修改，例如创建的文件、安装的软件包等")
         val persistent: Boolean,
         @JsonSchema.Description("需要运行的命令")
@@ -97,12 +96,11 @@ object CodeRunner
                 - 当你需要进行一些复杂数学计算时你可以编写Python代码来完成计算
                 - 当你需要处理数据时你可以编写Python代码来处理数据
                 - 默认的工作目录是"/workspace"
-                - 重要：当用户上传文件给你之后，你应该使用Python代码来处理这些文件。
+                - 重要：当用户上传文件给你之后，你应该使用Python代码来处理这些文件。例如用户上传了一个DOCX文件，你可以使用python-docx库来读取文件内容，或转为PDF再使用ReadImage工具来读取
                 - 用户上传到聊天的文件会被放在"/workspace/input"中，你可以读取这些文件，但注意：
                   - 文件上传后会变成两个文件，一个为{uuid}.info，另一个为{uuid}.data
                   - 你可以读取{uuid}.info文件来获取文件的原始文件名等信息
                   - 你可以读取{uuid}.data为文件的内容（二进制）除非你确定它是文本文件，否则请不要尝试直接打印它
-                  - 已经预装了python的PyPDF2包，你可以用它来处理PDF文件
                 [[重要]]关于持久化的说明：
                 每次你调用run_python或run_cmd工具时，将从最近的一次你使用了 persistent=true 的调用中恢复虚拟机的状态。
                 但是，input和output不受持久化控制，因此你可以在非persistent的情况下运行代码，将文件放入output，然后使用upload_file工具将文件发送给用户。
@@ -123,7 +121,7 @@ object CodeRunner
             if (parm.code.isBlank()) return@registerTool AiToolInfo.ToolResult(
                 Content("error: code must not be empty")
             )
-            val timeout = parm.timeoutMs.coerceIn(1000, 20000)
+            val timeout = parm.timeoutMs.coerceIn(1000, 120_000)
             return@registerTool try
             {
                 val r = executeInSandbox(

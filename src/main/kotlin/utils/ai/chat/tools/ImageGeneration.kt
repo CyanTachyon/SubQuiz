@@ -5,8 +5,6 @@ import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.internal.imageGeneration.sendImageGenerationRequest
-import java.io.ByteArrayOutputStream
-import javax.imageio.ImageIO
 import kotlin.uuid.ExperimentalUuidApi
 
 @OptIn(ExperimentalUuidApi::class)
@@ -32,15 +30,7 @@ object ImageGeneration
         )
         { (chat, model, parm) ->
             val images = sendImageGenerationRequest(prompt = parm.prompt, negativePrompt = parm.negativePrompt)
-            val byteArrays = images.map()
-            {
-                val output = ByteArrayOutputStream()
-                ImageIO.write(it, "jpeg", output)
-                output.flush()
-                output.close()
-                output.toByteArray()
-            }
-            val uuids = byteArrays.map()
+            val uuids = images.map()
             {
                 ChatFiles.addChatFile(chat.id, "img.jpeg", AiTools.ToolData.Type.IMAGE, it)
             }

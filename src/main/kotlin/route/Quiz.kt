@@ -1,4 +1,5 @@
 @file:Suppress("PackageDirectoryMismatch")
+@file:OptIn(ExperimentalTime::class)
 
 package moe.tachyon.quiz.route.quiz
 
@@ -10,9 +11,10 @@ import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.*
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
+import kotlin.time.Clock
+import kotlin.time.Instant
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.QuizId.Companion.toQuizIdOrNull
 import moe.tachyon.quiz.database.*
@@ -24,6 +26,7 @@ import moe.tachyon.quiz.utils.ai.AiGrading.checkAnswer
 import moe.tachyon.quiz.utils.ai.TokenUsage
 import moe.tachyon.quiz.utils.statuses
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.ExperimentalTime
 
 private val answerCheckingJobs = ConcurrentHashMap<QuizId, Job>()
 private val logger = SubQuizLogger.getLogger()
@@ -144,10 +147,8 @@ private suspend fun Context.newQuiz(): Nothing
     val count = call.parameters["count"]?.toIntOrNull() ?: finishCall(HttpStatus.BadRequest)
     val sections = get<Sections>().recommendSections(user, null, knowledgePoints, count)
     if (sections.count < count) finishCall(HttpStatus.NotEnoughQuestions)
-    val quiz = quizzes.addQuiz(user, sections.list, null)?.hideAnswer()
-    if (quiz != null) finishCall(HttpStatus.OK, quiz)
-    logger.warning("用户 $user 创建测试时发生意料外的冲突")
-    finishCall(HttpStatus.Conflict)
+    val quiz = quizzes.addQuiz(user, sections.list, null).hideAnswer()
+    finishCall(HttpStatus.OK, quiz)
 }
 
 private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, JsonElement?>): Nothing
@@ -250,6 +251,28 @@ private suspend fun Context.getHistories(): Nothing
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val (begin, count) = call.getPage()
     val quizzes: Quizzes = get()
-    val qs = quizzes.getQuizzes(loginUser.id, begin, count).map { if (!it.finished) it.hideAnswer() else it }
+    val qs = quizzes.getQuizzes(loginUser.id, begin, count)
+        .map()
+        {
+            if (!it.finished) it.hideAnswer()
+            else it
+        }.map()
+        {
+            it.copy(correct = emptyList(), sections = it.sections.map()
+            { section ->
+                section.copy(
+                    description = JsonPrimitive(""),
+                    questions = listOf(
+                        SingleChoiceQuestion(
+                            description = JsonPrimitive(""),
+                            options = emptyList(),
+                            answer = null,
+                            analysis = JsonPrimitive(""),
+                            userAnswer = null,
+                        )
+                    )
+                )
+            })
+        }
     finishCall(HttpStatus.OK, qs)
 }

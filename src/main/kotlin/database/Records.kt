@@ -10,10 +10,11 @@ import org.jetbrains.exposed.sql.insertAndGetId
 import org.jetbrains.exposed.sql.json.jsonb
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp
 import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
+import kotlin.time.ExperimentalTime
 
+@OptIn(ExperimentalTime::class)
 class Records: SqlDao<RecordTable>(RecordTable)
 {
-
     object RecordTable: IdTable<Long>("records")
     {
         override val id = long("id").autoIncrement().entityId()

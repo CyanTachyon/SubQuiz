@@ -126,6 +126,12 @@ fun ByteArray.toJpegBytes(): ByteArray =
         ImageIO.write(ImageIO.read(this.inputStream()).withoutAlpha(), "jpeg", it)
     }.toByteArray()
 
+fun BufferedImage.toJpegBytes(): ByteArray =
+    ByteArrayOutputStream().also()
+    {
+        ImageIO.write(this.withoutAlpha(), "jpeg", it)
+    }.toByteArray()
+
 fun BufferedImage.withoutAlpha(): BufferedImage
 {
     val rImg = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
@@ -136,3 +142,34 @@ fun BufferedImage.withoutAlpha(): BufferedImage
     graphics.dispose()
     return rImg
 }
+
+fun BufferedImage.resize(width: Int, height: Int): BufferedImage
+{
+    val rImg = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    val graphics = rImg.createGraphics()
+    graphics.drawImage(this, 0, 0, width, height, null)
+    graphics.dispose()
+    return rImg
+}
+
+sealed class Either<out L, out R>
+{
+    data class Left<out L>(val value: L): Either<L, Nothing>()
+    data class Right<out R>(val value: R): Either<Nothing, R>()
+
+    val leftOrNull get() = (this as? Left<L>)?.value
+    val rightOrNull get() = (this as? Right<R>)?.value
+    val right get() = if (this is Right<R>) this.value else error("Either is Left")
+    val left get() = if (this is Left<L>) this.value else error("Either is Right")
+    val isLeft get() = this is Left<L>
+    val isRight get() = this is Right<R>
+
+    override fun toString(): String = when (this)
+    {
+        is Left  -> "Left($value)"
+        is Right -> "Right($value)"
+    }
+}
+
+fun <L, R> Either<L, R>.leftOrElse(block: (R) -> L): L = leftOrNull ?: block(right)
+fun <L, R> Either<L, R>.rightOrElse(block: (L) -> R): R = rightOrNull ?: block(left)

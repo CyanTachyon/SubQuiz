@@ -15,7 +15,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
-import java.util.function.IntFunction
 
 @Serializable
 enum class Role
@@ -33,7 +32,7 @@ enum class Role
     TOOL,
 
     @Serializable
-    CONTEXT_COMPRESSION
+    CONTEXT_COMPRESSION,
 }
 
 
@@ -194,7 +193,7 @@ data class ChatMessage(
         {
             error("Tool call ID should only be set for TOOL role messages")
         }
-        else if (this.role == Role.TOOL && toolCallId.isEmpty())
+        if (this.role == Role.TOOL && toolCallId.isEmpty())
         {
             error("Tool call ID must be set for TOOL role messages")
         }

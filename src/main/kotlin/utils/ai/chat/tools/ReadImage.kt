@@ -1,14 +1,19 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
+import io.ktor.util.*
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.utils.ChatFiles
+import moe.tachyon.quiz.utils.DocumentConversion
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.ChatMessages
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.ContentNode
 import moe.tachyon.quiz.utils.ai.Role
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetReply
+import moe.tachyon.quiz.utils.toJpegBytes
+import java.awt.image.BufferedImage
+import java.net.URL
 import kotlin.uuid.ExperimentalUuidApi
 
 @OptIn(ExperimentalUuidApi::class)
@@ -31,28 +36,35 @@ object ReadImage
                 name = "read_image",
                 displayName = "查看图片",
                 description = """
-                    如果你需要知道一个/一组图片中的内容，但是你无法直接查看图片内容，你可以使用该工具来获取图片中的内容。
-                    该工具会将全部图片和你的提示词一起给一个VLM模型，并将模型的输出结果返回给你。
-                    你应该只让vlm模型描述图片内容，而不是进行其他操作，而进一步的操作（如解答用户问题）则应由你自己完成。
-                    该工具支持4类图片URL：
-                    - 直接的图片URL，如 `https://example.com/image.png`，该URL必须是公开可访问的。
+                    如果你需要知道一个/一组图片/PDF中的内容，但是你无法直接查看图片/PDF内容，你可以使用该工具来获取图片中的内容。
+                    该工具会将全部图片（PDF则转为图片）和你的提示词一起给一个VLM模型，并将模型的输出结果返回给你。
+                    你应该只让vlm模型描述内容，而不是进行其他操作，而进一步的操作（如解答用户问题）则应由你自己完成。
+                    该工具支持4类URL：
+                    - 直接的图片/PDF URL，如 `https://example.com/image.png`，该URL必须是公开可访问的。
                     - data URL，如 `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...`，该URL必须是合法的data URL。
-                    - 在`/input`目录中的文件的uuid，如 `uuid:123e4567-e89b-12d3-a456-426614174000`，该文件必须是图片文件。
-                    - 在`/output`目录中的文件，如`output:example.png`，example.png替换为相对/output目录的路径，该文件必须是图片文件。
+                    - 在`/input`目录中的文件的uuid，如 `uuid:123e4567-e89b-12d3-a456-426614174000`，该文件必须是图片或PDF文件。
+                    - 在`/output`目录中的文件，如`output:example.png`，example.png替换为相对/output目录的路径，该文件必须是图片或PDF文件。
                 """.trimIndent(),
                 display = {
                     if (it == null) return@AiToolInfo Content()
-                    Content("图片URL：\n" + it.imageUrls.joinToString("\n") { url -> "- $url" })
+                    Content("URL：\n" + it.imageUrls.joinToString("\n") { url -> "- $url" })
                 }
             )
             { parm ->
                 val (imgUrl, prompt) = parm
-                val imgContent = imgUrl.map()
+                val imgContent = imgUrl.flatMap()
                 {
                     val url = ChatFiles.parseUrl(chat.id, it) ?: error("Image URL '$it' not found in chat ${chat.id}")
-                    if (url.startsWith("data:") && !url.startsWith("data:image/"))
-                        return@AiToolInfo AiToolInfo.ToolResult(Content("错误：URL '$it' 不是图片"))
-                    url
+                    val bytes =
+                        if (url.startsWith("data:"))
+                            url.substringAfter(",").decodeBase64Bytes()
+                        else
+                            URL(url).readBytes()
+                    val res = DocumentConversion.documentToImages(bytes) ?: return@AiToolInfo AiToolInfo.ToolResult(Content("不支持的图片/PDF格式，URL：$it"))
+                    res.map(BufferedImage::toJpegBytes)
+                }.map()
+                {
+                    "data:image/jpeg;base64," + it.encodeBase64()
                 }.map(ContentNode::image)
                 val sb = StringBuilder()
                 sb.append(prompt)

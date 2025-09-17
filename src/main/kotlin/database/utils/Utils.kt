@@ -109,6 +109,7 @@ class CustomExpressionWithColumnType<T>(
     override val columnType: IColumnType<T & Any>,
 ): ExpressionWithColumnType<T>()
 {
+    constructor(expression: String, columnType: IColumnType<T & Any>): this(CustomExpression(expression), columnType)
     override fun equals(other: Any?): Boolean
     {
         if (other is CustomExpressionWithColumnType<*>) return this.expression == other.expression

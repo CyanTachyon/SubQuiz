@@ -26,13 +26,16 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
         val sections = jsonb<List<Section<Any, Any?, JsonElement>>>("sections", dataJson, dataJson.serializersModule.serializer())
         val finished = bool("finished").default(false)
         val correct = jsonb<List<List<Boolean?>>>("correct", dataJson, dataJson.serializersModule.serializer()).nullable().default(null)
+        val accuracy = double("accuracy").default(0.0)
         val tokenUsage = jsonb<TokenUsage>("token_usage", dataJson, dataJson.serializersModule.serializer()).nullable().default(null)
         val exam = reference("exam", Exams.ExamTable, onDelete = ReferenceOption.SET_NULL, onUpdate = ReferenceOption.CASCADE).nullable().index()
+        val practices = reference("practices", Practices.PracticeTable, onDelete = ReferenceOption.SET_NULL, onUpdate = ReferenceOption.CASCADE).nullable().index()
         override val primaryKey = PrimaryKey(id)
 
         init
         {
             uniqueIndex(user, exam, filterCondition = { exam.isNotNull() })
+            index(null, false, user, practices, filterCondition = { practices.isNotNull() })
         }
     }
 
@@ -74,6 +77,15 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             ?.let(::deserialize)
     }
 
+    suspend fun getQuiz(user: UserId, practices: PracticeId): List<Quiz<Any, Any?, JsonElement>> = query()
+    {
+        selectAll()
+            .where { table.user eq user }
+            .andWhere { table.practices eq practices }
+            .orderBy(table.time, SortOrder.DESC)
+            .map(::deserialize)
+    }
+
     suspend fun getQuizzes(user: UserId?, begin: Long, count: Int): Slice<Quiz<Any, Any?, JsonElement>> = query()
     {
         selectAll()
@@ -83,15 +95,21 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             .map(::deserialize)
     }
 
-    suspend fun addQuiz(user: UserId, sections: List<Section<Any, Nothing?, JsonElement>>, exam: ExamId?): Quiz<Any, Nothing?, JsonElement>? = query()
+    suspend fun addQuiz(
+        user: UserId,
+        sections: List<Section<Any, Nothing?, JsonElement>>,
+        exam: ExamId?,
+        practices: PracticeId? = null,
+    ): Quiz<Any, Nothing?, JsonElement> = query()
     {
         val time = Clock.System.now()
-        val id = insertIgnoreAndGetId {
+        val id = insertAndGetId {
             it[table.user] = user
             it[table.time] = time
             it[table.sections] = sections
             it[table.exam] = exam
-        }?.value ?: return@query null
+            it[table.practices] = practices
+        }.value
         Quiz(
             id,
             user,
@@ -120,14 +138,18 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
     {
         val q = getQuiz(id) ?: return
         if (q.sections.size != correct.size) error("Sections size must be equal")
-        (q.sections zip correct).forEach {
+        (q.sections zip correct).forEach()
+        {
             if (it.first.questions.size != it.second.size) error("Questions size must be equal")
         }
+        val total = correct.sumOf { it.count { b -> b != null } }
+        val correctCount = correct.sumOf { it.count { b -> b == true } }
         query()
         {
             update({ table.id eq id })
             {
                 it[table.correct] = correct
+                it[table.accuracy] = if (total == 0) 0.0 else correctCount.toDouble() / total
                 it[table.tokenUsage] = tokenUsage
             }
         }

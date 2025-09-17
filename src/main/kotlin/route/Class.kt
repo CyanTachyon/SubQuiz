@@ -196,9 +196,8 @@ private suspend fun Context.updateClass(): Nothing
 private suspend fun Context.getClass(): Nothing
 {
     val classId = call.parameters["id"]?.toClassIdOrNull() ?: finishCall(HttpStatus.BadRequest, "无效的班级ID")
-    val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val clazz = get<Classes>().getClassInfo(classId)?.withMembers() ?: finishCall(HttpStatus.NotFound, "班级不存在")
-    if (loginUser.hasGlobalAdmin() && clazz.members.any { it.user == loginUser.id })
+    if (loginUser.isInClass(classId))
         finishCall(HttpStatus.OK, clazz)
     else
         finishCall(HttpStatus.Forbidden, "无权访问该班级信息")
@@ -220,6 +219,7 @@ private suspend fun Context.addClassMember(): Nothing
     val loginUser = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     if (!loginUser.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
     val memberData = call.receive<List<SsoUserFull.Seiue>>()
+    get<Classes>().getClassInfo(classId) ?: finishCall(HttpStatus.NotFound, "班级不存在")
     val classMembers = get<ClassMembers>()
     classMembers.insertMembers(classId, memberData)
     finishCall(HttpStatus.OK)

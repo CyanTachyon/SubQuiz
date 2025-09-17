@@ -13,8 +13,8 @@ val swagger_ui_version: String by project
 val schema_kenerator_version: String by project
 
 plugins {
-    kotlin("jvm") version "2.2.10"
-    kotlin("plugin.serialization") version "2.2.10"
+    kotlin("jvm") version "2.2.20"
+    kotlin("plugin.serialization") version "2.2.20"
     id("io.ktor.plugin") version "3.2.3"
 }
 
@@ -26,7 +26,7 @@ fun getCurrentDateTime(): String
 }
 
 group = "moe.tachyon.quiz"
-version = "3.2.3.0-${getCurrentDateTime()}"
+version = "3.3.0.0-${getCurrentDateTime()}"
 
 application {
     mainClass.set("moe.tachyon.quiz.SubQuizKt")
@@ -99,6 +99,11 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-kotlin-datetime:$exposed_version") // 数据库
     implementation("com.zaxxer:HikariCP:$hikaricp_version") // 连接池
 
+    // document conversion
+    implementation("org.apache.pdfbox:pdfbox:2.0.34")
+    implementation("org.seleniumhq.selenium:selenium-java:4.35.0")
+    implementation("io.github.bonigarcia:webdrivermanager:6.3.0")
+    implementation("org.apache.poi:poi-ooxml:5.4.1")
 
     // koin
     implementation(platform("io.insert-koin:koin-bom:$koin_version"))
@@ -130,6 +135,9 @@ kotlin {
         freeCompilerArgs.add("-Xcontext-parameters")
         freeCompilerArgs.add("-Xcontext-sensitive-resolution")
         freeCompilerArgs.add("-Xnested-type-aliases")
+        freeCompilerArgs.add("-Xdata-flow-based-exhaustiveness")
+        freeCompilerArgs.add("-Xallow-reified-type-in-catch")
+        freeCompilerArgs.add("-Xallow-holdsin-contract")
     }
 }
 

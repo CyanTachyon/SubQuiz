@@ -63,6 +63,7 @@ private sealed interface AiResponse
             @Serializable
             data class ToolCall(
                 val id: String? = null,
+                val index: Int? = null,
                 val function: Function,
             )
             {
@@ -192,7 +193,7 @@ private data class AiRequest(
         val toolCallId: String? = null,
         @EncodeDefault(EncodeDefault.Mode.NEVER)
         @SerialName("tool_calls")
-        val toolCalls: List<AiResponse.Choice.Message.ToolCall> = emptyList(),
+        val toolCalls: List<ToolCall> = emptyList(),
     )
     {
         constructor(
@@ -200,8 +201,23 @@ private data class AiRequest(
             content: Content = Content(),
             reasoningContent: String?,
             toolCallId: String? = null,
-            toolCalls: List<AiResponse.Choice.Message.ToolCall> = emptyList()
+            toolCalls: List<ToolCall> = emptyList()
         ): this(role, content, reasoningContent, reasoningContent, toolCallId, toolCalls)
+
+        @Serializable
+        data class ToolCall(
+            val id: String,
+            val function: Function,
+        )
+        {
+            @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+            val type: String = "function"
+            @Serializable
+            data class Function(
+                val name: String,
+                val arguments: String,
+            )
+        }
     }
 
     @Serializable
@@ -254,7 +270,7 @@ private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
             content = this.content,
             reasoningContent = this.reasoningContent.takeUnless { it.isBlank() },
             toolCallId = this.toolCallId.takeUnless { it.isEmpty() },
-            toolCalls = this.toolCalls.map { AiResponse.Choice.Message.ToolCall(it.id, AiResponse.Choice.Message.ToolCall.Function(it.name, it.arguments)) },
+            toolCalls = this.toolCalls.map { AiRequest.Message.ToolCall(it.id, function = AiRequest.Message.ToolCall.Function(it.name, it.arguments)) },
         )
     }
 
@@ -497,10 +513,12 @@ private suspend fun sendRequest(
 
 
     var usage0 = TokenUsage()
-    val waitingTools = mutableMapOf<String, Pair<String, String>>()
-    var lstToolId = ""
+    val waitingTools = mutableMapOf<Int, Pair<String, String>>()
+    val idToIndex = mutableMapOf<String, Int>()
+    var lstIndex = -1
     var curMsg = ChatMessage(Role.ASSISTANT, "")
     val responses = mutableListOf<StreamAiResponse>()
+    val loopId = Uuid.random().toHexString()
 
     val r = runCatching()
     {
@@ -517,8 +535,14 @@ private suspend fun sendRequest(
             incoming
                 .mapNotNull { it.data }
                 .filterNot { it == "[DONE]" }
-                .mapNotNull {
-                    contentNegotiationJson.decodeFromString<StreamAiResponse>(it)
+                .mapNotNull()
+                {
+                    runCatching()
+                    {
+                        contentNegotiationJson.decodeFromString<StreamAiResponse>(it)
+                    }.onFailure { e ->
+                        logger.warning("无法解析AI返回的数据流, data: $it")
+                    }.getOrNull()
                 }
                 .collect()
                 {
@@ -529,22 +553,19 @@ private suspend fun sendRequest(
                     { c ->
                         c.message.toolCalls.forEach()
                         { tool ->
-                            if (tool.id != null)
+                            val index = tool.index ?: idToIndex[tool.id] ?: lstIndex.takeIf { it1 -> it1 > 0 }
+                            if (index == null)
                             {
-                                waitingTools[tool.id] = "" to ""
-                                lstToolId = tool.id
+                                logger.warning("出现错误: 工具调用ID丢失，无法将工具调用名称与参数对应。index: ${tool.index}, id: ${tool.id}, lstIndex: $lstIndex, idToIndex: $idToIndex, waitingTools: $waitingTools")
                             }
-                            if (!tool.function.name.isNullOrEmpty() || !tool.function.arguments.isNullOrEmpty())
+                            else
                             {
-                                val l = waitingTools[lstToolId]
-                                if (l == null)
-                                    logger.warning("出现错误: 工具调用ID丢失，无法将工具调用名称与参数对应。lstToolId=$lstToolId，waitingTools=$waitingTools, tool=$tool")
-                                else
-                                {
-                                    val newName = l.first + (tool.function.name ?: "")
-                                    val newArg = l.second + (tool.function.arguments ?: "")
-                                    waitingTools[lstToolId] = newName to newArg
-                                }
+                                val (name, args) = waitingTools[index] ?: ("" to "")
+                                val newName = name + (tool.function.name ?: "")
+                                val newArg = args + (tool.function.arguments ?: "")
+                                waitingTools[index] = newName to newArg
+                                if (tool.id != null) idToIndex[tool.id] = index
+                                lstIndex = index
                             }
                         }
 
@@ -566,12 +587,12 @@ private suspend fun sendRequest(
                 }
         }
 
-        waitingTools.forEach()
-        {
+        waitingTools.onEachIndexed()
+        { i, it ->
             curMsg += ChatMessage(
                 role = Role.ASSISTANT,
                 content = Content(),
-                toolCalls = listOf(ChatMessage.ToolCall(it.key, it.value.first, it.value.second)),
+                toolCalls = listOf(ChatMessage.ToolCall("call-$loopId-$i", it.value.first, it.value.second)),
             )
         }
     }
@@ -584,7 +605,7 @@ private suspend fun sendRequest(
         }
     }
 
-    return RequestResult(waitingTools, curMsg, usage0, r.exceptionOrNull())
+    return RequestResult(waitingTools.values.mapIndexed { i, it -> "call-$loopId-$i" to it }.toMap(), curMsg, usage0, r.exceptionOrNull())
 }
 
 private suspend fun parseToolCalls(

@@ -4,24 +4,27 @@ import moe.tachyon.quiz.dataClass.PreparationGroup
 import moe.tachyon.quiz.dataClass.PreparationGroupId
 import moe.tachyon.quiz.dataClass.SubjectId
 import org.jetbrains.exposed.dao.id.IdTable
-import org.jetbrains.exposed.sql.ResultRow
-import org.jetbrains.exposed.sql.SortOrder
-import org.jetbrains.exposed.sql.insertAndGetId
+import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp
 import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.update
+import kotlin.time.ExperimentalTime
 
+@OptIn(ExperimentalTime::class)
 class PreparationGroups: SqlDao<PreparationGroups.PreparationGroupTable>(PreparationGroupTable)
 {
     object PreparationGroupTable: IdTable<PreparationGroupId>("preparation_groups")
     {
         override val id = preparationGroupId("id").autoIncrement().entityId()
         val subject = reference("subject", Subjects.SubjectTable).index()
-        val name = varchar("name", 255).uniqueIndex()
+        val name = varchar("name", 255).index()
         val description = text("description")
         val time = timestamp("time").defaultExpression(CurrentTimestamp)
         override val primaryKey = PrimaryKey(id)
+
+        init
+        {
+            uniqueIndex(subject, name)
+        }
     }
 
     private fun deserialize(row: ResultRow): PreparationGroup =
@@ -41,10 +44,11 @@ class PreparationGroups: SqlDao<PreparationGroups.PreparationGroupTable>(Prepara
             ?.let(::deserialize)
     }
 
-    suspend fun getPreparationGroup(name: String): PreparationGroup? = query()
+    suspend fun getPreparationGroup(subject: SubjectId, name: String): PreparationGroup? = query()
     {
         selectAll()
-            .where { table.name eq name }
+            .andWhere { table.subject eq subject }
+            .andWhere { table.name eq name }
             .singleOrNull()
             ?.let(::deserialize)
     }

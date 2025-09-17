@@ -20,6 +20,7 @@ import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.utils.ktorClientEngineFactory
+import moe.tachyon.quiz.utils.toJpegBytes
 import java.awt.image.BufferedImage
 import java.net.URL
 import javax.imageio.ImageIO
@@ -92,7 +93,7 @@ suspend fun sendImageGenerationRequest(
     seed: Long? = null,
     negativePrompt: String? = null,
     image: String? = null,
-): List<BufferedImage>
+): List<ByteArray>
 {
     val request = Request(
         model = model,
@@ -129,8 +130,11 @@ suspend fun sendImageGenerationRequest(
         logger.warning("Failed to decode image generation response: $response")
     }.getOrThrow()
 
-    val urls = res.images.map { it.url }.map(::URL)
-    val images = urls.map { ImageIO.read(it) }
+    val images = res.images
+        .map(Response.Image::url)
+        .map(::URL)
+        .map(ImageIO::read)
+        .map(BufferedImage::toJpegBytes)
     return images
 }
 
@@ -143,7 +147,7 @@ suspend fun sendImageGenerationRequest(
     seed: Long? = null,
     negativePrompt: String? = null,
     image: String? = null,
-): List<BufferedImage> = aiConfig.imageGenerator.semaphore.withPermit()
+): List<ByteArray> = aiConfig.imageGenerator.semaphore.withPermit()
 {
     sendImageGenerationRequest(
         url = aiConfig.imageGenerator.url,

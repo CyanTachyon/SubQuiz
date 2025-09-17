@@ -1,11 +1,12 @@
 @file:Suppress("unused")
 
-package moe.tachyon.quiz.utils.ai.chat
+package moe.tachyon.quiz.utils.ai.chat.plugins
 
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.config.AiConfig
+import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
@@ -31,15 +32,13 @@ interface ContextCompressor
 
 fun ContextCompressor.toLlmPlugin(): BeforeLlmRequest = BeforeLlmRequest()
 {
-    val systemPrompt = requestMessage.indexOfFirst { it.role != Role.SYSTEM }.let { if (it == -1) requestMessage else requestMessage.subList(0, it) }
-    val messageWithoutSystem = requestMessage.drop(systemPrompt.size)
-    val index = messageWithoutSystem.indexOfLast { it.role == Role.CONTEXT_COMPRESSION }
+    val index = requestMessage.indexOfLast { it.role == Role.CONTEXT_COMPRESSION }
     val uncompressed =
-        (if (index == -1) messageWithoutSystem
+        (if (index == -1) requestMessage
         else
         {
-            val com = dataJson.decodeFromString<ChatMessages>(messageWithoutSystem[index].content.toText())
-            com + messageWithoutSystem.subList(index + 1, messageWithoutSystem.size)
+            val com = dataJson.decodeFromString<ChatMessages>(requestMessage[index].content.toText())
+            com + requestMessage.subList(index + 1, requestMessage.size)
         }).toChatMessages()
     if (shouldCompress(uncompressed))
     {
@@ -50,9 +49,9 @@ fun ContextCompressor.toLlmPlugin(): BeforeLlmRequest = BeforeLlmRequest()
             role = Role.CONTEXT_COMPRESSION,
             content = dataJson.encodeToString(compressed.first)
         )
-        requestMessage = systemPrompt + compressed.first
+        requestMessage = compressed.first
     }
-    else requestMessage = systemPrompt + uncompressed
+    else requestMessage = uncompressed
 }
 
 /**
@@ -370,8 +369,21 @@ class AiContextCompressor(
             resultType = object: ResultType<ChatMessages>
             {
                 private val impl = ResultType<List<Compress>>()
-                override fun getValue(str: String): ChatMessages =
-                    impl.getValue(str).toChatMessages()
+                private var time = 0
+
+
+                override fun getValue(str: String): ChatMessages
+                {
+                    if ((++time) < aiConfig.retry) return impl.getValue(str).toChatMessages()
+                    runCatching { return impl.getValue(str).toChatMessages() }
+                    // 最后一次仍然失败，退而求其次，将未能解析为json的内容作为一条system消息，指导继续聊天
+                    val sb = StringBuilder()
+                    sb.append("============= 以下是你和用户之前的聊天记录 =============\n")
+                    sb.append(sb)
+                    sb.append("============= 以上是你和用户之前的聊天记录 =============\n")
+                    sb.append("现在，请你和用户继续对话")
+                    return ChatMessages(Role.SYSTEM, Content(sb.toString()))
+                }
             }
         )
         val r = res.getOrElse()

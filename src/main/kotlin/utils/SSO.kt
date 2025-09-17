@@ -9,6 +9,7 @@ import io.ktor.client.request.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import moe.tachyon.quiz.JwtAuth
 import moe.tachyon.quiz.database.ClassMembers
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject

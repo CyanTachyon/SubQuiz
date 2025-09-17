@@ -4,7 +4,7 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.utils.singleOrNull
-import moe.tachyon.quiz.utils.JwtAuth
+import moe.tachyon.quiz.JwtAuth
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.insertAndGetId
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp

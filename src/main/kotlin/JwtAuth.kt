@@ -1,4 +1,4 @@
-package moe.tachyon.quiz.utils
+package moe.tachyon.quiz
 
 import at.favre.lib.crypto.bcrypt.BCrypt
 import com.auth0.jwt.JWT
@@ -6,18 +6,20 @@ import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.server.application.Application
 import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toKotlinInstant
-import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.CYAN
-import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.RED
+import moe.tachyon.quiz.console.SimpleAnsiColor
 import moe.tachyon.quiz.dataClass.SsoUserFull
 import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.CustomUsers
 import moe.tachyon.quiz.logger.SubQuizLogger
+import moe.tachyon.quiz.utils.SSO
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.time.OffsetDateTime
 import java.util.UUID
 import kotlin.time.Duration.Companion.days
+import kotlin.time.ExperimentalTime
 
+@OptIn(ExperimentalTime::class)
 object JwtAuth: KoinComponent
 {
     private val logger = SubQuizLogger.getLogger<JwtAuth>()
@@ -34,7 +36,7 @@ object JwtAuth: KoinComponent
         val key = environment.config.propertyOrNull("jwt.secret")?.getString()
         if (key == null)
         {
-            logger.info("${CYAN}jwt.secret${RED} not found in config file, use random secret key")
+            logger.info("${SimpleAnsiColor.CYAN}jwt.secret${SimpleAnsiColor.RED} not found in config file, use random secret key")
             SECRET_KEY = UUID.randomUUID().toString()
         }
         else
@@ -94,11 +96,13 @@ object JwtAuth: KoinComponent
                 registrationTime = System.currentTimeMillis(),
                 phone = "",
                 email = listOf("${-user}@local"),
-                seiue = listOf(SsoUserFull.Seiue(
-                    studentId = "SubQuiz-${-user}",
-                    realName = it.name,
-                    archived = false,
-                ))
+                seiue = listOf(
+                    SsoUserFull.Seiue(
+                        studentId = "SubQuiz-${-user}",
+                        realName = it.name,
+                        archived = false,
+                    )
+                )
             )
         }
     }

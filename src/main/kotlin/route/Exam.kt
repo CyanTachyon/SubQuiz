@@ -3,17 +3,16 @@
 package moe.tachyon.quiz.route.exam
 
 import io.github.smiley4.ktorswaggerui.dsl.routing.*
-import io.ktor.server.request.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.json.JsonElement
-import moe.tachyon.quiz.dataClass.*
+import moe.tachyon.quiz.dataClass.ClassId
 import moe.tachyon.quiz.dataClass.ClassId.Companion.toClassIdOrNull
+import moe.tachyon.quiz.dataClass.Exam
+import moe.tachyon.quiz.dataClass.ExamId
 import moe.tachyon.quiz.dataClass.ExamId.Companion.toExamIdOrNull
+import moe.tachyon.quiz.dataClass.Quiz
 import moe.tachyon.quiz.database.*
-import moe.tachyon.quiz.route.utils.Context
-import moe.tachyon.quiz.route.utils.finishCall
-import moe.tachyon.quiz.route.utils.get
-import moe.tachyon.quiz.route.utils.getLoginUser
+import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.statuses
 
@@ -149,11 +148,8 @@ fun Route.exam() = route("/exam", {
 private suspend fun Context.getExams(): Nothing
 {
     val clazz = call.pathParameters["class"]?.toClassIdOrNull() ?: finishCall(HttpStatus.BadRequest)
-    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val group = get<Classes>().getClassInfo(clazz)?.group ?: finishCall(HttpStatus.NotFound)
-    val admin = user.hasGlobalAdmin() || get<Permissions>().getPermission(user.id, group).isAdmin()
     val exams = get<Exams>().getExams(clazz)
-    if (admin) finishCall(HttpStatus.OK, exams)
+    if (loginUser.isAdminIn(clazz)) finishCall(HttpStatus.OK, exams)
     else finishCall(HttpStatus.OK, exams.filter { it.available })
 }
 
@@ -161,10 +157,7 @@ private suspend fun Context.getExam(): Nothing
 {
     val id = call.pathParameters["id"]?.toExamIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val exam = get<Exams>().getExam(id) ?: finishCall(HttpStatus.NotFound)
-    val clazz = get<Classes>().getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
-    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
-        finishCall(HttpStatus.Forbidden)
+    if (!loginUser.isAdminIn(exam.clazz)) finishCall(HttpStatus.Forbidden)
     finishCall(HttpStatus.OK, exam)
 }
 
@@ -172,50 +165,37 @@ private suspend fun Context.deleteExam(): Nothing
 {
     val id = call.pathParameters["id"]?.toExamIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val exam = get<Exams>().getExam(id) ?: finishCall(HttpStatus.NotFound)
-    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val clazz = get<Classes>().getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
-    if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
-        finishCall(HttpStatus.Forbidden)
+    if (!loginUser.isAdminIn(exam.clazz)) finishCall(HttpStatus.Forbidden)
     if (get<Exams>().deleteExam(id)) finishCall(HttpStatus.OK)
     else finishCall(HttpStatus.NotFound)
 }
 
-private suspend fun Context.newExam(): Nothing
+private suspend fun Context.newExam(exam: Exam): Nothing
 {
-    val exam = call.receive<Exam>()
     val checked = exam.check()
     if (checked != null) finishCall(HttpStatus.BadRequest.subStatus(checked, 1))
-    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val clazz = get<Classes>().getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
-    if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
-        finishCall(HttpStatus.Forbidden)
+    if (!loginUser.isAdminIn(exam.clazz)) finishCall(HttpStatus.Forbidden)
     val id = get<Exams>().addExam(exam) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, id)
 }
 
-private suspend fun Context.updateExam(): Nothing
+private suspend fun Context.updateExam(exam: Exam): Nothing
 {
-    val exam = call.receive<Exam>()
     val checked = exam.check()
     if (checked != null) finishCall(HttpStatus.BadRequest.subStatus(checked, 1))
-    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val clazz = get<Classes>().getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
-    if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
-        finishCall(HttpStatus.Forbidden)
+    if (!loginUser.isAdminIn(exam.clazz)) finishCall(HttpStatus.Forbidden)
     if (get<Exams>().updateExam(exam)) finishCall(HttpStatus.OK)
     else finishCall(HttpStatus.NotFound)
 }
 
 private suspend fun Context.startExam()
 {
-    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val examId = call.parameters["id"]?.toExamIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("exam id is required", 1))
     val exam = get<Exams>().getExam(examId) ?: finishCall(HttpStatus.NotFound)
     if (!exam.available) finishCall(HttpStatus.BadRequest.subStatus("考试不可用", 2))
-    if (!get<ClassMembers>().inClass(user.id, exam.clazz))
+    if (!get<ClassMembers>().inClass(loginUser.id, exam.clazz))
         finishCall(HttpStatus.NotFound)
-    val clazz = get<Classes>().getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
-    if (user.hasGlobalAdmin() || get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
+    if (loginUser.isAdminIn(exam.clazz))
         finishCall(HttpStatus.Forbidden.copy(message = "作为老师无法参与考试"))
     val sectionDB = get<Sections>()
     val sections = exam
@@ -223,21 +203,17 @@ private suspend fun Context.startExam()
         .map { sectionDB.getSection(it) }
         .map { it ?: finishCall(HttpStatus.NotFound.subStatus("考试中的部分题目已失效，请联系管理员", 3)) }
     val quizzes: Quizzes = get()
-    val history = quizzes.getQuiz(user.id, exam.id)
+    val history = quizzes.getQuiz(loginUser.id, exam.id)
     if (history != null) finishCall(HttpStatus.OK, if (history.finished) history else history.hideAnswer())
-    val quiz = quizzes.addQuiz(user.id, sections, exam.id)?.hideAnswer()
-    if (quiz != null) finishCall(HttpStatus.OK, quiz)
-    finishCall(HttpStatus.Conflict.subStatus("请重试", 1))
+    val quiz = quizzes.addQuiz(loginUser.id, sections, exam.id).hideAnswer()
+    finishCall(HttpStatus.OK, quiz)
 }
 
 private suspend fun Context.getExamScores(): Nothing
 {
     val examId = call.pathParameters["id"]?.toExamIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val exam = get<Exams>().getExam(examId) ?: finishCall(HttpStatus.NotFound)
-    val clazz = get<Classes>().getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
-    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
-        finishCall(HttpStatus.Forbidden)
+    if (!loginUser.isAdminIn(exam.clazz)) finishCall(HttpStatus.Forbidden)
     get<Exams>().getExamScores(examId)?.let {
         finishCall(HttpStatus.OK, it)
     }
@@ -250,9 +226,7 @@ private suspend fun Context.getStudentExam()
     val studentId = call.parameters["student"] ?: finishCall(HttpStatus.BadRequest)
     val exam = get<Exams>().getExam(examId) ?: finishCall(HttpStatus.NotFound)
     val clazz = get<Classes>().getClassInfo(exam.clazz) ?: finishCall(HttpStatus.NotFound)
-    val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    if (!user.hasGlobalAdmin() && !get<Permissions>().getPermission(user.id, clazz.group).isAdmin())
-        finishCall(HttpStatus.Forbidden)
+    if (!loginUser.isAdminIn(exam.clazz)) finishCall(HttpStatus.Forbidden)
     val userId = clazz.withMembers().members.find { it.seiue.studentId == studentId }?.user
         ?: finishCall(HttpStatus.NotFound.subStatus("未找到该学生", 1))
     val quizzes: Quizzes = get()

@@ -257,8 +257,8 @@ class Sandbox(
 
         val completed = process.waitFor(timeout, TimeUnit.MILLISECONDS)
 
-        job0.cancelAndJoin()
-        job1.cancelAndJoin()
+        job0.cancel()
+        job1.cancel()
 
         return if (completed)
         {

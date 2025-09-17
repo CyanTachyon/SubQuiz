@@ -46,7 +46,7 @@ class Users: SqlDao<Users.UserTable>(UserTable)
     suspend fun getOrCreateUser(id: UserId): DatabaseUser = query()
     {
         insertIgnore { it[UserTable.id] = id }
-        selectAll().where { UserTable.id eq id }.single().let(::deserialize)
+        select(table.id, table.permission,table. tokenUsage).where { UserTable.id eq id }.single().let(::deserialize)
     }
 
     suspend fun getAdmins(begin: Long, count: Int): Slice<Pair<UserId, Permission>> = query()
@@ -80,11 +80,6 @@ class Users: SqlDao<Users.UserTable>(UserTable)
         val currentMemory = select(globalMemory).where { UserTable.id eq id }.singleOrNull()?.get(globalMemory) ?: emptyMap()
         val updatedMemory = currentMemory - key
         update({ UserTable.id eq id }) { it[globalMemory] = updatedMemory } > 0
-    }
-
-    suspend fun clearGlobalMemory(id: UserId): Boolean = query()
-    {
-        update({ UserTable.id eq id }) { it[globalMemory] = emptyMap() } > 0
     }
 
     suspend inline fun <reified T: Any> getCustomSetting(id: UserId, key: String): T? =

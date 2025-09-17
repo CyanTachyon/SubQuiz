@@ -2,34 +2,22 @@ package moe.tachyon.quiz.database
 
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonElement
-import moe.tachyon.quiz.dataClass.Chat
-import moe.tachyon.quiz.dataClass.ChatId
-import moe.tachyon.quiz.dataClass.Section
+import kotlinx.serialization.serializer
+import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.Slice
-import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.utils.asSlice
 import moe.tachyon.quiz.database.utils.singleOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
-import kotlinx.serialization.serializer
 import moe.tachyon.quiz.utils.ai.ChatMessage
 import moe.tachyon.quiz.utils.ai.ChatMessages
 import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.ContentNode
 import org.jetbrains.exposed.dao.id.IdTable
-import org.jetbrains.exposed.sql.ReferenceOption
-import org.jetbrains.exposed.sql.ResultRow
-import org.jetbrains.exposed.sql.SortOrder
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.deleteWhere
-import org.jetbrains.exposed.sql.insertAndGetId
+import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.json.jsonb
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp
 import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.update
-import kotlin.Any
 
 class Chats: SqlDao<Chats.ChatTable>(ChatTable)
 {
@@ -43,6 +31,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
         val hash = varchar("hash", 64).index()
         val banned = bool("banned").default(false)
         val lastModified = timestamp("last_modified").clientDefault { Clock.System.now() }.defaultExpression(CurrentTimestamp).index()
+        val deleted = bool("deleted").default(false).index()
         override val primaryKey = PrimaryKey(id)
     }
 
@@ -86,14 +75,19 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
     suspend fun getChat(id: ChatId): Chat? = query()
     {
         selectAll()
-            .where { table.id eq id }
+            .andWhere { table.id eq id }
+            .andWhere { table.deleted eq false }
             .singleOrNull()
             ?.let(::deserialize)
     }
 
     suspend fun deleteChat(id: ChatId, user: UserId) = query()
     {
-        deleteWhere { (table.id eq id) and (table.user eq user)  } > 0
+        update(where = { (table.id eq id) and (table.user eq user)  })
+        {
+            it[table.deleted] = true
+            it[table.lastModified] = Clock.System.now()
+        } > 0
     }
 
     suspend fun getChats(
@@ -103,7 +97,8 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
     ): Slice<Chat> = query()
     {
         select(table.columns - table.histories)
-            .where { table.user eq user }
+            .andWhere { table.user eq user }
+            .andWhere { table.deleted eq false }
             .orderBy(table.lastModified to SortOrder.DESC, table.id to SortOrder.DESC)
             .asSlice(begin, count)
             .map {
@@ -126,7 +121,7 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
         ban: Boolean = false,
     ): Unit = query()
     {
-        update({ table.id eq chatId })
+        update({ (table.id eq chatId) and (table.deleted eq false) })
         {
             it[table.histories] = histories.removeUnsupportedChars()
             if (newHash != null) it[table.hash] = newHash

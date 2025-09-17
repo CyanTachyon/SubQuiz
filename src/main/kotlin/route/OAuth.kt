@@ -11,7 +11,7 @@ import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.route.utils.finishCall
 import moe.tachyon.quiz.utils.HttpStatus
-import moe.tachyon.quiz.utils.JwtAuth
+import moe.tachyon.quiz.JwtAuth
 import moe.tachyon.quiz.utils.SSO
 import moe.tachyon.quiz.utils.statuses
 

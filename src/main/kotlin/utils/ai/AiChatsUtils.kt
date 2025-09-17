@@ -354,15 +354,19 @@ object AiChatsUtils: KoinComponent
         }
     }
 
+    private const val MAX_IMAGE_SIZE = 5 * 1024 * 1024
+    private const val MAX_FILE_SIZE = 10 * 1024 * 1024
+    private const val TOTAL_MAX_FILE_SIZE = 50 * 1024 * 1024
+
     @OptIn(ExperimentalUuidApi::class)
     fun makeContent(chat: Chat, content: Content): MakeContentResult
     {
         if (content.count { it is ContentNode.Image || it is ContentNode.File } > 10)
             return MakeContentResult.Failure("最多只能上传10个附件")
 
-        if (content.filterIsInstance<ContentNode.Image>().any { it.image.url.length > 1030 * 1024 * 4 / 3 }) // 1030KB,稍作余量, base64会膨胀到4/3倍，因此这里乘以4/3
-            return MakeContentResult.Failure("图片过大，单张图片不能超过1MB")
-        if (content.filterIsInstance<ContentNode.File>().any { it.file.url.length > 10 * 1030 * 1024 * 4 / 3 }) // 10MB
+        if (content.filterIsInstance<ContentNode.Image>().any { it.image.url.length > MAX_IMAGE_SIZE / 1024 * 1030 * 4 / 3 }) // 1030KB,稍作余量, base64会膨胀到4/3倍，因此这里乘以4/3
+            return MakeContentResult.Failure("图片过大，单张图片不能超过5MB")
+        if (content.filterIsInstance<ContentNode.File>().any { it.file.url.length > MAX_FILE_SIZE / 1024 * 1030 * 4 / 3 }) // 1030KB,稍作余量, base64会膨胀到4/3倍，因此这里乘以4/3
             return MakeContentResult.Failure("文件过大，单个文件不能超过10MB")
 
         val fileBytes = mutableMapOf<Int, ByteArray>()
@@ -378,7 +382,7 @@ object AiChatsUtils: KoinComponent
                     {
                         if (it.file.url.startsWith("uuid:")) return@forEachIndexed
                         val bytes = it.file.url.decodeBase64Bytes()
-                        if (bytes.size > 10 * 1024 * 1024) // 10MB
+                        if (bytes.size > MAX_FILE_SIZE) // 10MB
                             return MakeContentResult.Failure("文件过大，单个文件不能超过10MB")
                         fileBytes[index] = bytes
                     }.getOrElse()
@@ -392,8 +396,8 @@ object AiChatsUtils: KoinComponent
                     {
                         if (it.image.url.startsWith("uuid:")) return@forEachIndexed
                         val bytes = it.image.url.decodeBase64Bytes().toJpegBytes()
-                        if (bytes.size > 1024 * 1024) // 1MB
-                            return MakeContentResult.Failure("图片过大，单张图片不能超过1MB")
+                        if (bytes.size > MAX_IMAGE_SIZE) // 5MB
+                            return MakeContentResult.Failure("图片过大，单张图片不能超过5MB")
                         fileBytes[index] = bytes
                     }.getOrElse()
                     {
@@ -405,7 +409,7 @@ object AiChatsUtils: KoinComponent
 
         val usedSize = ChatFiles.getUsedChatFileSize(chat.copy(histories = chat.histories + ChatMessage(Role.USER, content)))
 
-        if (usedSize + fileBytes.values.sumOf { it.size } > 50 * 1024 * 1024)
+        if (usedSize + fileBytes.values.sumOf { it.size } > TOTAL_MAX_FILE_SIZE)
             return MakeContentResult.Failure("文件过大，当前聊天记录中总文件不能超过50MB")
 
         val rContent = content.mapIndexed()

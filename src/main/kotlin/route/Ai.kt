@@ -28,9 +28,11 @@ import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.chat.AskService
+import moe.tachyon.quiz.utils.ai.chat.ChatUserConfigs
 import moe.tachyon.quiz.utils.ai.chat.QuizAskService
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
+import moe.tachyon.quiz.utils.leftOrElse
 import moe.tachyon.quiz.utils.statuses
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
@@ -301,7 +303,7 @@ private suspend fun Context.newChat(): Nothing
         val content = AiChatsUtils.makeContent(chat, body.content)
         if (content !is AiChatsUtils.MakeContentResult.Success)
             finishCall(HttpStatus.BadRequest.subStatus(content.error))
-        val service = AskService.getService(user.id, body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
+        val service = AskService.getService(user.id, body.model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it)) }
         AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
         chat.id
     }.onFailure { AiChatsUtils.deleteChat(chat.id, user.id) }.getOrThrow()
@@ -336,7 +338,7 @@ private suspend fun Context.sendChatMessage()
     if (chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chat.hash != body.hash) finishCall(HttpStatus.Conflict)
     if (chat.banned) finishCall(HttpStatus.Forbidden.copy(message = AiChatsUtils.BANNED_MESSAGE))
-    val service = AskService.getService(loginUser.id, body.model) ?: finishCall(HttpStatus.BadRequest.subStatus("model not found"))
+    val service = AskService.getService(loginUser.id, body.model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it)) }
     val content = AiChatsUtils.makeContent(chat, body.content)
     if (content !is AiChatsUtils.MakeContentResult.Success)
         finishCall(HttpStatus.BadRequest.subStatus(content.error))
@@ -347,7 +349,7 @@ private suspend fun Context.sendChatMessage()
 private suspend fun Context.getCustomModel()
 {
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(user.id, QuizAskService.CUSTOM_MODEL_CONFIG_KEY)
+    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(user.id, ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY)
     finishCall(HttpStatus.OK, customModel)
 }
 
@@ -355,8 +357,8 @@ private suspend fun Context.setCustomModel()
 {
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val body = call.receive<QuizAskService.CustomModelSetting>()
-    if (body.model.isBlank()) get<Users>().setCustomSetting(user.id, QuizAskService.CUSTOM_MODEL_CONFIG_KEY, null)
-    else get<Users>().setCustomSetting(user.id, QuizAskService.CUSTOM_MODEL_CONFIG_KEY, body)
+    if (body.model.isBlank()) get<Users>().setCustomSetting(user.id, ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY, null)
+    else get<Users>().setCustomSetting(user.id, ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY, body)
     finishCall(HttpStatus.OK)
 }
 
@@ -370,7 +372,7 @@ private data class ChatModelResponse(
 private suspend fun Context.getChatModels()
 {
     val id = call.getLoginUser()?.id ?: finishCall(HttpStatus.Unauthorized)
-    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(id, QuizAskService.CUSTOM_MODEL_CONFIG_KEY)
+    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(id, ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY)
     val displayName =
         if (customModel == null) null
         else if (customModel.model.length <= 12) customModel.model
@@ -474,7 +476,6 @@ private data class ChatResponse(
                 { tc ->
                     val tool = tools.firstOrNull { it.name == tc.name } ?: return@calls run()
                     {
-                        logger.warning("Tool ${tc.name} not found in chat ${chat.id}, user ${chat.user}")
                         null
                     }
                     tool.display(tc.arguments)
@@ -514,11 +515,20 @@ private suspend fun Context.listenChat()
     val loginUser = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val hash = call.queryParameters["hash"] ?: finishCall(HttpStatus.BadRequest)
-    val chatInfo = AiChatsUtils.getChatInfo(chatId) ?: finishCall(HttpStatus.OK)
-    if (chatInfo.chat.user != loginUser.id && !loginUser.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
-    if (chatInfo.chat.hash != hash) finishCall(HttpStatus.Conflict)
 
     sseHeaders()
+
+    val chatInfo = AiChatsUtils.getChatInfo(chatId) ?: run()
+    {
+        val res = SSEServerContent(call)
+        {
+            send(event = "end", data = "truly end")
+        }
+        return call.respond(HttpStatusCode.OK, res)
+    }
+
+    if (chatInfo.chat.user != loginUser.id && !loginUser.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
+    if (chatInfo.chat.hash != hash) finishCall(HttpStatus.Conflict)
 
     val res = SSEServerContent(call)
     {

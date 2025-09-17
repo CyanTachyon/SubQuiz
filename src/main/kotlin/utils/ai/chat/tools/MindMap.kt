@@ -26,24 +26,31 @@ object MindMap
     {
         val id = Uuid.random()
         val tempFolder = Files.createTempDirectory(id.toHexString())
-        val file = tempFolder.resolve("mindmap.md")
-        file.toFile().writeText(content)
-        val cmd = "markmap --no-open --no-toolbar --offline mindmap.md -o mindmap.html"
-        val process = ProcessBuilder("bash", "-c", cmd)
-            .directory(tempFolder.toFile())
-            .start()
-        val exitCode = process.waitFor()
-        if (exitCode != 0)
+        try
         {
-            error(String(process.errorStream.readAllBytes()))
+            val file = tempFolder.resolve("mindmap.md")
+            file.toFile().writeText(content)
+            val cmd = "markmap --no-open --no-toolbar --offline mindmap.md -o mindmap.html"
+            val process = ProcessBuilder("bash", "-c", cmd)
+                .directory(tempFolder.toFile())
+                .start()
+            val exitCode = process.waitFor()
+            if (exitCode != 0)
+            {
+                error(String(process.errorStream.readAllBytes()))
+            }
+            val htmlFile = tempFolder.resolve("mindmap.html")
+            if (!htmlFile.exists())
+            {
+                error("生成思维导图失败，未找到输出文件 mindmap.html")
+            }
+            val htmlContent = htmlFile.readText()
+            return@withContext "<!--show-download-image-->\n$htmlContent"
         }
-        val htmlFile = tempFolder.resolve("mindmap.html")
-        if (!htmlFile.exists())
+        finally
         {
-            error("生成思维导图失败，未找到输出文件 mindmap.html")
+            tempFolder.toFile().deleteRecursively()
         }
-        val htmlContent = htmlFile.readText()
-        return@withContext "<!--show-download-image-->\n$htmlContent"
     }
 
     @Serializable

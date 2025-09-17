@@ -1,10 +1,12 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
-import kotlinx.datetime.Instant
 import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.utils.SSO
 import moe.tachyon.quiz.utils.ai.Content
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
+@OptIn(ExperimentalTime::class)
 data object GetUserInfo
 {
     private class Getter(val user: UserId)

@@ -14,8 +14,10 @@ import moe.tachyon.quiz.route.adimin.admin
 import moe.tachyon.quiz.route.ai.ai
 import moe.tachyon.quiz.route.clazz.clazz
 import moe.tachyon.quiz.route.exam.exam
+import moe.tachyon.quiz.route.home.home
 import moe.tachyon.quiz.route.knowledgePoint.knowledgePoint
 import moe.tachyon.quiz.route.oauth.oauth
+import moe.tachyon.quiz.route.parctice.practice
 import moe.tachyon.quiz.route.preparationGroup.preparationGroup
 import moe.tachyon.quiz.route.quiz.quiz
 import moe.tachyon.quiz.route.section.section
@@ -72,7 +74,9 @@ fun Application.router() = routing()
         ai()
         clazz()
         exam()
+        home()
         knowledgePoint()
+        practice()
         preparationGroup()
         quiz()
         section()
