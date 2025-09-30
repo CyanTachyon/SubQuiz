@@ -28,8 +28,9 @@ import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.chat.AskService
-import moe.tachyon.quiz.utils.ai.chat.ChatUserConfigs
+import moe.tachyon.quiz.utils.UserConfigKeys
 import moe.tachyon.quiz.utils.ai.chat.QuizAskService
+import moe.tachyon.quiz.utils.ai.chat.tools.AiLibrary
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.leftOrElse
@@ -153,6 +154,15 @@ fun Route.ai() = route("/ai", {
 
             post("/cancel",Context::cancelChat)
 
+            get("/share", {
+                description = "获得AI聊天的分享链接"
+                response()
+                {
+                    statuses<String>(HttpStatus.OK, example = "share-hash")
+                    statuses(HttpStatus.Unauthorized, HttpStatus.Forbidden, HttpStatus.NotFound)
+                }
+            }, Context::shareChat)
+
             route("/sse", HttpMethod.Get,{
                 description = "获得AI回复"
                 request {
@@ -212,6 +222,65 @@ fun Route.ai() = route("/ai", {
                 }) { getChatFile(true) }
 
                 get("/data") { getChatFile(false) }
+            }
+        }
+
+        route("/lib")
+        {
+            get("/files", {
+                description = "获取AI知识库文件列表"
+                response()
+                {
+                    statuses<List<String>>(HttpStatus.OK, example = listOf("/example.md"))
+                    statuses(HttpStatus.Unauthorized)
+                }
+            }, Context::getLibraryFiles)
+
+            route({
+                request()
+                {
+                    queryParameter<String>("path")
+                    {
+                        required = true
+                        description = "文件路径"
+                    }
+                }
+            })
+            {
+                get("/file", {
+                    description = "获取AI知识库文件内容"
+                    response()
+                    {
+                        statuses<String>(HttpStatus.OK, example = "# 示例文件")
+                        statuses(HttpStatus.Unauthorized, HttpStatus.NotFound)
+                    }
+                }, Context::getLibraryFile)
+
+                post("/file", {
+                    description = "上传AI知识库文件"
+                    request()
+                    {
+                        body<String>()
+                        {
+                            required = true
+                            description = "文件内容"
+                        }
+                    }
+                    response()
+                    {
+                        statuses(HttpStatus.OK)
+                        statuses(HttpStatus.Unauthorized, HttpStatus.NotFound)
+                    }
+                }, Context::uploadLibraryFile)
+
+                delete("/file", {
+                    description = "删除AI知识库文件"
+                    response()
+                    {
+                        statuses(HttpStatus.OK)
+                        statuses(HttpStatus.Unauthorized, HttpStatus.NotFound)
+                    }
+                }, Context::deleteLibraryFile)
             }
         }
     }
@@ -274,6 +343,23 @@ fun Route.ai() = route("/ai", {
         plugin(SSE)
         handle(Context::imageToText)
     }
+
+    post("/essayCorrection", {
+        description = "作文批改"
+        request()
+        {
+            body<EssayCorrectionBody>()
+            {
+                required = true
+                description = "作文批改内容"
+            }
+        }
+        response()
+        {
+            statuses<ChatId>(HttpStatus.OK, example = ChatId(1))
+            statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
+        }
+    }, Context::essayCorrection)
 }
 
 @OptIn(InternalSerializationApi::class, ExperimentalSerializationApi::class)
@@ -297,13 +383,13 @@ private suspend fun Context.newChat(): Nothing
     val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val body = call.receive<CreateChatRequest>()
     val chats = get<Chats>()
+    val service = AskService.getService(user.id, body.model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it)) }
     val chat = chats.createChat(user.id, body.section)
     val res = logger.warning("Failed to start chat for user ${user.id} with model ${body.model}")
     {
         val content = AiChatsUtils.makeContent(chat, body.content)
         if (content !is AiChatsUtils.MakeContentResult.Success)
             finishCall(HttpStatus.BadRequest.subStatus(content.error))
-        val service = AskService.getService(user.id, body.model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it)) }
         AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
         chat.id
     }.onFailure { AiChatsUtils.deleteChat(chat.id, user.id) }.getOrThrow()
@@ -325,7 +411,7 @@ private data class SendChatMessageResponse(
     val hash: String,
 )
 
-private suspend fun Context.sendChatMessage()
+private suspend fun Context.sendChatMessage(): Nothing
 {
     val loginUser = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val body = call.receive<SendChatMessageRequest>()
@@ -346,19 +432,19 @@ private suspend fun Context.sendChatMessage()
     finishCall(HttpStatus.OK, SendChatMessageResponse(content.content, hash))
 }
 
-private suspend fun Context.getCustomModel()
+private suspend fun Context.getCustomModel(): Nothing
 {
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(user.id, ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY)
+    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(user.id, UserConfigKeys.CUSTOM_MODEL_CONFIG_KEY)
     finishCall(HttpStatus.OK, customModel)
 }
 
-private suspend fun Context.setCustomModel()
+private suspend fun Context.setCustomModel(): Nothing
 {
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val body = call.receive<QuizAskService.CustomModelSetting>()
-    if (body.model.isBlank()) get<Users>().setCustomSetting(user.id, ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY, null)
-    else get<Users>().setCustomSetting(user.id, ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY, body)
+    if (body.model.isBlank()) get<Users>().setCustomSetting(user.id, UserConfigKeys.CUSTOM_MODEL_CONFIG_KEY, null)
+    else get<Users>().setCustomSetting(user.id, UserConfigKeys.CUSTOM_MODEL_CONFIG_KEY, body)
     finishCall(HttpStatus.OK)
 }
 
@@ -369,10 +455,10 @@ private data class ChatModelResponse(
     val toolable: Boolean,
 )
 
-private suspend fun Context.getChatModels()
+private suspend fun Context.getChatModels(): Nothing
 {
-    val id = call.getLoginUser()?.id ?: finishCall(HttpStatus.Unauthorized)
-    val customModel = get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(id, ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY)
+    val customModel =
+        getLoginUser()?.id?.let { get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(it, UserConfigKeys.CUSTOM_MODEL_CONFIG_KEY) }
     val displayName =
         if (customModel == null) null
         else if (customModel.model.length <= 12) customModel.model
@@ -570,7 +656,7 @@ private suspend fun Context.listenChat()
     return call.respond(HttpStatusCode.OK, res)
 }
 
-private suspend fun Context.getChatList()
+private suspend fun Context.getChatList(): Nothing
 {
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val chats = get<Chats>()
@@ -579,17 +665,19 @@ private suspend fun Context.getChatList()
     finishCall(HttpStatus.OK, chatList.map { ChatResponse(it) })
 }
 
-private suspend fun Context.getChat()
+private suspend fun Context.getChat(): Nothing
 {
-    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+    val chatId = call.parameters["id"] ?: finishCall(HttpStatus.BadRequest)
     val chats = get<Chats>()
-    val chat = chats.getChat(chatId) ?: finishCall(HttpStatus.NotFound)
-    if (chat.user != user.id && !user.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
+    val (chat, useShareHash) =
+        chatId.toChatIdOrNull()?.let { chats.getChat(it)?.to(false) }
+        ?: chats.getChatByShareHash(chatId)?.to(true)
+        ?: finishCall(HttpStatus.NotFound)
+    if (!useShareHash && chat.user != getLoginUser()?.id && !getLoginUser().hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
     finishCall(HttpStatus.OK, ChatResponse(chat))
 }
 
-private suspend fun Context.deleteChat()
+private suspend fun Context.deleteChat(): Nothing
 {
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
@@ -598,7 +686,7 @@ private suspend fun Context.deleteChat()
     finishCall(HttpStatus.OK)
 }
 
-private suspend fun Context.cancelChat()
+private suspend fun Context.cancelChat(): Nothing
 {
     val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
@@ -608,27 +696,44 @@ private suspend fun Context.cancelChat()
     finishCall(HttpStatus.OK)
 }
 
-private suspend fun Context.getToolData()
+private suspend fun Context.shareChat(): Nothing
+{
+    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
+    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest)
+    val chats = get<Chats>()
+    val chat = chats.getChat(chatId) ?: finishCall(HttpStatus.NotFound)
+    if (chat.user != user.id && !user.hasGlobalAdmin()) finishCall(HttpStatus.Forbidden)
+    val shareHash = chats.getShareHash(chatId) ?: finishCall(HttpStatus.NotFound)
+    finishCall(HttpStatus.OK, shareHash)
+}
+
+private suspend fun Context.getToolData(): Nothing
 {
     val type = call.queryParameters["type"] ?: finishCall(HttpStatus.BadRequest.subStatus("type is required"))
     val path = call.queryParameters["path"] ?: finishCall(HttpStatus.BadRequest.subStatus("path is required"))
-    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("chat id is required"))
-    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val chat = get<Chats>().getChat(chatId) ?: finishCall(HttpStatus.NotFound)
-    if (chat.user != user.id && !user.hasGlobalAdmin()) finishCall(HttpStatus.NotFound)
+    val chatId = call.parameters["id"] ?: finishCall(HttpStatus.BadRequest.subStatus("chat id is required"))
+    val chats = get<Chats>()
+    val (chat, useShareHash) =
+        chatId.toChatIdOrNull()?.let { chats.getChat(it)?.to(false) }
+        ?: chats.getChatByShareHash(chatId)?.to(true)
+        ?: finishCall(HttpStatus.NotFound)
+    if (!useShareHash && chat.user != getLoginUser()?.id && !getLoginUser().hasGlobalAdmin()) finishCall(HttpStatus.NotFound)
     val data = AiTools.getData(chat, type, path)
     finishCall(HttpStatus.OK, data ?: AiTools.ToolData(AiTools.ToolData.Type.TEXT, "资源不存在或无法访问"))
 }
 
 @OptIn(ExperimentalUuidApi::class)
-private suspend fun Context.getChatFile(info: Boolean)
+private suspend fun Context.getChatFile(info: Boolean): Nothing
 {
     val fileUuid = call.parameters["file"] ?: finishCall(HttpStatus.BadRequest.subStatus("file is required"))
-    val chatId = call.parameters["id"]?.toChatIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("chat id is required"))
+    val chatId = call.parameters["id"] ?: finishCall(HttpStatus.BadRequest.subStatus("chat id is required"))
     val download = call.request.queryParameters["download"]?.toBooleanStrictOrNull() ?: false
-    val user = call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val chat = get<Chats>().getChat(chatId) ?: finishCall(HttpStatus.NotFound)
-    if (chat.user != user.id && !user.hasGlobalAdmin()) finishCall(HttpStatus.NotFound)
+    val chats = get<Chats>()
+    val (chat, useShareHash) =
+        chatId.toChatIdOrNull()?.let { chats.getChat(it)?.to(false) }
+        ?: chats.getChatByShareHash(chatId)?.to(true)
+        ?: finishCall(HttpStatus.NotFound)
+    if (!useShareHash && chat.user != getLoginUser()?.id && !getLoginUser().hasGlobalAdmin()) finishCall(HttpStatus.NotFound)
     val file = ChatFiles.getChatFile(chat.id, Uuid.parseHex(fileUuid)) ?: finishCall(HttpStatus.NotFound)
     if (info) finishCall(HttpStatus.OK, file.first)
     else
@@ -681,7 +786,7 @@ private suspend fun Context.translateText()
 @Serializable
 private data class TranslatedImage(val data: String)
 
-private suspend fun Context.translateImage()
+private suspend fun Context.translateImage(): Nothing
 {
     call.getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val body = call.receive<Translate>()
@@ -699,7 +804,7 @@ private suspend fun Context.translateImage()
 @Serializable
 private data class Text(val text: String)
 @Serializable
-data class ImageToTextRequest(
+private data class ImageToTextRequest(
     val markdown: Boolean,
     val image: String,
 )
@@ -729,4 +834,57 @@ private suspend fun Context.imageToText()
         }
     }
     return call.respond(HttpStatusCode.OK, res)
+}
+
+@Serializable
+private data class EssayCorrectionBody(
+    val requirement: String,
+    val essay: String,
+)
+
+private suspend fun Context.essayCorrection()
+{
+    val body = call.receive<EssayCorrectionBody>()
+    if (body.essay.isBlank()) finishCall(HttpStatus.BadRequest.subStatus("请输入作文内容"))
+    loginUser
+    val res = EssayCorrection.correctEssay(body.requirement, body.essay)
+    get<Users>().addTokenUsage(loginUser.id, res.second)
+    res.first.onSuccess()
+    {
+        finishCall(HttpStatus.OK, it)
+    }.onFailure()
+    {
+        finishCall(HttpStatus.InternalServerError.subStatus("服务错误，请稍后再试或联系管理员"))
+    }
+}
+
+private suspend fun Context.getLibraryFiles(): Nothing =
+    finishCall(HttpStatus.OK, AiLibrary.getAllFiles(loginUser.id))
+
+private suspend fun Context.getLibraryFile(): Nothing
+{
+    val path = call.request.queryParameters["path"] ?: finishCall(HttpStatus.BadRequest.subStatus("path is required"))
+    val text = AiLibrary.getFileText(loginUser.id, path) ?: finishCall(HttpStatus.NotFound)
+    finishCall(HttpStatus.OK, text)
+}
+
+private suspend fun Context.uploadLibraryFile(): Nothing
+{
+    val path = call.request.queryParameters["path"] ?: finishCall(HttpStatus.BadRequest.subStatus("path is required"))
+    val body = call.receiveText()
+    if (body.isBlank()) finishCall(HttpStatus.BadRequest.subStatus("文件内容不能为空"))
+    AiLibrary.remove(loginUser.id, path, true)
+    if (path.substringAfterLast(".", "") !in AiLibrary.textFileExtensions)
+        finishCall(HttpStatus.BadRequest.subStatus("目前仅支持文本文件"))
+    AiLibrary.insertFile(loginUser.id, path, body)
+    AiLibrary.updateUserLibrary(loginUser.id)
+    AiLibrary.cleanup(loginUser.id)
+    finishCall(HttpStatus.OK)
+}
+
+private suspend fun Context.deleteLibraryFile(): Nothing
+{
+    val path = call.request.queryParameters["path"] ?: finishCall(HttpStatus.BadRequest.subStatus("path is required"))
+    AiLibrary.remove(loginUser.id, path, true)
+    finishCall(HttpStatus.OK)
 }

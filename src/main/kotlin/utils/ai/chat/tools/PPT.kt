@@ -211,6 +211,12 @@ object PPT
                     content = Content("error: 页面高度超过限制，请适当调整页面内容，保持在720px以内，而后重新调用 add_ppt_page"),
                 )
             }
+            if (img.width > 1280)
+            {
+                return@registerTool AiToolInfo.ToolResult(
+                    content = Content("error: 页面宽度超过限制，请适当调整页面内容，保持在1280px以内，而后重新调用 add_ppt_page"),
+                )
+            }
             val pageFile = File(pptDir, "${parm.index}.html")
             pageFile.writeText(parm.content)
             return@registerTool AiToolInfo.ToolResult(

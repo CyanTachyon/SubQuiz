@@ -14,6 +14,7 @@ import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
 import moe.tachyon.quiz.utils.ai.internal.llm.*
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.jsonResultType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
 import org.intellij.lang.annotations.Language
@@ -368,7 +369,7 @@ class AiContextCompressor(
             retryType = RetryType.ADD_MESSAGE,
             resultType = object: ResultType<ChatMessages>
             {
-                private val impl = ResultType<List<Compress>>()
+                private val impl = jsonResultType<List<Compress>>()
                 private var time = 0
 
 

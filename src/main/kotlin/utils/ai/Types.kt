@@ -15,6 +15,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.contract
 
 @Serializable
 enum class Role
@@ -215,6 +217,8 @@ data class ChatMessage(
         )
     }
 
+    fun isBlank(): Boolean = content.isEmpty() && reasoningContent.isBlank() && toolCalls.isEmpty()
+
     @Serializable
     data class ToolCall(
         val id: String,
@@ -274,6 +278,8 @@ value class ChatMessages(private val messages: List<ChatMessage>): List<ChatMess
         ChatMessages(this.messages + other).optimize()
     operator fun plus(other: Collection<ChatMessage>): ChatMessages =
         ChatMessages(this.messages + other).optimize()
+
+    fun isBlank(): Boolean = all { it.isBlank() }
 
     companion object
     {

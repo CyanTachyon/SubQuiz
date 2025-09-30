@@ -3,6 +3,7 @@ package moe.tachyon.quiz.console.command
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import moe.tachyon.quiz.dataClass.UserId.Companion.toUserIdOrNull
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
 import moe.tachyon.quiz.utils.ai.chat.tools.AiLibrary
 import kotlin.time.measureTime
@@ -60,7 +61,7 @@ object AiLibrary: TreeCommand(Update, Clear, Remove, Indexed, Search, SearchInOr
                 return false
             }
             val filePath = args[0]
-            AiLibrary.remove(filePath)
+            AiLibrary.remove(filePath = filePath)
             sender.out("File $filePath removed from AI library.")
             return true
         }
@@ -70,13 +71,14 @@ object AiLibrary: TreeCommand(Update, Clear, Remove, Indexed, Search, SearchInOr
     {
         override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
-            if (args.size != 1)
+            if (args.size != 1 && args.size != 2)
             {
-                sender.err("Usage: search <query>")
+                sender.err("Usage: search <query> [userId]")
                 return false
             }
             val query = args[0]
-            val results = AiLibrary.search("", query, 10)
+            val userId = args.getOrNull(1)?.toUserIdOrNull()
+            val results = AiLibrary.search(userId, "", query, 10)
             results.forEach { sender.out("${it.second}: ${it.first}") }
             return true
         }
@@ -86,16 +88,17 @@ object AiLibrary: TreeCommand(Update, Clear, Remove, Indexed, Search, SearchInOr
     {
         override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
         {
-            if (args.size != 1)
+            if (args.size != 1 && args.size != 2)
             {
-                sender.err("Usage: searchInOrder <query>")
+                sender.err("Usage: searchInOrder <query> [userId]")
                 return false
             }
             val query = args[0]
+            val userId = args.getOrNull(1)?.toUserIdOrNull()
             val results: List<String>
             val time = measureTime()
             {
-                results = AiLibrary.searchInOrder("", query, 3)
+                results = AiLibrary.searchInOrder(userId, "", query, 3)
             }
             sender.out(showJson.encodeToString(results.map { it.take(50) }))
             sender.out("Search completed in $time")

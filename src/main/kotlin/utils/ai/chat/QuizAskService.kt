@@ -13,9 +13,9 @@ import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.utils.Either
 import moe.tachyon.quiz.utils.ai.*
-import moe.tachyon.quiz.utils.ai.chat.ChatUserConfigs.CUSTOM_MODEL_CONFIG_KEY
-import moe.tachyon.quiz.utils.ai.chat.ChatUserConfigs.FORBID_CHAT_KEY
-import moe.tachyon.quiz.utils.ai.chat.ChatUserConfigs.FORBID_SYSTEM_MODEL_KEY
+import moe.tachyon.quiz.utils.UserConfigKeys.CUSTOM_MODEL_CONFIG_KEY
+import moe.tachyon.quiz.utils.UserConfigKeys.FORBID_CHAT_KEY
+import moe.tachyon.quiz.utils.UserConfigKeys.FORBID_SYSTEM_MODEL_KEY
 import moe.tachyon.quiz.utils.ai.chat.plugins.AiContextCompressor
 import moe.tachyon.quiz.utils.ai.chat.plugins.EscapeContentPlugin
 import moe.tachyon.quiz.utils.ai.chat.plugins.PromptPlugin

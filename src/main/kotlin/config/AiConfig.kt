@@ -12,15 +12,19 @@ data class AiConfig(
     val timeout: Long = 2 * 60 * 1_000,
     @YamlComment("AI服务的重试次数")
     val retry: Int = 3,
-    val webSearchKey: String = "your web search key",
+    val webSearchKey: List<String> = listOf("your web search key"),
     val answerChecker: String = "ds-r1",
     val chats: List<ChatModel> = listOf(ChatModel("ds-r1")),
     val image: String = "qwen-vl",
     val checker: String = "ds-r1-qwen3-8b",
     val translator: String = "ds-r1-qwen3-8b",
     val chatNamer: String = "ds-r1-qwen3-8b",
+    val essayCorrector: String = "ds-r1",
     val contextCompressor: String = "ds-r1-qwen3-8b",
     val imageGenerator: Model = Model(),
+    val imageEditor: Model = Model(),
+    val videoGenerator: VideoModel = VideoModel(),
+
     val embedding: Model = Model(),
     val reranker: Model = Model(),
     val models: Map<String, LlmModel> = mapOf(
@@ -36,6 +40,7 @@ data class AiConfig(
     val translatorModel get() = models[translator]!!
     val chatNamerModel get() = models[chatNamer]!!
     val contextCompressorModel get() = models[contextCompressor]!!
+    val essayCorrectorModel get() = models[essayCorrector]!!
 
     @Serializable
     data class LlmModel(
@@ -83,6 +88,16 @@ data class AiConfig(
             require(key.isNotEmpty()) { "embedding key must not be empty" }
         }
     }
+
+    @Serializable
+    data class VideoModel(
+        val submitUrl: String = "https://api.siliconflow.cn/v1/video/submit",
+        val statusUrl: String = "https://api.siliconflow.cn/v1/video/status",
+        val i2vModel: String = "Wan-AI/Wan2.2-I2V-A14B",
+        val t2vModel: String = "Wan-AI/Wan2.2-T2V-A14B",
+        val sizes: List<String> = listOf("1280x720", "720x1280", "960x960"),
+        val key: List<String> = listOf("your video model api key"),
+    )
 
     init
     {

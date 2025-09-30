@@ -5,6 +5,7 @@ import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.jsonResultType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
 import java.awt.Color
@@ -159,7 +160,7 @@ object AiTranslate
             message = sb.toString(),
             resultType = object: ResultType<List<String>>
             {
-                private val impl = ResultType<List<String>>()
+                private val impl = jsonResultType<List<String>>()
                 override fun getValue(str: String): List<String>
                 {
                     val res = impl.getValue(str)

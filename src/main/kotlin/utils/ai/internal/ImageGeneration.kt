@@ -16,6 +16,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
+import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
@@ -48,6 +49,10 @@ private data class Request(
     val negativePrompt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val image: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val image2: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val image3: String? = null,
 )
 
 @Serializable
@@ -93,6 +98,8 @@ suspend fun sendImageGenerationRequest(
     seed: Long? = null,
     negativePrompt: String? = null,
     image: String? = null,
+    image2: String? = null,
+    image3: String? = null,
 ): List<ByteArray>
 {
     val request = Request(
@@ -105,6 +112,8 @@ suspend fun sendImageGenerationRequest(
         seed = seed,
         negativePrompt = negativePrompt,
         image = image,
+        image2 = image2,
+        image3 = image3,
     )
 
     val response = client.post(url)
@@ -139,6 +148,7 @@ suspend fun sendImageGenerationRequest(
 }
 
 suspend fun sendImageGenerationRequest(
+    model: AiConfig.Model = aiConfig.imageGenerator,
     prompt: String,
     imageSize: String = "512x512",
     batchSize: Int = 1,
@@ -147,12 +157,14 @@ suspend fun sendImageGenerationRequest(
     seed: Long? = null,
     negativePrompt: String? = null,
     image: String? = null,
-): List<ByteArray> = aiConfig.imageGenerator.semaphore.withPermit()
+    image2: String? = null,
+    image3: String? = null,
+): List<ByteArray> = model.semaphore.withPermit()
 {
     sendImageGenerationRequest(
-        url = aiConfig.imageGenerator.url,
-        key = aiConfig.imageGenerator.key.random(),
-        model = aiConfig.imageGenerator.model,
+        url = model.url,
+        key = model.key.random(),
+        model = model.model,
         prompt = prompt,
         imageSize = imageSize,
         batchSize = batchSize,
@@ -161,5 +173,7 @@ suspend fun sendImageGenerationRequest(
         seed = seed,
         negativePrompt = negativePrompt,
         image = image,
+        image2 = image2,
+        image3 = image3,
     )
 }

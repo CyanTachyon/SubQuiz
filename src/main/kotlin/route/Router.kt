@@ -53,7 +53,7 @@ fun Application.router() = routing()
         val regex = listOf(
             "api-docs.*",
             "terminal.*",
-            "ai/chat/[0-9]+/file/[^/]+/data",
+            "ai/chat/[0-9a-zA-Z]+/file/[^/]+/data",
         ).map(::Regex)
         onCall()
         {

@@ -133,7 +133,9 @@ data class GetPracticeResponse(
             val practice = practices.getPractice(id) ?: return null
             val quiz = quizzes.getQuiz(user.id, id)
             val users = practices.getUsersInPractice(id)?.sortedBy { - (it.second ?: -1.0) } ?: return null
-            if (users.all { it.first.user != user.id } && !user.hasGlobalAdmin()) return null
+            val isAdmin = user.isAdminIn(practice.clazz)
+            if (!isAdmin && users.all { it.first.user != user.id }) return null
+            if (!isAdmin && !practice.available) return null
             val completed = users.firstOrNull { it.first.user == user.id }?.second.let { it != null && it >= practice.accuracy }
             return GetPracticeResponse(
                 practice = practice,
@@ -190,8 +192,6 @@ private suspend fun Context.getPractice(): Nothing
     val practiceId = call.pathParameters["id"]?.toPracticeIdOrNull()
                      ?: finishCall(HttpStatus.BadRequest.subStatus("practice id is required", 1))
     val practice = GetPracticeResponse(loginUser, practiceId) ?: finishCall(HttpStatus.NotFound)
-    if (!practice.practice.available && !loginUser.isAdminIn(practice.practice.clazz))
-        finishCall(HttpStatus.NotFound)
     finishCall(HttpStatus.OK, practice)
 }
 

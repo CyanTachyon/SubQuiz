@@ -5,6 +5,7 @@ import moe.tachyon.quiz.dataClass.ExamId
 import moe.tachyon.quiz.dataClass.SectionId
 import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.utils.CustomExpressionWithColumnType
+import moe.tachyon.quiz.logger.SubQuizLogger
 import org.jetbrains.exposed.dao.id.CompositeIdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp
@@ -14,6 +15,7 @@ import kotlin.time.Duration
 
 class Histories: SqlDao<Histories.HistoryTable>(HistoryTable)
 {
+    private val logger = SubQuizLogger.getLogger<Histories>()
     object HistoryTable: CompositeIdTable("histories")
     {
         val user = reference("user", Users.UserTable).index()
@@ -32,12 +34,18 @@ class Histories: SqlDao<Histories.HistoryTable>(HistoryTable)
 
     suspend fun addHistories(user: UserId, sections: Map<SectionId, Double>, exam: ExamId?): Unit = query()
     {
-        batchUpsert(sections.entries)
+        for (section in sections)
         {
-            this[this@Histories.table.user] = user
-            this[section] = it.key
-            this[score] = it.value
-            this[this@Histories.table.exam] = exam
+            logger.warning("Insert history failed")
+            {
+                insertIgnore()
+                {
+                    it[table.user] = user
+                    it[table.section] = section.key
+                    it[table.score] = section.value
+                    it[table.exam] = exam
+                }
+            }
         }
     }
 

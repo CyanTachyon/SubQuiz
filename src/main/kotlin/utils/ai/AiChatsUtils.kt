@@ -296,6 +296,8 @@ object AiChatsUtils: KoinComponent
 
     private val responseMap = Collections.synchronizedMap(hashMapOf<ChatId, ChatInfo>())
 
+    fun getChats() = responseMap.keys.toList()
+
     suspend fun getChatInfo(chat: ChatId): ChatInfo? = chatInfoLocks.withLock(chat)
     {
         return@withLock responseMap[chat]

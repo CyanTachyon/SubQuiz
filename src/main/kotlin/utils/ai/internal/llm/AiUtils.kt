@@ -2,6 +2,10 @@
 
 package moe.tachyon.quiz.utils.ai.internal.llm.utils
 
+import com.charleskorn.kaml.AnchorsAndAliases
+import com.charleskorn.kaml.SequenceStyle
+import com.charleskorn.kaml.Yaml
+import com.charleskorn.kaml.YamlConfiguration
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
@@ -35,6 +39,14 @@ val aiNegotiationJson = Json(contentNegotiationJson)
     prettyPrint = true
 }
 
+val aiNegotiationYaml = Yaml(
+    configuration = YamlConfiguration(
+        sequenceStyle = SequenceStyle.Flow,
+        strictMode = false,
+        anchorsAndAliases = AnchorsAndAliases.Permitted(null),
+    )
+)
+
 private val logger = SubQuizLogger.getLogger()
 
 interface ResultType<T>
@@ -49,11 +61,18 @@ interface ResultType<T>
         val FLOAT = WrapResultType<Double>()
     }
 
-    class ResultTypeImpl<T: Any>(private val type: KType): ResultType<T>
+    class JsonResultType<T: Any>(private val type: KType): ResultType<T>
     {
         @Suppress("UNCHECKED_CAST")
         override fun getValue(str: String): T =
             aiNegotiationJson.decodeFromString(aiNegotiationJson.serializersModule.serializer(type), str) as T
+    }
+
+    class YamlResultType<T: Any>(private val type: KType): ResultType<T>
+    {
+        @Suppress("UNCHECKED_CAST")
+        override fun getValue(str: String): T =
+            aiNegotiationYaml.decodeFromString(aiNegotiationYaml.serializersModule.serializer(type), str) as T
     }
 
     private class WrapResultType<T: Any>(private val type: KType): ResultType<T>
@@ -70,7 +89,7 @@ interface ResultType<T>
     }
 }
 
-inline fun <reified T: Any> ResultType(): ResultType<T>
+inline fun <reified T: Any> jsonResultType(): ResultType<T>
 {
     @Suppress("UNCHECKED_CAST")
     return when (T::class)
@@ -79,9 +98,11 @@ inline fun <reified T: Any> ResultType(): ResultType<T>
         Boolean::class              -> ResultType.BOOLEAN as ResultType<T>
         Long::class, Int::class     -> ResultType.INTEGER as ResultType<T>
         Double::class, Float::class -> ResultType.FLOAT as ResultType<T>
-        else                        -> ResultType.ResultTypeImpl(typeOf<T>())
+        else                        -> ResultType.JsonResultType(typeOf<T>())
     }
 }
+
+inline fun <reified T: Any> yamlResultType(): ResultType<T> = ResultType.YamlResultType(typeOf<T>())
 
 @Serializable private data class ResultWrapper<T>(val result: T)
 
@@ -112,7 +133,7 @@ suspend inline fun <reified T: Any> sendAiRequestAndGetResult(
     stop: List<String>? = null,
     tools: List<AiToolInfo<*>> = emptyList(),
     plugins: List<LlmLoopPlugin> = emptyList(),
-    resultType: ResultType<T> = ResultType<T>(),
+    resultType: ResultType<T> = jsonResultType<T>(),
     retryType: RetryType = RetryType.RESEND,
     record: Boolean = true,
 ): Pair<Result<T>, TokenUsage> = sendAiRequestAndGetResult(
@@ -152,7 +173,7 @@ suspend inline fun <reified T: Any> sendAiRequestAndGetResult(
     stop = stop,
     tools = tools,
     plugins = plugins,
-    resultType = ResultType<T>(),
+    resultType = jsonResultType<T>(),
     retryType = retryType,
     record = record,
 )
@@ -230,7 +251,7 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
             val content = res.content.toText().trim()
             if (content.startsWith("```") && content.endsWith("```"))
             {
-                val jsonContent = content.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+                val jsonContent = content.substringAfter("\n").substringBeforeLast("```").trim()
                 return Result.success(resultType.getValue(jsonContent)) to totalTokens
             }
             return Result.success(resultType.getValue(content)) to totalTokens
@@ -277,7 +298,7 @@ suspend fun sendAiRequestAndGetReply(
     val errors = mutableListOf<AiResponseException>()
     repeat(aiConfig.retry)
     {
-        val res: Pair<ChatMessage, TokenUsage>
+        val res: ChatMessage
         try
         {
             res = withTimeout(aiConfig.timeout)
@@ -295,24 +316,37 @@ suspend fun sendAiRequestAndGetReply(
                     record = record,
                     stream = false,
                 )
-            }.let { it as AiResult.Success }
-                .let()
+            }.let()
+            {
+                totalTokens += it.usage
+                when (it)
                 {
-                    if (it.messages.size == 1) return@let it.messages.first() to it.usage
-                    errors += AiResponseFormatException(it.messages, "AI错误的返回了多条消息")
-                    return@repeat
+                    is AiResult.Cancelled       ->
+                    {
+                        currentCoroutineContext().ensureActive()
+                        error("The ai request was cancelled, but the coroutine is still active")
+                    }
+                    is AiResult.ServiceError    -> error("Ai service answered an error")
+                    is AiResult.Success         -> it.messages
+                    is AiResult.TooManyRequests -> error("Ai service rate limit exceeded")
+                    is AiResult.UnknownError    -> throw it.error
                 }
-            totalTokens += res.second
+            }.let()
+            {
+                if (it.size == 1) return@let it.first()
+                errors += AiResponseFormatException(it, "AI错误的返回了多条消息")
+                return@repeat
+            }
         }
         catch (e: Throwable)
         {
             currentCoroutineContext().ensureActive()
-            errors.add(UnknownAiResponseException(e))
+            errors += UnknownAiResponseException(e)
             logger.config("发送AI请求失败", e)
             return@repeat
         }
 
-        return res.first.content.toText().trim() to totalTokens
+        return res.content.toText().trim() to totalTokens
     }
     currentCoroutineContext().ensureActive()
     throw AiRetryFailedException(errors)

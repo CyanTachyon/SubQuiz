@@ -32,7 +32,13 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
         val banned = bool("banned").default(false)
         val lastModified = timestamp("last_modified").clientDefault { Clock.System.now() }.defaultExpression(CurrentTimestamp).index()
         val deleted = bool("deleted").default(false).index()
+        val shareHash = varchar("share_hash", 64).nullable()
         override val primaryKey = PrimaryKey(id)
+
+        init
+        {
+            uniqueIndex(shareHash) { shareHash.isNotNull() }
+        }
     }
 
     private fun deserialize(row: ResultRow): Chat =
@@ -45,6 +51,8 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             hash = row[table.hash],
             banned = row[table.banned],
         )
+
+    fun generateShareHash(): String = (1..16).map { "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".random() }.joinToString("")
 
     suspend fun createChat(
         user: UserId,
@@ -151,6 +159,27 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
             .where { table.id eq chatId }
             .singleOrNull()
             ?.get(table.hash) == hash
+    }
+
+    suspend fun getShareHash(chatId: ChatId): String? = query()
+    {
+        val currentShareHash = select(table.id, table.shareHash)
+            .where { table.id eq chatId }
+            .singleOrNull()
+            ?.let { it[table.id] to it[table.shareHash] } ?: return@query null
+        if (currentShareHash.second != null) return@query currentShareHash.second
+        val newShareHash = generateShareHash()
+        update({ table.id eq currentShareHash.first }) { it[table.shareHash] = newShareHash }
+        newShareHash
+    }
+
+    suspend fun getChatByShareHash(shareHash: String): Chat? = query()
+    {
+        selectAll()
+            .andWhere { table.shareHash eq shareHash }
+            .andWhere { table.deleted eq false }
+            .singleOrNull()
+            ?.let(::deserialize)
     }
 
     /**

@@ -9,8 +9,11 @@ import moe.tachyon.quiz.utils.ai.internal.llm.utils.aiNegotiationJson
 
 object Math
 {
+    private const val KEY = "QUIZ_MATH_KEY_GAd7sgda"
     @Serializable
     private data class ShowParm(
+        @JsonSchema.Description("密钥，使用 math_demo 获得")
+        val key: String,
         @JsonSchema.Description("显示的区域范围")
         val bounds: Bounds,
         @JsonSchema.Description("数学公式表达式列表，详见math_demo工具的说明")
@@ -203,6 +206,8 @@ object Math
                   showLabel: true
                 }
                 
+                `math` 工具的使用密钥: $KEY
+                
                 """.trimIndent()),
             )
         }
@@ -216,10 +221,12 @@ object Math
                 特别要求：
                 - 当你需要绘制数学方程图像等内容时（如椭圆图像），你必须使用该工具而不是svg
                 - 当你要求解一个函数题目/解析几何题目前，你必须使用该工具绘制图像以直观向用户展示图像
-                - 如果你需要使用复杂功能，请务必先使用`math_demo`工具学习如何使用该工具
+                - 你必须先调用`math_demo`工具学习如何使用该工具，并获得其返回的key来使用该工具
             """.trimIndent(),
         )
         {
+            if (it.parm.key != KEY)
+                return@registerTool AiToolInfo.ToolResult(Content("密钥错误，请先使用math_demo工具学习如何使用该工具，并获得其返回的key来使用该工具"))
             AiToolInfo.ToolResult(
                 Content("展示数学公式成功"),
                 showingContent = aiNegotiationJson.encodeToString(it.parm),

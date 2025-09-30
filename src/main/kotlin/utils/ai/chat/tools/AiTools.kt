@@ -38,6 +38,7 @@ object AiTools
             MCP,
             ShowQuestion,
             CodeRunner,
+            VideoGeneration,
         ).let()
         {
             logger.fine("Loaded AI Tools: ${it.joinToString { tool -> tool::class.simpleName ?: "Unknown" }}")
@@ -62,6 +63,7 @@ object AiTools
             IMAGE,
             MATH,
             QUIZ,
+            VIDEO
         }
     }
 

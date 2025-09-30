@@ -75,7 +75,7 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
                 JoinType.LEFT,
                 table.id,
                 historyTable.section
-            ) { (historyTable.user eq user) and (historyTable.score greaterEq systemConfig.score) }
+            ) { (historyTable.user eq user) and (historyTable.score greaterEq (systemConfig.score / 100)) }
             .select(table.columns)
             .apply { knowledgePoints?.let { andWhere { sectionTypeTable.knowledgePoint inList it } } }
             .apply()
@@ -94,11 +94,11 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             .groupBy(*table.columns.toTypedArray())
             .groupBy(*preferencesTable.columns.toTypedArray())
             .groupBy(*sectionTypeTable.columns.toTypedArray())
-            .andHaving { historyTable.user.count() eq 0 }
             .orderBy(
                 coalesce(preferencesTable.value, longParam(Preferences.DEFAULT_PREFERENCE)) *
                 table.weight *
-                CustomFunction("RANDOM", LongColumnType()),
+                CustomFunction("RANDOM", LongColumnType()) *
+                CustomFunction("POW", LongColumnType(), longParam(100L), historyTable.user.count() * longParam(-1L)),
                 SortOrder.DESC
             )
             .asSlice(0, count)

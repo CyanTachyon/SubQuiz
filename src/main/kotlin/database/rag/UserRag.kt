@@ -1,17 +1,20 @@
 package moe.tachyon.quiz.database.rag
 
+import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.SqlDao
+import moe.tachyon.quiz.database.Users
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 
-class Rag: SqlDao<Rag.RagTable>(RagTable)
+class UserRag: SqlDao<UserRag.RagTable>(RagTable)
 {
-    object RagTable: IdTable<Int>("rag")
+    object RagTable: IdTable<Int>("user_rag")
     {
         override val id = integer("id").autoIncrement().entityId()
         val filePath = text("file_path").index()
         val vector = vector("vector", 4096)
+        val user = reference("user", Users.UserTable).index()
 
         override val primaryKey = PrimaryKey(id)
     }
@@ -24,7 +27,7 @@ class Rag: SqlDao<Rag.RagTable>(RagTable)
 //        exec("CREATE INDEX IF NOT EXISTS vector_cosine ON rag USING ivfflat (vector vector_cosine_ops);")
     }
 
-    suspend fun insert(filePath: String, vector: List<Double>): Int = query()
+    suspend fun insert(user: UserId, filePath: String, vector: List<Double>): Int = query()
     {
         val vec =
             if (vector.size > 4096)
@@ -36,15 +39,17 @@ class Rag: SqlDao<Rag.RagTable>(RagTable)
         vec.size == 4096 || error("Vector size must be 4096")
         insertAndGetId()
         { row ->
-            row[this.filePath] = filePath
-            row[this.vector] = vectorParam(vec)
+            row[table.filePath] = filePath
+            row[table.vector] = vectorParam(vec)
+            row[table.user] = user
         }.value
     }
 
-    suspend fun query(prefix: String, vector: List<Double>, count: Int = 10): List<Pair<String, Double>> = query()
+    suspend fun query(user: UserId, prefix: String, vector: List<Double>, count: Int = 10): List<Pair<String, Double>> = query()
     {
         val expr = (table.vector vectorL2Ops vector).alias("len")
         select(filePath, expr)
+            .where { table.user eq user }
             .apply()
             {
                 if (prefix.isNotEmpty()) andWhere { filePath like "$prefix%" }
@@ -54,19 +59,18 @@ class Rag: SqlDao<Rag.RagTable>(RagTable)
             .map { it[filePath] to it[expr] }
     }
 
-    suspend fun remove(filePath: String): Int = query()
+    suspend fun remove(user: UserId, filePath: String): Int = query()
     {
-        deleteWhere { this.filePath eq filePath }
+        deleteWhere { (table.filePath eq filePath) and (table.user eq user) }
     }
 
-    suspend fun removeAll() = query()
+    suspend fun removeAll(user: UserId) = query()
     {
-        SchemaUtils.drop(table)
-        SchemaUtils.create(table)
+        deleteWhere { table.user eq user }
     }
 
-    suspend fun getAllFiles(): Set<String> = query()
+    suspend fun getAllFiles(user: UserId): Set<String> = query()
     {
-        select(filePath).map { it[filePath] }.toSet()
+        select(filePath).where { table.user eq user }.map { it[filePath] }.toSet()
     }
 }

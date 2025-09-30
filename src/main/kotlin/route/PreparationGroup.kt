@@ -17,8 +17,11 @@ import moe.tachyon.quiz.utils.HttpStatus
 import moe.tachyon.quiz.utils.statuses
 import io.github.smiley4.ktorswaggerui.dsl.routing.*
 import io.ktor.server.routing.Route
+import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.route.utils.get
 import moe.tachyon.quiz.route.utils.getLoginUser
+import moe.tachyon.quiz.route.utils.loginUser
+import moe.tachyon.quiz.utils.UserConfigKeys
 import moe.tachyon.quiz.utils.isWithinChineseCharLimit
 
 fun Route.preparationGroup() = route("/preparationGroup", {
@@ -98,14 +101,16 @@ fun Route.preparationGroup() = route("/preparationGroup", {
 private suspend fun Context.getGroups(): Nothing
 {
     val subjectId = call.parameters["subject"]?.toSubjectIdOrNull() ?: finishCall(HttpStatus.BadRequest)
-    val groups = get<PreparationGroups>().getPreparationGroups(subjectId)
+    val groups = get<PreparationGroups>().getPreparationGroups(subjectId, loginUser)
     finishCall(HttpStatus.OK, groups)
 }
 
 private suspend fun Context.getGroup(): Nothing
 {
     val id = call.parameters["id"]?.toPreparationGroupIdOrNull() ?: finishCall(HttpStatus.BadRequest)
-    val group = get<PreparationGroups>().getPreparationGroup(id) ?: finishCall(HttpStatus.NotFound)
+    val preparationGroups = get<PreparationGroups>()
+    if (!preparationGroups.hasPermission(id, loginUser)) finishCall(HttpStatus.Forbidden)
+    val group = preparationGroups.getPreparationGroup(id) ?: finishCall(HttpStatus.NotFound)
     finishCall(HttpStatus.OK, group)
 }
 

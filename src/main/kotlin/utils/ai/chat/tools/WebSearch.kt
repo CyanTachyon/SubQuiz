@@ -59,7 +59,7 @@ object WebSearch
         {
             contentType(ContentType.Application.Json)
             accept(ContentType.Any)
-            bearerAuth(aiConfig.webSearchKey)
+            bearerAuth(aiConfig.webSearchKey.random())
             setBody(SearchRequest(query = key, count = count))
         }
         val body = res.bodyAsText()
@@ -89,7 +89,7 @@ object WebSearch
         {
             contentType(ContentType.Application.Json)
             accept(ContentType.Any)
-            bearerAuth(aiConfig.webSearchKey)
+            bearerAuth(aiConfig.webSearchKey.random())
             setBody(ExtractRequest(urls = url))
         }
         res.body<Results<ExtractResult>>().results

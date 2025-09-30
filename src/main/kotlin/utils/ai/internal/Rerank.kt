@@ -16,6 +16,8 @@ import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
+import moe.tachyon.quiz.utils.ai.AiRetryFailedException
+import moe.tachyon.quiz.utils.ai.UnknownAiResponseException
 import moe.tachyon.quiz.utils.ktorClientEngineFactory
 
 private val logger = SubQuizLogger.getLogger()
@@ -68,22 +70,26 @@ suspend fun sendRerankRequest(
 
     logger.config("sending rerank request to $url with: ${showJson.encodeToString(request)}")
 
-    val response = client.post(url)
+    val errors = mutableListOf<Throwable>()
+    repeat(aiConfig.retry)
     {
-        contentType(ContentType.Application.Json)
-        bearerAuth(key)
-        setBody(request)
-    }.bodyAsText()
-
-    return logger.warning("failed to get rerank response: $response")
-    {
-        val res = contentNegotiationJson.decodeFromString<RerankResponse>(response)
-        require(res.results.all { it.index < documents.size })
+        runCatching()
         {
-            "Some results have an index that is out of bounds for the documents list."
-        }
-        res
-    }.getOrThrow().let { res -> res.results.map { documents[it.index] } }
+            val response = client.post(url)
+            {
+                contentType(ContentType.Application.Json)
+                bearerAuth(key)
+                setBody(request)
+            }.bodyAsText()
+            val res = contentNegotiationJson.decodeFromString<RerankResponse>(response)
+            require(res.results.all { it.index < documents.size })
+            {
+                "Some results have an index that is out of bounds for the documents list."
+            }
+            return res.results.map { documents[it.index] }
+        }.onFailure(errors::add)
+    }
+    throw errors.map(::UnknownAiResponseException).let(::AiRetryFailedException)
 }
 
 suspend fun sendRerankRequest(

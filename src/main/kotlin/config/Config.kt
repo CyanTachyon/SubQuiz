@@ -103,7 +103,6 @@ class ConfigLoader<T: Any> private constructor(
                 sequenceStyle = SequenceStyle.Flow,
                 strictMode = false,
                 anchorsAndAliases = AnchorsAndAliases.Permitted(null),
-
             )
         )
         fun init() // 初始化所有配置

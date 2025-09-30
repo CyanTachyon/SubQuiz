@@ -6,6 +6,7 @@ import io.ktor.util.encodeBase64
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.ChatId
+import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.dataDir
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.utils.ChatFiles.FileInfo.Companion.toDataUrl
@@ -20,6 +21,8 @@ object AiLibraryFiles
      * AI答疑资料库
      */
     val aiLibrary = File(dataDir, "ai-library")
+    val userLibrary = File(dataDir, "user-ai-library")
+
     val bdfzLibrary = File(aiLibrary, "bdfz")
     val booksLibrary = File(aiLibrary, "books")
 
@@ -28,6 +31,8 @@ object AiLibraryFiles
         aiLibrary.mkdirs()
         bdfzLibrary.mkdirs()
         booksLibrary.mkdirs()
+
+        userLibrary.mkdirs()
     }
 
 
@@ -45,7 +50,9 @@ object AiLibraryFiles
         }
     }
 
-    fun getAiLibraryFiles(ignoreEmpty: Boolean, fileExtensions: Set<String>? = null): List<FileInfo>
+    fun getUserAiLibraryBaseDir(user: UserId): File = File(userLibrary, user.toString()).apply { mkdirs() }
+
+    fun getAiLibraryFiles(baseDir: File = aiLibrary, ignoreEmpty: Boolean, fileExtensions: Set<String>? = null): List<FileInfo>
     {
         val files = mutableListOf<FileInfo>()
         fun getFilesRecursively(dir: File): List<FileInfo>
@@ -66,28 +73,43 @@ object AiLibraryFiles
             }
             return fileList
         }
-        if (aiLibrary.exists() && aiLibrary.isDirectory)
-        {
-            files.addAll(getFilesRecursively(aiLibrary))
-        }
+        if (baseDir.exists() && baseDir.isDirectory)
+            files.addAll(getFilesRecursively(baseDir))
         return files
     }
 
-    fun getAiLibraryFileText(filePath: String): String?
+    fun getAiLibraryFileText(baseDir: File = aiLibrary, filePath: String): String?
     {
-        val file = File(aiLibrary, filePath.removePrefix("/"))
+        val file = File(baseDir, filePath.removePrefix("/"))
         if (!file.exists() || !file.isFile) return null
-        if (!file.canonicalPath.startsWith(aiLibrary.canonicalPath)) return null
-        val txt = file.readText()
-        return "```path: $filePath```\n\n$txt"
+        if (!file.canonicalPath.startsWith(baseDir.canonicalPath)) return null
+        return file.readText()
     }
 
-    fun getAiLibraryFileBytes(filePath: String): ByteArray?
+    fun getAiLibraryFileBytes(baseDir: File = aiLibrary, filePath: String): ByteArray?
     {
-        val file = File(aiLibrary, filePath.removePrefix("/"))
+        val file = File(baseDir, filePath.removePrefix("/"))
         if (!file.exists() || !file.isFile) return null
-        if (!file.canonicalPath.startsWith(aiLibrary.canonicalPath)) return null
+        if (!file.canonicalPath.startsWith(baseDir.canonicalPath)) return null
         return file.readBytes()
+    }
+
+    fun removeAiLibraryFile(baseDir: File = aiLibrary, filePath: String): Boolean
+    {
+        val file = File(baseDir, filePath.removePrefix("/"))
+        if (!file.exists() || !file.isFile) return false
+        if (!file.canonicalPath.startsWith(baseDir.canonicalPath)) return false
+        return file.delete()
+    }
+
+    fun saveAiLibraryFile(baseDir: File = aiLibrary, filePath: String, data: ByteArray): Boolean
+    {
+        val file = File(baseDir, filePath.removePrefix("/"))
+        if (file.exists() && !file.isFile) return false
+        if (!file.canonicalPath.startsWith(baseDir.canonicalPath)) return false
+        file.parentFile?.mkdirs()
+        file.writeBytes(data)
+        return true
     }
 
     fun getBookSubjects(): List<String>

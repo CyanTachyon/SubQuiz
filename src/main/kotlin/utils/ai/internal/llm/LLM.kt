@@ -20,6 +20,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import moe.tachyon.quiz.config.AiConfig
+import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.database.Records
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
@@ -40,7 +41,7 @@ private sealed interface AiResponse
     val id: String
     val `object`: String
     val model: String
-    val usage: TokenUsage
+    val usage: TokenUsage?
     val created: Long
     val choices: List<Choice>
 
@@ -105,7 +106,7 @@ private data class DefaultAiResponse(
     override val created: Long,
     override val model: String,
     override val `object`: String,
-    override val usage: TokenUsage,
+    override val usage: TokenUsage?,
 ): AiResponse
 {
     @Serializable
@@ -134,7 +135,7 @@ private data class StreamAiResponse(
     override val created: Long,
     override val model: String,
     override val choices: List<Choice> = emptyList(),
-    override val usage: TokenUsage = TokenUsage(),
+    override val usage: TokenUsage? = null,
 ): AiResponse
 {
     @Serializable
@@ -402,7 +403,21 @@ suspend fun sendAiRequest(
                 .plus(context.model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
                 .let(::JsonObject)
 
-            val requestResult = sendRequest(url, key, body, stream, record, onReceive)
+            val requestResult = run()
+            {
+                val errors = mutableListOf<Throwable>()
+                repeat(aiConfig.retry)
+                {
+                    currentCoroutineContext().ensureActive()
+                    val tmp = sendRequest(url, key, body, stream, record, onReceive)
+                    tmp.error?.let(errors::add)
+                    tmp.error =
+                        if (errors.size <= 1) errors.firstOrNull()
+                        else errors.map(::UnknownAiResponseException).let(::AiRetryFailedException)
+                    if (!tmp.message.isBlank()) return@run tmp
+                }
+                RequestResult(emptyMap(), ChatMessage(Role.ASSISTANT, ""), TokenUsage(), if (errors.size == 1) errors[0] else errors.map(::UnknownAiResponseException).let(::AiRetryFailedException))
+            }
 
             plugins.filterIsInstance<AfterLlmResponse>().forEach()
             {
@@ -457,7 +472,7 @@ private suspend fun sendRequest(
     onReceive: suspend (StreamAiResponseSlice) -> Unit,
 ): RequestResult
 {
-    logger.config("AI请求$url : $body")
+    logger.config("AI请求$url : ${contentNegotiationJson.encodeToString(body)}")
 
     if (!stream) runCatching()
     {
@@ -498,7 +513,7 @@ private suspend fun sendRequest(
             it.id ?: return@mapNotNull null
             it.id to ((it.function.name ?: "") to (it.function.arguments ?: ""))
         }.toMap()
-        return RequestResult(calls, msg, usage, null)
+        return RequestResult(calls, msg, usage ?: TokenUsage(), null)
     }.onFailure()
     {
         runCatching()
@@ -547,7 +562,7 @@ private suspend fun sendRequest(
                 .collect()
                 {
                     responses += it
-                    if (it.usage.totalTokens > usage0.totalTokens)
+                    if (it.usage != null && it.usage.totalTokens > usage0.totalTokens)
                         usage0 = it.usage
                     it.choices.forEach()
                     { c ->

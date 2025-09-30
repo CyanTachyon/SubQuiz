@@ -15,8 +15,10 @@ import moe.tachyon.quiz.dataClass.SubjectId
 import moe.tachyon.quiz.dataClass.SubjectId.Companion.toSubjectIdOrNull
 import moe.tachyon.quiz.dataClass.hasGlobalAdmin
 import moe.tachyon.quiz.database.Subjects
+import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
+import moe.tachyon.quiz.utils.UserConfigKeys
 import moe.tachyon.quiz.utils.isWithinChineseCharLimit
 import moe.tachyon.quiz.utils.statuses
 
@@ -115,7 +117,10 @@ private suspend fun Context.getSubject(): Nothing
     val id = call.pathParameters["id"]?.toSubjectIdOrNull() ?: finishCall(HttpStatus.BadRequest)
     val subjects = get<Subjects>()
     val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    val subject = subjects.getSubject((user.id.value < 0).takeUnless { user.hasGlobalAdmin() }, id) ?: finishCall(HttpStatus.NotFound)
+    val customUser =
+        if (user.hasGlobalAdmin()) null
+        else get<Users>().getCustomSetting<Boolean>(loginUser.id, UserConfigKeys.CUSTOM_USER_KEY) ?: (user.id.value < 0)
+    val subject = subjects.getSubject(customUser, id) ?: finishCall(HttpStatus.NotFound)
     finishCall(HttpStatus.OK, subject)
 }
 
@@ -136,5 +141,8 @@ private suspend fun Context.getSubjectList(): Nothing
     val (begin, count) = call.getPage()
     val subjects = get<Subjects>()
     val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
-    finishCall(HttpStatus.OK, subjects.getSubjects((user.id.value < 0).takeUnless { user.hasGlobalAdmin() }, begin, count))
+    val customUser =
+        if (user.hasGlobalAdmin()) null
+        else get<Users>().getCustomSetting<Boolean>(loginUser.id, UserConfigKeys.CUSTOM_USER_KEY) ?: (user.id.value < 0)
+    finishCall(HttpStatus.OK, subjects.getSubjects(customUser, begin, count))
 }

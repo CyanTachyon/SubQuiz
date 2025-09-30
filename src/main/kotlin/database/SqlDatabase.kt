@@ -11,6 +11,7 @@ import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.GREEN
 import moe.tachyon.quiz.console.SimpleAnsiColor.Companion.RED
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.database.rag.Rag
+import moe.tachyon.quiz.database.rag.UserRag
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.Power.shutdown
 import org.jetbrains.exposed.sql.*
@@ -86,6 +87,7 @@ object SqlDatabase: KoinComponent
         Users::class,
 
         Rag::class,
+        UserRag::class,
     )
 
     /**
