@@ -105,6 +105,16 @@ class Sections: SqlDao<Sections.SectionTable>(SectionTable)
             .map(::deserialize)
     }
 
+    suspend fun getSectionCount(knowledgePoints: List<KnowledgePointId>): Long = query()
+    {
+        table
+            .join(sectionTypeTable, JoinType.INNER, table.type, sectionTypeTable.id)
+            .select(table.columns)
+            .andWhere { sectionTypeTable.knowledgePoint inList knowledgePoints }
+            .andWhere { available eq true }
+            .count()
+    }
+
     suspend fun newSection(section: Section<Any, Nothing?, JsonElement>) = query()
     {
         insertAndGetId()

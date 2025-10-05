@@ -3,6 +3,7 @@ package moe.tachyon.quiz.dataClass
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.database.Classes
 import moe.tachyon.quiz.database.KnowledgePoints
+import moe.tachyon.quiz.database.Sections
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -35,6 +36,7 @@ data class Practice(
 
         private val classes: Classes by inject()
         private val knowledgePoints: KnowledgePoints by inject()
+        private val sections: Sections by inject()
     }
 
     suspend fun check(): String?
@@ -48,6 +50,11 @@ data class Practice(
         val kps = knowledgePoints.map { Practice.knowledgePoints.getKnowledgePoint(it) }
         val invalidKp = kps.indexOfFirst { it == null || it.group != group }
         if (invalidKp != -1) return "知识点不存在或不属于该备课组"
+        if (available)
+        {
+            val count = sections.getSectionCount(knowledgePoints)
+            if (count < sectionCount) return "您选择的知识点仅有 $count 道题目，无法创建包含 $sectionCount 道题目的练习"
+        }
         return null
     }
 }

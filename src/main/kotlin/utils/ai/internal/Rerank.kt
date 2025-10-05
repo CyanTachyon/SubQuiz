@@ -55,30 +55,27 @@ private data class RerankResponse(
 }
 
 suspend fun sendRerankRequest(
-    url: String,
-    key: String,
-    model: String,
     query: String,
     documents: List<String>,
-): List<String>
+): List<String> = aiConfig.reranker.semaphore.withPermit()
 {
     val request = RerankRequest(
-        model = model,
+        model = aiConfig.reranker.model,
         query = query,
         documents = documents,
     )
 
-    logger.config("sending rerank request to $url with: ${showJson.encodeToString(request)}")
+    logger.config("sending rerank request to ${aiConfig.reranker.url} with: ${showJson.encodeToString(request)}")
 
     val errors = mutableListOf<Throwable>()
     repeat(aiConfig.retry)
     {
         runCatching()
         {
-            val response = client.post(url)
+            val response = client.post(aiConfig.reranker.url)
             {
                 contentType(ContentType.Application.Json)
-                bearerAuth(key)
+                bearerAuth(aiConfig.reranker.key.random())
                 setBody(request)
             }.bodyAsText()
             val res = contentNegotiationJson.decodeFromString<RerankResponse>(response)
@@ -90,18 +87,4 @@ suspend fun sendRerankRequest(
         }.onFailure(errors::add)
     }
     throw errors.map(::UnknownAiResponseException).let(::AiRetryFailedException)
-}
-
-suspend fun sendRerankRequest(
-    query: String,
-    documents: List<String>,
-): List<String> = aiConfig.reranker.semaphore.withPermit()
-{
-    sendRerankRequest(
-        url = aiConfig.reranker.url,
-        key = aiConfig.reranker.key.random(),
-        model = aiConfig.reranker.model,
-        query = query,
-        documents = documents,
-    )
 }

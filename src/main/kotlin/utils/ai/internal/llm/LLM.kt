@@ -358,10 +358,7 @@ suspend fun sendAiRequest(
 
         plugins.filterIsInstance<BeforeLlmLoop>().forEach()
         {
-            context(context)
-            {
-                it.beforeLoop()
-            }
+            it.beforeLoop(context)
         }
 
         while (send)
@@ -369,14 +366,10 @@ suspend fun sendAiRequest(
             val beforeLlmRequestContext = BeforeLlmRequest.BeforeRequestContext(context.allMessages)
             plugins.filterIsInstance<BeforeLlmRequest>().forEach()
             {
-                context(context, beforeLlmRequestContext)
-                {
-                    it.beforeRequest()
-                }
+                it.beforeRequest(context, beforeLlmRequestContext)
             }
 
             val url = context.model.url
-            val key = context.model.key.random()
             val body = AiRequest(
                 model = context.model.model,
                 messages = beforeLlmRequestContext.requestMessage.toRequestMessages(),
@@ -409,7 +402,7 @@ suspend fun sendAiRequest(
                 repeat(aiConfig.retry)
                 {
                     currentCoroutineContext().ensureActive()
-                    val tmp = sendRequest(url, key, body, stream, record, onReceive)
+                    val tmp = sendRequest(url, context.model.key.random(), body, stream, record, onReceive)
                     tmp.error?.let(errors::add)
                     tmp.error =
                         if (errors.size <= 1) errors.firstOrNull()
@@ -421,10 +414,7 @@ suspend fun sendAiRequest(
 
             plugins.filterIsInstance<AfterLlmResponse>().forEach()
             {
-                context(context, requestResult)
-                {
-                    it.afterResponse()
-                }
+                it.afterResponse(context, requestResult)
             }
 
             val (waitingTools, curMsg, usage0, e) = requestResult

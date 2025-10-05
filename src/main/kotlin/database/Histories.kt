@@ -6,7 +6,6 @@ import moe.tachyon.quiz.dataClass.SectionId
 import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.utils.CustomExpressionWithColumnType
 import moe.tachyon.quiz.logger.SubQuizLogger
-import org.jetbrains.exposed.dao.id.CompositeIdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp
 import org.jetbrains.exposed.sql.kotlin.datetime.KotlinInstantColumnType
@@ -16,7 +15,7 @@ import kotlin.time.Duration
 class Histories: SqlDao<Histories.HistoryTable>(HistoryTable)
 {
     private val logger = SubQuizLogger.getLogger<Histories>()
-    object HistoryTable: CompositeIdTable("histories")
+    object HistoryTable: Table("histories")
     {
         val user = reference("user", Users.UserTable).index()
         val section = reference("section", Sections.SectionTable, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.CASCADE).index()
@@ -27,8 +26,7 @@ class Histories: SqlDao<Histories.HistoryTable>(HistoryTable)
 
         init
         {
-            addIdColumn(user)
-            addIdColumn(section)
+            index(false, user, section)
         }
     }
 

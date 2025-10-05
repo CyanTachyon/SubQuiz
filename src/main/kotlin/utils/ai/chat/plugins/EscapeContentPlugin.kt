@@ -1,6 +1,6 @@
 package moe.tachyon.quiz.utils.ai.chat.plugins
 
-import io.ktor.util.decodeBase64Bytes
+import io.ktor.util.*
 import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
@@ -10,8 +10,7 @@ import moe.tachyon.quiz.utils.ai.chat.tools.ReadImage
 import moe.tachyon.quiz.utils.ai.internal.llm.BeforeLlmRequest
 import moe.tachyon.quiz.utils.ai.internal.llm.BeforeLlmRequest.BeforeRequestContext
 import moe.tachyon.quiz.utils.ai.internal.llm.LlmLoopPlugin.Context
-import moe.tachyon.quiz.utils.ai.internal.llm.model
-import moe.tachyon.quiz.utils.ai.internal.llm.requestMessage
+import moe.tachyon.quiz.utils.ai.internal.llm.PluginScope
 
 class EscapeContentPlugin(private val chat: ChatId): BeforeLlmRequest
 {
@@ -70,7 +69,7 @@ class EscapeContentPlugin(private val chat: ChatId): BeforeLlmRequest
 
 
     context(_: Context, _: BeforeRequestContext)
-    override suspend fun beforeRequest()
+    override suspend fun PluginScope.beforeRequest()
     {
         requestMessage = requestMessage.map()
         {
