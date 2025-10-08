@@ -6,11 +6,11 @@ import moe.tachyon.quiz.utils.ai.internal.llm.BeforeLlmRequest
 import moe.tachyon.quiz.utils.ai.internal.llm.LlmLoopPlugin
 import moe.tachyon.quiz.utils.ai.internal.llm.PluginScope
 
-class PromptPlugin(private vararg val prompt: ChatMessage): BeforeLlmRequest
+class PromptPlugin(private vararg val prompt: suspend () -> ChatMessage): BeforeLlmRequest
 {
     context(_: LlmLoopPlugin.Context, _: BeforeLlmRequest.BeforeRequestContext)
     override suspend fun PluginScope.beforeRequest()
     {
-        requestMessage = prompt.toList().toChatMessages() + requestMessage
+        requestMessage = prompt.toList().map { it.invoke() }.toChatMessages() + requestMessage
     }
 }

@@ -12,17 +12,16 @@ import moe.tachyon.quiz.dataClass.Chat
 import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.utils.Either
-import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.UserConfigKeys.CUSTOM_MODEL_CONFIG_KEY
 import moe.tachyon.quiz.utils.UserConfigKeys.FORBID_CHAT_KEY
 import moe.tachyon.quiz.utils.UserConfigKeys.FORBID_SYSTEM_MODEL_KEY
+import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.chat.plugins.AiContextCompressor
 import moe.tachyon.quiz.utils.ai.chat.plugins.EscapeContentPlugin
 import moe.tachyon.quiz.utils.ai.chat.plugins.PromptPlugin
 import moe.tachyon.quiz.utils.ai.chat.plugins.toLlmPlugin
 import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
 import moe.tachyon.quiz.utils.ai.internal.llm.AiResult
-import moe.tachyon.quiz.utils.ai.internal.llm.LlmLoopPlugin
 import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
 import moe.tachyon.quiz.utils.toYamlNode
 import org.koin.core.component.KoinComponent
@@ -36,31 +35,23 @@ class QuizAskService private constructor(val model: AiConfig.LlmModel): AskServi
         chat: Chat,
         content: Content,
         onRecord: suspend (StreamAiResponseSlice)->Unit
-    ): AiResult
-    {
-        val prompt = makePrompt(chat.section, !model.imageable, model.toolable)
-        val messages = ChatMessages(chat.histories + ChatMessage(Role.USER, content))
-        val tools =
-            if (model.toolable) AiTools.getTools(chat, model)
-            else emptyList()
-        val plugins = listOf<LlmLoopPlugin>(
+    ): AiResult = sendAiRequest(
+        model = model,
+        stream = true,
+        record = false,
+        onReceive = onRecord,
+        messages = ChatMessages(chat.histories + ChatMessage(Role.USER, content)),
+        tools = if (model.toolable) AiTools.getTools(chat, model) else emptyList(),
+        plugins = listOf(
             AiContextCompressor(aiConfig.contextCompressorModel, 48 * 1024, 5).toLlmPlugin(),
             EscapeContentPlugin(chat.id),
-            PromptPlugin(
-                ChatMessage(Role.SYSTEM, prompt),
-                ChatMessage(Role.SYSTEM, "*当前时间为${Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())}")
-            ),
-        )
-        return sendAiRequest(
-            model = model,
-            messages = messages,
-            record = false,
-            onReceive = onRecord,
-            tools = tools,
-            plugins = plugins,
-            stream = true,
-        )
-    }
+            PromptPlugin(prompt = arrayOf(
+                { ChatMessage(Role.SYSTEM, makePrompt(chat.section, !model.imageable, model.toolable)) },
+                 { ChatMessage(Role.SYSTEM, "注意！当你进行各种时间相关操作时，需铭记：当前时间为${Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).let { "${it.year}年${it.monthNumber}月${it.dayOfMonth}日" }}") },
+                { ChatMessage(Role.SYSTEM, "以下是你和用户在先前的聊天中，记录的有关用户的信息：\n${users.getGlobalMemory(chat.user).toList().joinToString("\n") { "<${it.first}>\n${it.second}\n<${it.first}>" } }") }
+            )),
+        ),
+    )
 
     override fun toString(): String = "QuizAskService(model=${model.model})"
 

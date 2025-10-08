@@ -288,6 +288,9 @@ private val streamAiClient = HttpClient(ktorClientEngineFactory)
         requestTimeout = 0
     }
     install(SSE)
+    {
+        bufferPolicy = SSEBufferPolicy.All
+    }
 }
 
 private val defaultAiClient = HttpClient(ktorClientEngineFactory)
@@ -600,6 +603,16 @@ private suspend fun sendRequest(
                 toolCalls = listOf(ChatMessage.ToolCall("call-$loopId-$i", it.value.first, it.value.second)),
             )
         }
+    }.let()
+    {
+        val e = it.exceptionOrNull() ?: return@let it
+        if (e is SSEClientException)
+        {
+            val response = e.response ?: return@let it
+            if (!response.status.isSuccess())
+                return@let Result.failure(SSEClientException(response, message = "AI请求返回异常，HTTP状态码 ${response.status.value}, 响应体: ${response.bodyAsText()}"))
+        }
+        it
     }
 
     runCatching()
