@@ -7,8 +7,9 @@ import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
 
-object ShowQuestion
+object ShowQuestion: AiToolSet.ToolProvider
 {
+    override val name: String get() = "展示题目"
     private fun markdownWrap(str: String): JsonElement
     {
         val map = mutableMapOf<String, JsonElement>()
@@ -126,9 +127,9 @@ object ShowQuestion
         }
     }
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<ShowSection>(
+        registerTool<ShowSection>(
             name = "show_question",
             displayName = null,
             description = """
@@ -194,14 +195,14 @@ object ShowQuestion
                 - 你必须确保题目内容清晰明确，避免歧义，确保用户能够理解题意。
             """.trimIndent(),
         )
-        { (chat, model, parm) ->
+        {
             runCatching()
             {
                 val section = parm.toSection()
                 AiToolInfo.ToolResult(
                     content = Content("你的题目已经展示给用户。"),
                     showingContent = contentNegotiationJson.encodeToString(listOf(section)),
-                    showingType = AiTools.ToolData.Type.QUIZ,
+                    showingType = AiToolSet.ToolData.Type.QUIZ,
                 )
             }.getOrElse()
             {

@@ -14,8 +14,9 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.ExperimentalUuidApi
 
 @OptIn(ExperimentalUuidApi::class)
-object VideoGeneration
+object VideoGeneration: AiToolSet.ToolProvider
 {
+    override val name: String get() = "生成视频"
     private val logger = SubQuizLogger.getLogger<VideoGeneration>()
     @Serializable
     private data class Parm(
@@ -29,9 +30,9 @@ object VideoGeneration
         val size: String?,
     )
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<Parm>(
+        registerTool<Parm>(
             name = "generate_video",
             displayName = "生成视频",
             description = """
@@ -41,12 +42,8 @@ object VideoGeneration
                 你可以传入反向提示词negative_prompt来让生成的视频避开某些元素。
                 可用的size选项包括：${aiConfig.videoGenerator.sizes}
             """.trimIndent(),
-            display = { (chat, model, parm) ->
-                if (parm == null) return@registerTool Content()
-                Content("正在生成视频，预计花费5-10分钟，请稍候...\n\n你可以暂时离开，稍后再回来查看结果。")
-            }
         )
-        { (chat, model, parm) ->
+        {
             if (parm.size != null && parm.size !in aiConfig.videoGenerator.sizes)
             {
                 return@registerTool AiToolInfo.ToolResult(
@@ -60,6 +57,7 @@ object VideoGeneration
                 imageSize = parm.size,
             )
             logger.info("Video generation requested, requestId=${request.first}, token=${request.second}")
+            sendMessage("正在生成视频，预计花费5分钟，请稍候...\n\n你可以暂时离开，稍后再回来查看结果。")
             withTimeout(15.minutes)
             {
                 while (true)
@@ -71,15 +69,16 @@ object VideoGeneration
                     )
                     else
                     {
-                        val uuid = ChatFiles.addChatFile(chat.id, "video.mp4", AiTools.ToolData.Type.VIDEO, res.left)
+                        val uuid = ChatFiles.addChatFile(chat.id, "video.mp4", AiToolSet.ToolData.Type.VIDEO, res.left)
                         val url = "uuid:" + uuid.toHexString()
                         return@withTimeout AiToolInfo.ToolResult(
                             content = Content("成功生成视频，已展示给用户。"),
                             showingContent = url,
-                            showingType = AiTools.ToolData.Type.VIDEO
+                            showingType = AiToolSet.ToolData.Type.VIDEO
                         )
                     }
                 }
+                @Suppress("KotlinUnreachableCode")
                 error("unreachable")
             }
         }

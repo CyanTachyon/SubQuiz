@@ -2,27 +2,20 @@
 
 package moe.tachyon.quiz.route.preparationGroup
 
-import moe.tachyon.quiz.dataClass.Permission
-import moe.tachyon.quiz.dataClass.PreparationGroup
-import moe.tachyon.quiz.dataClass.PreparationGroupId
+import io.github.smiley4.ktorswaggerui.dsl.routing.get
+import io.github.smiley4.ktorswaggerui.dsl.routing.post
+import io.github.smiley4.ktorswaggerui.dsl.routing.put
+import io.github.smiley4.ktorswaggerui.dsl.routing.route
+import io.ktor.server.routing.*
+import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.PreparationGroupId.Companion.toPreparationGroupIdOrNull
-import moe.tachyon.quiz.dataClass.SubjectId
 import moe.tachyon.quiz.dataClass.SubjectId.Companion.toSubjectIdOrNull
-import moe.tachyon.quiz.dataClass.hasGlobalAdmin
 import moe.tachyon.quiz.database.Permissions
 import moe.tachyon.quiz.database.PreparationGroups
-import moe.tachyon.quiz.route.utils.Context
-import moe.tachyon.quiz.route.utils.finishCall
+import moe.tachyon.quiz.route.utils.*
 import moe.tachyon.quiz.utils.HttpStatus
-import moe.tachyon.quiz.utils.statuses
-import io.github.smiley4.ktorswaggerui.dsl.routing.*
-import io.ktor.server.routing.Route
-import moe.tachyon.quiz.database.Users
-import moe.tachyon.quiz.route.utils.get
-import moe.tachyon.quiz.route.utils.getLoginUser
-import moe.tachyon.quiz.route.utils.loginUser
-import moe.tachyon.quiz.utils.UserConfigKeys
 import moe.tachyon.quiz.utils.isWithinChineseCharLimit
+import moe.tachyon.quiz.utils.statuses
 
 fun Route.preparationGroup() = route("/preparationGroup", {
     tags("preparationGroup")

@@ -37,8 +37,9 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource.Monotonic.markNow
 import kotlin.uuid.ExperimentalUuidApi
 
-object MCP
+object MCP: AiToolSet.ToolProvider
 {
+    override val name: String get() = "MCP"
     private val logger = SubQuizLogger.getLogger<MCP>()
     private val client = HttpClient(ktorClientEngineFactory)
     {
@@ -124,9 +125,9 @@ object MCP
         return@withLock client
     }
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool()
+        registerTool()
         { chat, _ ->
             if (mcpConfig.mcp.isEmpty()) return@registerTool emptyList()
             val client: ClientWrapper = getClient(chat.id)
@@ -139,14 +140,12 @@ object MCP
                 val displayName = t.annotations?.title ?: name
                 AiToolInfo<JsonObject>(
                     name = name,
-                    display = {
-                        AiToolInfo.DisplayToolInfo(displayName, Content())
-                    },
+                    displayName = displayName,
                     description = description,
                     dataSchema = JsonSchema.UnknownJsonSchema(schema),
                     type = typeOf<JsonObject>(),
-                    invoke = { parms ->
-                        val res = client.value.callTool(CallToolRequest(name, parms))
+                    invoke = { parm, _ ->
+                        val res = client.value.callTool(CallToolRequest(name, parm))
                         val content = res?.content?.mapNotNull()
                         { c ->
                             when (c)

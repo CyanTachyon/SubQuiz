@@ -183,7 +183,7 @@ private data class AiRequest(
 {
     @Serializable
     data class Message(
-        val role: Role,
+        val role: String,
         val content: Content = Content(),
         @SerialName("reasoning_content")
         val reasoningContent0: String?,
@@ -198,7 +198,7 @@ private data class AiRequest(
     )
     {
         constructor(
-            role: Role,
+            role: String,
             content: Content = Content(),
             reasoningContent: String?,
             toolCallId: String? = null,
@@ -258,19 +258,19 @@ private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
     {
         when (this.role)
         {
-            Role.USER                               -> Unit
-            Role.SYSTEM                             -> Unit
-            Role.ASSISTANT if (showingType != null) -> return null
-            Role.ASSISTANT                          -> Unit
-            Role.TOOL                               -> Unit
-            Role.CONTEXT_COMPRESSION                -> return null
+            is Role.USER                               -> Unit
+            is Role.SYSTEM                             -> Unit
+            is Role.ASSISTANT                          -> Unit
+            is Role.TOOL                               -> Unit
+            is Role.MARKING                            -> return null
+            is Role.SHOWING_DATA                       -> return null
         }
 
         return AiRequest.Message(
-            role = this.role,
+            role = this.role.role,
             content = this.content,
             reasoningContent = this.reasoningContent.takeUnless { it.isBlank() },
-            toolCallId = this.toolCallId.takeUnless { it.isEmpty() },
+            toolCallId = (this.role as? Role.TOOL)?.id,
             toolCalls = this.toolCalls.map { AiRequest.Message.ToolCall(it.id, function = AiRequest.Message.ToolCall.Function(it.name, it.arguments)) },
         )
     }
@@ -428,9 +428,9 @@ suspend fun sendAiRequest(
             {
                 val parseToolCalls = parseToolCalls(waitingTools, tools, onReceive)
                 res += parseToolCalls
-                parseToolCalls.filter { it.showingType != null }.forEach()
+                parseToolCalls.filter { it.role is Role.SHOWING_DATA }.forEach()
                 {
-                    onReceive(StreamAiResponseSlice.ShowingTool(it.content.toText(), it.showingType!!))
+                    onReceive(StreamAiResponseSlice.ShowingTool(it.content.toText(), (it.role as Role.SHOWING_DATA).type))
                 }
             }
             else send = false
@@ -477,21 +477,18 @@ private suspend fun sendRequest(
             setBody(body)
         }
         val responseBody = response.bodyAsText()
-        val json = logger.severe("AI请求返回不是合法JSON: $responseBody")
-        {
-            contentNegotiationJson.parseToJsonElement(responseBody)
-        }.getOrThrow()
+        val json = contentNegotiationJson.parseToJsonElement(responseBody)
         val res = runCatching()
         {
             contentNegotiationJson.decodeFromJsonElement<DefaultAiResponse>(json)
         }.onFailure()
         {
-            logger.warning("AI请求返回异常: ${contentNegotiationJson.encodeToString(response)}")
+            logger.warning("AI请求返回异常: $json")
         }.getOrThrow()
         val msg = ChatMessage(
             role = Role.ASSISTANT,
-            content = res.choices.joinToString { it.message.content }.let(::Content),
-            reasoningContent = res.choices.joinToString { it.message.reasoningContent ?: "" }
+            content = res.choices.joinToString("") { it.message.content }.let(::Content),
+            reasoningContent = res.choices.joinToString("") { it.message.reasoningContent ?: "" }
         )
         val usage = res.usage
         if (record) runCatching()
@@ -522,7 +519,6 @@ private suspend fun sendRequest(
 
     var usage0 = TokenUsage()
     val waitingTools = mutableMapOf<Int, Pair<String, String>>()
-    val idToIndex = mutableMapOf<String, Int>()
     var lstIndex = -1
     var curMsg = ChatMessage(Role.ASSISTANT, "")
     val responses = mutableListOf<StreamAiResponse>()
@@ -540,7 +536,7 @@ private suspend fun sendRequest(
         {
             if (!call.response.status.isSuccess())
                 throw SSEClientException(call.response, message = "AI请求返回异常，HTTP状态码 ${call.response.status.value}, 响应体: ${call.response.bodyAsText()}")
-            incoming
+            while(true) incoming
                 .mapNotNull { it.data }
                 .filterNot { it == "[DONE]" }
                 .mapNotNull()
@@ -561,10 +557,10 @@ private suspend fun sendRequest(
                     { c ->
                         c.message.toolCalls.forEach()
                         { tool ->
-                            val index = tool.index ?: idToIndex[tool.id] ?: lstIndex.takeIf { it1 -> it1 > 0 }
+                            val index = tool.index ?: lstIndex.takeIf { it1 -> it1 > 0 }
                             if (index == null)
                             {
-                                logger.warning("出现错误: 工具调用ID丢失，无法将工具调用名称与参数对应。index: ${tool.index}, id: ${tool.id}, lstIndex: $lstIndex, idToIndex: $idToIndex, waitingTools: $waitingTools")
+                                logger.warning("出现错误: 工具调用ID丢失，无法将工具调用名称与参数对应。 id: ${tool.id}, lstIndex: $lstIndex waitingTools: $waitingTools")
                             }
                             else
                             {
@@ -572,7 +568,6 @@ private suspend fun sendRequest(
                                 val newName = name + (tool.function.name ?: "")
                                 val newArg = args + (tool.function.arguments ?: "")
                                 waitingTools[index] = newName to newArg
-                                if (tool.id != null) idToIndex[tool.id] = index
                                 lstIndex = index
                             }
                         }
@@ -610,7 +605,7 @@ private suspend fun sendRequest(
         {
             val response = e.response ?: return@let it
             if (!response.status.isSuccess())
-                return@let Result.failure(SSEClientException(response, message = "AI请求返回异常，HTTP状态码 ${response.status.value}, 响应体: ${response.bodyAsText()}"))
+                return@let Result.failure(Exception("AI请求返回异常，HTTP状态码 ${response.status.value}, 响应体: ${response.bodyAsText()}"))
         }
         it
     }
@@ -643,15 +638,14 @@ private suspend fun parseToolCalls(
         val tool = tools.firstOrNull { it.name == toolName } ?: return@flatMap run()
         {
             ChatMessages(
-                role = Role.TOOL,
+                role = Role.TOOL(id, toolName),
                 content = "error: 工具$toolName 并不存在，请确认你调用的工具名称正确且存在",
-                toolCallId = id
             )
         }
 
         logger.warning("fail to put toolcall message")
         {
-            onReceive(StreamAiResponseSlice.ToolCall(tool, tool.display(parm)))
+            onReceive(StreamAiResponseSlice.ToolCall(id, tool))
         }
 
         val data: Any
@@ -662,38 +656,45 @@ private suspend fun parseToolCalls(
         catch (e: Throwable)
         {
             return@flatMap ChatMessages(
-                Role.TOOL,
+                Role.TOOL(id, toolName),
                 "错误！你调用工具 $toolName 时传入的参数格式错误，请检查参数是否符合要求，并改正错误后重试。\n具体错误为：\n${e.message}",
-                toolCallId = id
             )
         }
 
+        val sb = StringBuilder()
         val content = try
         {
             logger.config("Calling tool $toolName with parameters $parm")
             @Suppress("UNCHECKED_CAST")
             (tool as AiToolInfo<Any>).invoke(data)
+            {
+                sb.append(it)
+                logger.warning("fail to put tool message")
+                {
+                    onReceive(StreamAiResponseSlice.ToolMessage(id, it))
+                }
+            }
         }
         catch (e: Throwable)
         {
             logger.warning("Tool call failed for $toolName with parameters $parm", e)
             return@flatMap ChatMessages(
-                role = Role.TOOL,
+                role = Role.TOOL(id, toolName),
                 content = "error: \n${e.stackTraceToString()}",
-                toolCallId = id
+                reasoningContent = sb.toString(),
             )
         }
         val toolCall = ChatMessage(
-            role = Role.TOOL,
+            role = Role.TOOL(id, toolName),
             content = content.content,
-            toolCallId = id
+            reasoningContent = sb.toString(),
         )
         val showingContents = content.showingContent.map()
         {
             ChatMessage(
-                role = Role.ASSISTANT,
+                role = Role.SHOWING_DATA(it.second),
                 content = Content(it.first),
-                showingType = it.second,
+                reasoningContent = sb.toString(),
             )
         }
         return@flatMap listOf(toolCall) + showingContents

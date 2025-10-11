@@ -4,8 +4,9 @@ import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
 
-object ShowHtml
+object ShowHtml: AiToolSet.ToolProvider
 {
+    override val name: String get() = "展示HTML页面"
     @Serializable
     private data class ShowSvgToolData(
         @JsonSchema.Description("SVG 图像内容")
@@ -18,9 +19,9 @@ object ShowHtml
         val html: String,
     )
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<ShowSvgToolData>(
+        registerTool<ShowSvgToolData>(
             name = "show_svg",
             displayName = null,
             description = """
@@ -30,12 +31,12 @@ object ShowHtml
                 该工具在你需要画简单示意图等场景时非常有用。
             """.trimIndent()
         )
-        { (chat, model, parm) ->
+        {
             val svgContent = parm.svg.trim()
             AiToolInfo.ToolResult(Content("已成功展示 SVG 图像"), svgContent)
         }
 
-        AiTools.registerTool<ShowHtmlToolData>(
+        registerTool<ShowHtmlToolData>(
             name = "show_html",
             displayName = null,
             description = """
@@ -46,9 +47,9 @@ object ShowHtml
                 该工具会将 HTML 页面直接展示给用户，若成功，会告知你成功，若不成功则告知你错误信息。
             """.trimIndent()
         )
-        { (chat, model, parm) ->
+        {
             val html = parm.html.trim()
-            AiToolInfo.ToolResult(Content("已成功展示 HTML 页面"), html, AiTools.ToolData.Type.HTML)
+            AiToolInfo.ToolResult(Content("已成功展示 HTML 页面"), html, AiToolSet.ToolData.Type.HTML)
         }
     }
 }

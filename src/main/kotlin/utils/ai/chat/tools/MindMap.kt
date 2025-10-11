@@ -15,8 +15,9 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 @OptIn(ExperimentalUuidApi::class)
-object MindMap
+object MindMap: AiToolSet.ToolProvider
 {
+    override val name: String get() = "生成思维导图"
     private val logger = SubQuizLogger.getLogger<MindMap>()
     @OptIn(ExperimentalUuidApi::class)
     suspend fun makeMindMap(
@@ -59,13 +60,13 @@ object MindMap
         val markdown: String,
     )
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
         val p = ProcessBuilder("bash", "-c", "markmap --version")
         val exitCode = p.start().waitFor()
         if (exitCode != 0) logger.severe("未找到 markmap 命令，请确保已安装 markmap")
 
-        AiTools.registerTool<MindMapToolData>(
+        registerTool<MindMapToolData>(
             name = "mindmap",
             displayName = "思维导图",
             description = """
@@ -74,7 +75,7 @@ object MindMap
                 该工具会将生成的思维导图直接展示给用户，若成功，会告知你成功，若不成功则告知你错误信息。
             """.trimIndent(),
         )
-        { (chat, model, parm) ->
+        {
             val data = parm.markdown
             if (data.isBlank())
             {
@@ -84,11 +85,11 @@ object MindMap
             }
 
             val bytes = makeMindMap(data).encodeToByteArray()
-            val uuid = ChatFiles.addChatFile(chat.id, "mindmap.html", AiTools.ToolData.Type.HTML, bytes)
+            val uuid = ChatFiles.addChatFile(chat.id, "mindmap.html", AiToolSet.ToolData.Type.HTML, bytes)
             return@registerTool AiToolInfo.ToolResult(
                 Content("生成思维导图成功，已展示给用户"),
                 "uuid:${uuid.toHexString()}",
-                AiTools.ToolData.Type.PAGE
+                AiToolSet.ToolData.Type.PAGE
             )
         }
     }

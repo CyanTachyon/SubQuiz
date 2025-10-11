@@ -17,8 +17,9 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.math.max
 
-object AiLibrary: KoinComponent
+object AiLibrary: KoinComponent, AiToolSet.ToolProvider
 {
+    override val name: String get() = "AI知识库"
     private val logger = SubQuizLogger.getLogger<AiLibrary>()
     private val rag: Rag by inject()
     private val userRag: UserRag by inject()
@@ -160,10 +161,10 @@ object AiLibrary: KoinComponent
 
     fun getFileText(user: UserId?, filePath: String) =
         if (user == null) AiLibraryFiles.getAiLibraryFileText(filePath = filePath)
-        else AiLibraryFiles.getAiLibraryFileText(baseDir = AiLibraryFiles.getUserAiLibraryBaseDir(user), filePath = filePath,)
+        else AiLibraryFiles.getAiLibraryFileText(baseDir = AiLibraryFiles.getUserAiLibraryBaseDir(user), filePath = filePath)
     fun getFileBytes(user: UserId?, filePath: String) =
         if (user == null) AiLibraryFiles.getAiLibraryFileBytes(filePath = filePath)
-        else AiLibraryFiles.getAiLibraryFileBytes(baseDir = AiLibraryFiles.getUserAiLibraryBaseDir(user), filePath = filePath,)
+        else AiLibraryFiles.getAiLibraryFileBytes(baseDir = AiLibraryFiles.getUserAiLibraryBaseDir(user), filePath = filePath)
 
     suspend fun search(user: UserId?, prefix: String, query: String, count: Int): List<Pair<String, Double>>
     {
@@ -212,24 +213,20 @@ object AiLibrary: KoinComponent
         val count: Int = 3,
     )
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
         ///// bdfz data /////
 
-        AiTools.registerTool<LibSearchParm>(
+        registerTool<LibSearchParm>(
             "bdfz_data_search",
             "搜索北大附中资料",
             """
             在北大附中资料库中搜索相关内容, 将返回相关文档
             搜索的数量由 count 参数决定, 不宜过多，否则获得的文档可能过多，建议2到5条较为合适
             """.trimIndent(),
-            display = {
-                if (it.parm != null)
-                    Content("搜索北大附中资料: ${it.parm.query.split(" ").joinToString(" ") { s -> "`$s`" }}")
-                else Content()
-            }
         )
-        { (chat, model, parm) ->
+        {
+            sendMessage("搜索北大附中资料: ${parm.query.split(" ").joinToString(" ") { s -> "`$s`" }}")
             val res = searchInOrder(null, "/bdfz/", parm.query, parm.count)
             AiToolInfo.ToolResult(
                 Content(
@@ -239,18 +236,18 @@ object AiLibrary: KoinComponent
             )
         }
 
-        AiTools.registerToolDataGetter("lib")
+        registerToolDataGetter("lib")
         { _, path ->
             val file = getFileText(null, path) ?: return@registerToolDataGetter null
-            AiTools.ToolData(
-                type = if (path.endsWith(".md")) AiTools.ToolData.Type.MARKDOWN else AiTools.ToolData.Type.TEXT,
+            AiToolSet.ToolData(
+                type = if (path.endsWith(".md")) AiToolSet.ToolData.Type.MARKDOWN else AiToolSet.ToolData.Type.TEXT,
                 value = file,
             )
         }
 
         ///// books /////
 
-        AiTools.registerTool<BookSearchParm>(
+        registerTool<BookSearchParm>(
             "books_search",
             "搜索教科书",
             """
@@ -263,13 +260,12 @@ object AiLibrary: KoinComponent
             - 目前仅支持高中阶段的教科书，若你需要获得非高中阶段的内容，请使用其他工具
             - 当前可用的科目包括: ${AiLibraryFiles.getBookSubjects()}，请确保你的subject参数在这些科目中（若不指定则同时搜索这些科目）
             """.trimIndent(),
-            display = {
-                if (it.parm != null)
-                    Content("查找课本: `${it.parm.subject}` - `${it.parm.query}`")
-                else Content()
-            }
         )
-        { (chat, model, parm) ->
+        {
+            if (parm.subject.isNotBlank())
+                sendMessage("查找课本: `${parm.subject}` - `${parm.query}`")
+            else
+                sendMessage("查找课本: `${parm.query}`")
             val path =
                 if (parm.subject.isBlank()) "/books/"
                 else "/books/${parm.subject}/"
@@ -283,19 +279,19 @@ object AiLibrary: KoinComponent
             )
         }
 
-        AiTools.registerToolDataGetter("book")
+        registerToolDataGetter("book")
         { _, path ->
             val file = getFileBytes(null, path.removeSuffix(".md") + ".png") ?: return@registerToolDataGetter null
             val base64 = "data:image/jpeg;base64," + file.toJpegBytes().encodeBase64()
-            AiTools.ToolData(
-                type = AiTools.ToolData.Type.IMAGE,
+            AiToolSet.ToolData(
+                type = AiToolSet.ToolData.Type.IMAGE,
                 value = base64,
             )
         }
 
         ///// user library /////
 
-        AiTools.registerTool<LibSearchParm>(
+        registerTool<LibSearchParm>(
             "user_library_search",
             "搜索用户提供的资料",
             """
@@ -303,13 +299,9 @@ object AiLibrary: KoinComponent
             搜索的数量由 count 参数决定, 不宜过多，否则获得的文档可能过多，建议2到5条较为合适
             该工具搜索的是用户自己上传给你的资料，你仅能搜索到当前和你对话的用户上传的资料
             """.trimIndent(),
-            display = {
-                if (it.parm != null)
-                    Content("搜索资料: ${it.parm.query.split(" ").joinToString(" ") { s -> "`$s`" }}")
-                else Content()
-            }
         )
-        { (chat, model, parm) ->
+        {
+            sendMessage("搜索资料: ${parm.query.split(" ").joinToString(" ") { s -> "`$s`" }}")
             val res = searchInOrder(chat.user, "", parm.query, parm.count)
             AiToolInfo.ToolResult(
                 Content(
@@ -319,11 +311,11 @@ object AiLibrary: KoinComponent
             )
         }
 
-        AiTools.registerToolDataGetter("user")
+        registerToolDataGetter("user")
         { chat, path ->
             val file = getFileText(chat.user, path) ?: return@registerToolDataGetter null
-            AiTools.ToolData(
-                type = AiTools.ToolData.Type.MARKDOWN,
+            AiToolSet.ToolData(
+                type = AiToolSet.ToolData.Type.MARKDOWN,
                 value = if (path.endsWith(".md")) file else "```${path.substringAfterLast(".")}\n$file\n```",
             )
         }

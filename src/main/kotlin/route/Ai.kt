@@ -30,8 +30,9 @@ import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.chat.AskService
 import moe.tachyon.quiz.utils.UserConfigKeys
 import moe.tachyon.quiz.utils.ai.chat.QuizAskService
+import moe.tachyon.quiz.utils.ai.chat.plugins.ContextCompressor
 import moe.tachyon.quiz.utils.ai.chat.tools.AiLibrary
-import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
+import moe.tachyon.quiz.utils.ai.chat.tools.AiToolSet
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 import moe.tachyon.quiz.utils.leftOrElse
 import moe.tachyon.quiz.utils.statuses
@@ -88,6 +89,18 @@ fun Route.ai() = route("/ai", {
                 statuses(HttpStatus.Unauthorized)
             }
         }, Context::getChatModels)
+
+        get("/options", {
+            description = "获取AI模型选项"
+            request()
+            {
+                queryParameter<String>("model") { required = true }
+            }
+            response()
+            {
+                statuses<List<String>>(HttpStatus.OK)
+            }
+        }, Context::getServiceOptions)
 
         get("/customModel", {
             description = "获取自定义AI聊天模型"
@@ -173,7 +186,7 @@ fun Route.ai() = route("/ai", {
                 }
                 response()
                 {
-                    statuses<ChatSseMessage>(HttpStatus.OK, example = ChatSseMessage(Content("content"), "reasoning", ""))
+                    statuses<ChatSseMessage>(HttpStatus.OK, example = ChatSseMessage(Content("content"), "reasoning"))
                     statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
                 }
             })
@@ -376,6 +389,7 @@ private data class CreateChatRequest(
     val section: Section<@Contextual Any, @Contextual Any, JsonElement>?,
     val model: String,
     val content: Content,
+    val options: List<String>
 )
 
 private suspend fun Context.newChat(): Nothing
@@ -383,14 +397,14 @@ private suspend fun Context.newChat(): Nothing
     val user = getLoginUser() ?: finishCall(HttpStatus.Unauthorized)
     val body = call.receive<CreateChatRequest>()
     val chats = get<Chats>()
-    val service = AskService.getService(user.id, body.model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it)) }
+    val service = AskService.getService(user.id, body.model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it ?: "模型不存在")) }
     val chat = chats.createChat(user.id, body.section)
     val res = logger.warning("Failed to start chat for user ${user.id} with model ${body.model}")
     {
         val content = AiChatsUtils.makeContent(chat, body.content)
         if (content !is AiChatsUtils.MakeContentResult.Success)
             finishCall(HttpStatus.BadRequest.subStatus(content.error))
-        AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
+        AiChatsUtils.startRespond(content.content, chat, service, service.options().filter { it.name in body.options } ) ?: finishCall(HttpStatus.Conflict)
         chat.id
     }.onFailure { AiChatsUtils.deleteChat(chat.id, user.id) }.getOrThrow()
     finishCall(HttpStatus.OK, res)
@@ -403,6 +417,7 @@ private data class SendChatMessageRequest(
     val hash: String,
     val content: Content,
     val regenerate: Boolean = false,
+    val options: List<String>
 )
 
 @Serializable
@@ -424,11 +439,11 @@ private suspend fun Context.sendChatMessage(): Nothing
     if (chat.user != loginUser.id) finishCall(HttpStatus.Forbidden)
     if (chat.hash != body.hash) finishCall(HttpStatus.Conflict)
     if (chat.banned) finishCall(HttpStatus.Forbidden.copy(message = AiChatsUtils.BANNED_MESSAGE))
-    val service = AskService.getService(loginUser.id, body.model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it)) }
+    val service = AskService.getService(loginUser.id, body.model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it ?: "模型不存在")) }
     val content = AiChatsUtils.makeContent(chat, body.content)
     if (content !is AiChatsUtils.MakeContentResult.Success)
         finishCall(HttpStatus.BadRequest.subStatus(content.error))
-    val hash = AiChatsUtils.startRespond(content.content, chat, service) ?: finishCall(HttpStatus.Conflict)
+    val hash = AiChatsUtils.startRespond(content.content, chat, service, service.options().filter { it.name in body.options }) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, SendChatMessageResponse(content.content, hash))
 }
 
@@ -474,6 +489,13 @@ private suspend fun Context.getChatModels(): Nothing
     )
 }
 
+private suspend fun Context.getServiceOptions(): Nothing
+{
+    val model = call.queryParameters["model"] ?: finishCall(HttpStatus.BadRequest)
+    val service = AskService.getService(loginUser.id, model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it ?: "模型不存在")) }
+    finishCall(HttpStatus.OK, service.options().map { it.name })
+}
+
 private fun Context.sseHeaders()
 {
     call.response.header(HttpHeaders.ContentType, ContentType.Text.EventStream.toString())
@@ -487,10 +509,16 @@ private data class ChatSseMessage(
     val content: Content,
     @SerialName("reasoning_content")
     val reasoningContent: String,
-    @SerialName("tool_call")
-    val toolCall: String,
-    val type: AiTools.ToolData.Type? = null
+    val mark: Mark = Mark()
 )
+{
+    @Serializable
+    data class Mark(
+        val showingType: AiToolSet.ToolData.Type? = null,
+        val id: String = "",
+        val label: String = "",
+    )
+}
 
 @Serializable
 private data class ChatResponse(
@@ -509,6 +537,9 @@ private data class ChatResponse(
         val role: Role,
         val messages: List<ChatSseMessage>,
     )
+    {
+        constructor(role: Role, message: ChatSseMessage) : this(role, listOf(message))
+    }
 
     companion object
     {
@@ -542,39 +573,20 @@ private data class ChatResponse(
                 banned = chat.banned,
             )
 
-            val tools = AiTools.getTools(chat, null)
-            val h = chat.histories.mapNotNull()
+            val tools = AiToolSet.defaultToolSet().getTools(chat, null)
+            val list = chat.histories.mapNotNull()
             { msg ->
-                when (msg.role)
+                return@mapNotNull when (msg.role)
                 {
-                    Role.USER                -> return@mapNotNull listOf(History(Role.USER, listOf(ChatSseMessage(msg.content, "", ""))))
-                    Role.SYSTEM              -> return@mapNotNull null
-                    Role.TOOL                -> return@mapNotNull null
-                    Role.CONTEXT_COMPRESSION -> return@mapNotNull listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(Content(""), "", "压缩上下文"))))
-                    Role.ASSISTANT           -> Unit // go on
+                    is Role.USER -> History(Role.USER, ChatSseMessage(msg.content, ""))
+                    is Role.SYSTEM -> null
+                    is Role.MARKING if (msg.role.type == ContextCompressor.MARKING_TYPE) -> History(Role.ASSISTANT, ChatSseMessage(Content(""), "", ChatSseMessage.Mark(label = "压缩上下文")))
+                    is Role.MARKING -> null
+                    is Role.SHOWING_DATA -> History(Role.ASSISTANT, ChatSseMessage(msg.content, "", ChatSseMessage.Mark(msg.role.type)))
+                    is Role.ASSISTANT -> History(Role.ASSISTANT, ChatSseMessage(msg.content, msg.reasoningContent))
+                    is Role.TOOL -> History(Role.ASSISTANT, ChatSseMessage(Content(), msg.reasoningContent, ChatSseMessage.Mark(id = msg.role.id, label = tools.firstOrNull { it.name == msg.role.name }?.displayName ?: return@mapNotNull null)))
                 }
-
-                if (msg.showingType != null)
-                    return@mapNotNull listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(msg.content, "", "", msg.showingType))))
-                val rc = msg.reasoningContent
-                val c  = msg.content.toText()
-                val calls = msg.toolCalls.mapNotNull calls@
-                { tc ->
-                    val tool = tools.firstOrNull { it.name == tc.name } ?: return@calls run()
-                    {
-                        null
-                    }
-                    tool.display(tc.arguments)
-                }.map()
-                { toolDisplay ->
-                    History(
-                        Role.ASSISTANT,
-                        listOf(ChatSseMessage(toolDisplay.content, "",toolDisplay.title))
-                    )
-                }
-                listOf(History(Role.ASSISTANT, listOf(ChatSseMessage(Content(c), rc, "")))) + calls
             }
-            val list = h.flatten()
             val res = mutableListOf<History>()
             for (msg in list)
             {
@@ -631,20 +643,19 @@ private suspend fun Context.listenChat()
                     send(event = "name", data = contentNegotiationJson.encodeToString(it))
                 is AiChatsUtils.MessageEvent ->
                 {
-                    val msg =
-                        when(it.message)
-                        {
-                            is StreamAiResponseSlice.Message ->
-                                ChatSseMessage(Content(it.message.content), it.message.reasoningContent, "")
-                            is StreamAiResponseSlice.ToolCall ->
-                                if (it.message.display != null)
-                                    ChatSseMessage(it.message.display.content, "", it.message.display.title)
-                                else null
-                            is StreamAiResponseSlice.ShowingTool ->
-                                ChatSseMessage(Content(it.message.content), "", "", it.message.showingType)
-                            StreamAiResponseSlice.ContextCompression ->
-                                ChatSseMessage(Content(""), "", "压缩上下文")
-                        }
+                    val msg = when(it.message)
+                    {
+                        is StreamAiResponseSlice.Message ->
+                            ChatSseMessage(Content(it.message.content), it.message.reasoningContent)
+                        is StreamAiResponseSlice.ToolCall ->
+                            if (it.message.tool.displayName != null)
+                                ChatSseMessage(Content(), "", ChatSseMessage.Mark(id = it.message.id, label = it.message.tool.displayName))
+                            else null
+                        is StreamAiResponseSlice.ShowingTool ->
+                            ChatSseMessage(Content(it.message.content), "", ChatSseMessage.Mark(it.message.showingType))
+                        is StreamAiResponseSlice.ToolMessage ->
+                            ChatSseMessage(Content(), it.message.reasoningContent, ChatSseMessage.Mark(id = it.message.id))
+                    }
                     if (msg != null)
                         send(event = "message", data = contentNegotiationJson.encodeToString(msg))
                 }
@@ -718,8 +729,8 @@ private suspend fun Context.getToolData(): Nothing
         ?: chats.getChatByShareHash(chatId)?.to(true)
         ?: finishCall(HttpStatus.NotFound)
     if (!useShareHash && chat.user != getLoginUser()?.id && !getLoginUser().hasGlobalAdmin()) finishCall(HttpStatus.NotFound)
-    val data = AiTools.getData(chat, type, path)
-    finishCall(HttpStatus.OK, data ?: AiTools.ToolData(AiTools.ToolData.Type.TEXT, "资源不存在或无法访问"))
+    val data = AiToolSet.defaultToolSet().getData(chat, type, path)
+    finishCall(HttpStatus.OK, data ?: AiToolSet.ToolData(AiToolSet.ToolData.Type.TEXT, "资源不存在或无法访问"))
 }
 
 @OptIn(ExperimentalUuidApi::class)

@@ -19,8 +19,9 @@ import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ktorClientEngineFactory
 
-object WebSearch
+object WebSearch: AiToolSet.ToolProvider
 {
+    override val name: String get() = "网络搜索"
     private val logger = SubQuizLogger.getLogger<WebSearch>()
     private const val SEARCH_URL = "https://api.tavily.com/search"
 
@@ -105,50 +106,42 @@ object WebSearch
     @Serializable
     private data class AiExtractToolData(@JsonSchema.Description("要请求的url") val url: String)
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<AiSearchToolData>(
+        registerTool<AiSearchToolData>(
             name = "web_search",
             displayName = "联网搜索",
             description = """
                 进行网络搜索，将返回若干相关的搜索结果及来源url等，如有需要可以再使用`web_extract`工具提取网页内容
             """.trimIndent(),
-            display = {
-                if (it.parm != null)
-                    Content("查找网页: ${it.parm.key.split(" ").joinToString(" ") { s -> "`$s`" }}")
-                else Content()
-            }
         )
-        { (chat, model, parm) ->
+        {
+            sendMessage("查找网页: ${parm.key.split(" ").joinToString(" ") { s -> "`$s`" }}")
             val data = parm.key
             if (data.isBlank()) AiToolInfo.ToolResult(Content("error: key must not be empty"))
             else AiToolInfo.ToolResult(Content(showJson.encodeToString(search(data, parm.count.coerceIn(1, 20))) +
                     "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\" />"))
         }
 
-        AiTools.registerTool<AiExtractToolData>(
+        registerTool<AiExtractToolData>(
             name = "web_extract",
             displayName = "获取网页内容",
             description = """
                 提取网页内容，将读取指定url的内容并返回
             """.trimIndent(),
-            display = {
-                if (it.parm != null)
-                    Content("读取网页: [${it.parm.url}](${it.parm.url})")
-                else Content()
-            }
         )
-        { (chat, model, parm) ->
+        {
+            sendMessage("读取网页: [${parm.url}](${parm.url})")
             val data = parm.url
             if (data.isBlank()) AiToolInfo.ToolResult(Content("error: url must not be empty"))
             else AiToolInfo.ToolResult(Content(showJson.encodeToString(extract(data)) +
                     "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\" />"))
         }
 
-        AiTools.registerToolDataGetter("web")
+        registerToolDataGetter("web")
         { _, path ->
-            AiTools.ToolData(
-                type = AiTools.ToolData.Type.URL,
+            AiToolSet.ToolData(
+                type = AiToolSet.ToolData.Type.URL,
                 value = path,
             )
         }

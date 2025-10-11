@@ -1,11 +1,6 @@
 package moe.tachyon.quiz.database
 
-import moe.tachyon.quiz.dataClass.PreparationGroup
-import moe.tachyon.quiz.dataClass.PreparationGroupId
-import moe.tachyon.quiz.dataClass.SubjectId
-import moe.tachyon.quiz.dataClass.UserFull
-import moe.tachyon.quiz.dataClass.UserId
-import moe.tachyon.quiz.dataClass.hasGlobalAdmin
+import moe.tachyon.quiz.dataClass.*
 import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.kotlin.datetime.CurrentTimestamp

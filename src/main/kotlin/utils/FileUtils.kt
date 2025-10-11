@@ -10,7 +10,7 @@ import moe.tachyon.quiz.dataClass.UserId
 import moe.tachyon.quiz.dataDir
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.utils.ChatFiles.FileInfo.Companion.toDataUrl
-import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
+import moe.tachyon.quiz.utils.ai.chat.tools.AiToolSet
 import java.io.File
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -135,7 +135,7 @@ object ChatFiles
     @Serializable
     data class FileInfo(
         val name: String,
-        val type: AiTools.ToolData.Type
+        val type: AiToolSet.ToolData.Type
     )
     {
         val mimeType get() = ContentType.fromFilePath(name).firstOrNull()
@@ -151,7 +151,7 @@ object ChatFiles
         else if (url.startsWith("output:", true))
             File(sandboxOutputDir(chat), url.removePrefix("output:").removePrefix("/"))
                 .takeIf { it.exists() && it.isFile }
-                ?.let { FileInfo(it.name, AiTools.ToolData.Type.FILE) to it.readBytes() }
+                ?.let { FileInfo(it.name, AiToolSet.ToolData.Type.FILE) to it.readBytes() }
                 ?.toDataUrl()
         else url
 
@@ -165,7 +165,7 @@ object ChatFiles
         if (dir.exists()) require(dir.deleteRecursively())
     }
 
-    fun addChatFile(chat: ChatId, fileName: String, type: AiTools.ToolData.Type, data: ByteArray): Uuid
+    fun addChatFile(chat: ChatId, fileName: String, type: AiToolSet.ToolData.Type, data: ByteArray): Uuid
     {
         val dir = File(chatFiles, chat.toString()).apply(File::mkdirs)
         val uuid = Uuid.random()

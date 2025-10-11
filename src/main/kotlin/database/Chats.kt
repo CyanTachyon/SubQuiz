@@ -194,7 +194,6 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
                 role = message.role,
                 content = message.content.removeUnsupportedChars(unsupportedChars),
                 reasoningContent = message.reasoningContent.removeUnsupportedChars(unsupportedChars),
-                toolCallId = message.toolCallId.removeUnsupportedChars(unsupportedChars),
                 toolCalls = message.toolCalls.map()
                 {
                     ChatMessage.ToolCall(
@@ -203,7 +202,6 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
                         it.arguments.removeUnsupportedChars(unsupportedChars),
                     )
                 },
-                showingType = message.showingType,
             )
         }
         return cleanedMessages.toChatMessages()

@@ -1,26 +1,31 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
 import io.ktor.util.*
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.config.aiConfig
-import moe.tachyon.quiz.utils.ChatFiles
-import moe.tachyon.quiz.utils.DocumentConversion
-import moe.tachyon.quiz.utils.JsonSchema
+import moe.tachyon.quiz.database.Users
+import moe.tachyon.quiz.utils.*
 import moe.tachyon.quiz.utils.ai.ChatMessages
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.ContentNode
 import moe.tachyon.quiz.utils.ai.Role
+import moe.tachyon.quiz.utils.ai.StreamAiResponseSlice
+import moe.tachyon.quiz.utils.ai.internal.llm.sendAiRequest
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetReply
-import moe.tachyon.quiz.utils.resize
-import moe.tachyon.quiz.utils.toJpegBytes
-import java.awt.image.BufferedImage
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import java.net.URL
 import kotlin.math.sqrt
 import kotlin.uuid.ExperimentalUuidApi
 
 @OptIn(ExperimentalUuidApi::class)
-object ReadImage
+object ReadImage: AiToolSet.ToolProvider, KoinComponent
 {
+    override val name: String get() = "查看图片"
+    private val users by inject<Users>()
+
     @Serializable
     private data class Parm(
         @JsonSchema.Description("一个数组，其中的每一项是一个图片URL，特别的，该工具还支持使用 `uuid:` 前缀来引用系统中的文件。")
@@ -50,9 +55,9 @@ object ReadImage
         "data:image/jpeg;base64," + it.toJpegBytes().encodeBase64()
     }
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool()
+        registerTool()
         { chat, model ->
             if (model?.imageable == true) return@registerTool emptyList()
             val tool = AiToolInfo<Parm>(
@@ -69,12 +74,8 @@ object ReadImage
                     - 在`/input`目录中的文件的uuid，如 `uuid:123e4567-e89b-12d3-a456-426614174000`，该文件必须是图片或PDF文件。
                     - 在`/output`目录中的文件，如`output:example.png`，example.png替换为相对/output目录的路径，该文件必须是图片或PDF文件。
                 """.trimIndent(),
-                display = {
-                    if (it == null) return@AiToolInfo Content()
-                    Content("URL：\n" + it.imageUrls.joinToString("\n") { url -> "- $url" })
-                }
             )
-            { parm ->
+            { parm, sendMessage ->
                 val (imgUrl, prompt) = parm
 
                 val sb = StringBuilder()
@@ -116,12 +117,28 @@ object ReadImage
                     "data:image/jpeg;base64," + it.toJpegBytes().encodeBase64()
                 }.map(ContentNode::image)
                 val content = Content(imgContent + ContentNode.text(sb.toString()))
-                val description = sendAiRequestAndGetReply(
+                val res = StringBuilder()
+                val usage = sendAiRequest(
                     model = aiConfig.imageModel,
                     messages = ChatMessages(Role.USER to content),
                     temperature = 0.1,
-                ).first
-                return@AiToolInfo AiToolInfo.ToolResult(Content(description))
+                    stream = true,
+                    onReceive = {
+                        if (it is StreamAiResponseSlice.Message)
+                        {
+                            sendMessage(it.content)
+                            res.append(it.content)
+                        }
+                    }
+                ).usage
+                runCatching()
+                {
+                    withContext(NonCancellable)
+                    {
+                        users.addTokenUsage(chat.user, usage)
+                    }
+                }
+                return@AiToolInfo AiToolInfo.ToolResult(Content(res.toString()))
             }
             listOf(tool)
         }

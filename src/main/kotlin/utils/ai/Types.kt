@@ -4,37 +4,130 @@ package moe.tachyon.quiz.utils.ai
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.descriptors.PolymorphicKind
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.descriptors.buildSerialDescriptor
+import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonDecoder
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.*
+import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
-import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
-import kotlin.contracts.ExperimentalContracts
-import kotlin.contracts.contract
+import moe.tachyon.quiz.utils.ai.chat.tools.AiToolSet
 
-@Serializable
-enum class Role
+@Serializable(Role.Serializer::class)
+@OptIn(ExperimentalSerializationApi::class, InternalSerializationApi::class)
+sealed interface Role
 {
-    @SerialName("user")
-    USER,
+    val role get() = when (this)
+    {
+        ASSISTANT       -> "assistant"
+        is MARKING      -> "marking"
+        is SHOWING_DATA -> "showing_data"
+        SYSTEM          -> "system"
+        is TOOL         -> "tool"
+        USER            -> "user"
+    }
+    @Serializable(with = USER.Serializer::class) data object USER: Role
+    {
+        class Serializer : KSerializer<USER>
+        {
+            override val descriptor = buildSerialDescriptor("Role.User", SerialKind.ENUM)
+            {
+                element("user", buildSerialDescriptor("user", StructureKind.OBJECT))
+            }
+            override fun serialize(encoder: Encoder, value: USER) = encoder.encodeString("user")
+            override fun deserialize(decoder: Decoder): USER = USER
+        }
+    }
+    @Serializable data object SYSTEM: Role
+    {
+        class Serializer : KSerializer<Role>
+        {
+            override val descriptor = buildSerialDescriptor("Role.System", SerialKind.ENUM)
+            {
+                element("system", buildSerialDescriptor("system", StructureKind.OBJECT))
+            }
+            override fun serialize(encoder: Encoder, value: Role) = encoder.encodeString("system")
+            override fun deserialize(decoder: Decoder): Role = SYSTEM
+        }
+    }
+    @Serializable data object ASSISTANT: Role
+    {
+        class Serializer : KSerializer<Role>
+        {
+            override val descriptor = buildSerialDescriptor("Role.Assistant", SerialKind.ENUM)
+            {
+                element("assistant", buildSerialDescriptor("assistant", StructureKind.OBJECT))
+            }
+            override fun serialize(encoder: Encoder, value: Role) = encoder.encodeString("assistant")
+            override fun deserialize(decoder: Decoder): Role = ASSISTANT
+        }
+    }
+    @Serializable data class TOOL(val id: String, val name: String): Role
+    {
+        @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+        override val role = "tool"
+        companion object
+        {
+            val role get() = "tool"
+        }
+    }
+    @Serializable data class SHOWING_DATA(val type: AiToolSet.ToolData.Type): Role
+    {
+        @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+        override val role = "showing_data"
+        companion object
+        {
+            val role get() = "showing_data"
+        }
 
-    @SerialName("system")
-    SYSTEM,
+    }
+    @Serializable data class MARKING(val type: String, val data: JsonElement): Role
+    {
+        @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+        override val role = "marking"
+        inline fun <reified T> get(): T = dataJson.decodeFromJsonElement(data)
+        companion object
+        {
+            val role get() = "marking"
+        }
+    }
 
-    @SerialName("assistant")
-    ASSISTANT,
+    private class Serializer: KSerializer<Role>
+    {
+        override val descriptor: SerialDescriptor = buildSerialDescriptor("Role", PolymorphicKind.SEALED)
+        {
+            element<USER>("user")
+            element<SYSTEM>("system")
+            element<ASSISTANT>("assistant")
+            element<TOOL>("tool")
+            element<SHOWING_DATA>("showing_data")
+            element<MARKING>("marking")
+        }
+        override fun serialize(encoder: Encoder, value: Role) = when(value)
+        {
+            is ASSISTANT    -> ASSISTANT.serializer().serialize(encoder, value)
+            is MARKING      -> MARKING.serializer().serialize(encoder, value)
+            is SHOWING_DATA -> SHOWING_DATA.serializer().serialize(encoder, value)
+            is SYSTEM       -> SYSTEM.serializer().serialize(encoder, value)
+            is TOOL   -> TOOL.serializer().serialize(encoder, value)
+            is USER   -> USER.serializer().serialize(encoder, value)
+        }
+        override fun deserialize(decoder: Decoder): Role
+        {
+            if (decoder !is JsonDecoder) error("Unsupported decoder type: ${decoder::class}")
+            val ele = JsonElement.serializer().deserialize(decoder)
+            return when(val role = ((ele as? JsonObject)?.get("role") as? JsonPrimitive)?.content ?: (ele as? JsonPrimitive)?.content)
+            {
+                "user"      -> USER
+                "system"    -> SYSTEM
+                "assistant" -> ASSISTANT
+                "tool"      -> decoder.json.decodeFromJsonElement<TOOL>(ele)
+                "showing_data" -> decoder.json.decodeFromJsonElement<SHOWING_DATA>(ele)
+                "marking"   -> decoder.json.decodeFromJsonElement<MARKING>(ele)
+                else        -> error("Unsupported role: $role")
+            }
 
-    @SerialName("tool")
-    TOOL,
-
-    @Serializable
-    CONTEXT_COMPRESSION,
+        }
+    }
 }
 
 
@@ -176,36 +269,22 @@ data class ChatMessage(
     val content: Content,
     @SerialName("reasoning_content")
     val reasoningContent: String = "",
-    @SerialName("tool_call_id")
-    val toolCallId: String = "",
     @SerialName("tool_calls")
     val toolCalls: List<ToolCall> = emptyList(),
-    val showingType: AiTools.ToolData.Type? = null
 )
 {
-    constructor(role: Role, content: String, reasoningContent: String = "", toolCallId: String = ""):
-            this(role, Content(content), reasoningContent, toolCallId, emptyList())
+    constructor(role: Role, content: String, reasoningContent: String = ""):
+            this(role, Content(content), reasoningContent, emptyList())
     init
     {
         if (toolCalls.isNotEmpty() && role != Role.ASSISTANT)
         {
             error("Only ASSISTANT role messages can have tool calls")
         }
-        if (this.role != Role.TOOL && toolCallId.isNotEmpty())
-        {
-            error("Tool call ID should only be set for TOOL role messages")
-        }
-        if (this.role == Role.TOOL && toolCallId.isEmpty())
-        {
-            error("Tool call ID must be set for TOOL role messages")
-        }
     }
 
     infix fun canPlus(other: ChatMessage): Boolean =
-        this.role == other.role &&
-        this.showingType == null &&
-        other.showingType == null &&
-        this.role in listOf(Role.ASSISTANT)
+        this.role == other.role && (this.role is Role.ASSISTANT || this.role is Role.TOOL)
     operator fun plus(other: ChatMessage): ChatMessage
     {
         if (!(this canPlus other)) error("Cannot combine messages with different roles, tool call IDs, or showing types")
@@ -225,13 +304,10 @@ data class ChatMessage(
         val function: Function
     )
     {
-        constructor(id: String, name: String, arguments: String):
-                this(id, Function(name, arguments))
+        constructor(id: String, name: String, arguments: String): this(id, Function(name, arguments))
         val type = "function"
-        val name: String
-            get() = function.name
-        val arguments: String
-            get() = function.arguments
+        val name: String get() = function.name
+        val arguments: String get() = function.arguments
         @Serializable
         data class Function(
             val name: String,
@@ -248,10 +324,10 @@ value class ChatMessages(private val messages: List<ChatMessage>): List<ChatMess
     override fun subList(fromIndex: Int, toIndex: Int): ChatMessages =
         ChatMessages(messages.subList(fromIndex, toIndex))
     constructor(vararg messages: ChatMessage): this(messages.toList())
-    constructor(role: Role, content: Content, reasoningContent: String = "", toolCallId: String = ""):
-        this(ChatMessage(role, content, reasoningContent, toolCallId))
-    constructor(role: Role, content: String, reasoningContent: String = "", toolCallId: String = ""):
-            this(role, Content(content), reasoningContent, toolCallId)
+    constructor(role: Role, content: Content, reasoningContent: String = ""):
+        this(ChatMessage(role, content, reasoningContent))
+    constructor(role: Role, content: String, reasoningContent: String = ""):
+            this(role, Content(content), reasoningContent)
     constructor(vararg messages: Pair<Role, Content>):
         this(messages.map { ChatMessage(it.first, it.second) })
 
@@ -304,18 +380,19 @@ sealed interface StreamAiResponseSlice
     ): StreamAiResponseSlice
 
     data class ToolCall(
+        val id: String,
         val tool: AiToolInfo<*>,
-        val display: AiToolInfo.DisplayToolInfo?,
+    ): StreamAiResponseSlice
+
+    data class ToolMessage(
+        val id: String,
+        @SerialName("reasoning_content")
+        val reasoningContent: String = "",
     ): StreamAiResponseSlice
 
     @Serializable
     data class ShowingTool(
         val content: String,
-        val showingType: AiTools.ToolData.Type,
+        val showingType: AiToolSet.ToolData.Type,
     ): StreamAiResponseSlice
-
-    /**
-     * 发生了上下文压缩
-     */
-    data object ContextCompression: StreamAiResponseSlice
 }

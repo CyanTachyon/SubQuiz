@@ -7,8 +7,9 @@ import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.Content
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.aiNegotiationJson
 
-object Math
+object Math: AiToolSet.ToolProvider
 {
+    override val name: String get() = "绘制函数图像"
     private const val KEY = "QUIZ_MATH_KEY_GAd7sgda"
     @Serializable
     private data class ShowParm(
@@ -70,9 +71,9 @@ object Math
         )
     }
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<AiTools.EmptyToolParm>(
+        registerTool<AiToolSet.EmptyToolParm>(
             name = "math_demo",
             displayName = "学习绘制函数图像",
             description = "该工具用于获取`math`工具的输入格式说明和示例。",
@@ -212,7 +213,7 @@ object Math
             )
         }
 
-        AiTools.registerTool<ShowParm>(
+        registerTool<ShowParm>(
             name = "math",
             displayName = "绘制数学函数图像",
             description = """
@@ -225,12 +226,12 @@ object Math
             """.trimIndent(),
         )
         {
-            if (it.parm.key != KEY)
+            if (parm.key != KEY)
                 return@registerTool AiToolInfo.ToolResult(Content("密钥错误，请先使用math_demo工具学习如何使用该工具，并获得其返回的key来使用该工具"))
             AiToolInfo.ToolResult(
                 Content("展示数学公式成功"),
-                showingContent = aiNegotiationJson.encodeToString(it.parm),
-                showingType = AiTools.ToolData.Type.MATH,
+                showingContent = aiNegotiationJson.encodeToString(parm),
+                showingType = AiToolSet.ToolData.Type.MATH,
             )
         }
     }

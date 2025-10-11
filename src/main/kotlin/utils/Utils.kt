@@ -3,6 +3,8 @@
 package moe.tachyon.quiz.utils
 
 import com.charleskorn.kaml.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
 import org.koin.mp.KoinPlatformTools
@@ -173,3 +175,23 @@ sealed class Either<out L, out R>
 
 fun <L, R> Either<L, R>.leftOrElse(block: (R) -> L): L = leftOrNull ?: block(right)
 fun <L, R> Either<L, R>.rightOrElse(block: (L) -> R): R = rightOrNull ?: block(left)
+
+
+@Suppress("UNCHECKED_CAST")
+fun <T> suspendLazy(initializer: suspend () -> T): suspend () -> T
+{
+    val mutex = Mutex()
+    var value: Any? = mutex
+    return suspend {
+        if (value !== mutex) value as T
+        else mutex.withLock()
+        {
+            if (value !== mutex) value as T
+            else
+            {
+                value = initializer()
+                value
+            }
+        }
+    }
+}

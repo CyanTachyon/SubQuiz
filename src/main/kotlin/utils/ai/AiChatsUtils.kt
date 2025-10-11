@@ -15,7 +15,7 @@ import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.chat.AskService
-import moe.tachyon.quiz.utils.ai.chat.tools.AiTools
+import moe.tachyon.quiz.utils.ai.chat.tools.AiToolSet
 import moe.tachyon.quiz.utils.ai.internal.llm.AiResult
 import moe.tachyon.quiz.utils.safeWithContext
 import moe.tachyon.quiz.utils.toJpegBytes
@@ -62,6 +62,8 @@ object AiChatsUtils: KoinComponent
     class ChatInfo(
         val chat: Chat,
         val content: Content,
+        val service: AskService,
+        val serviceOptions: List<AskService.ServiceOption>,
     )
     {
         private val checkJobs = mutableListOf<Job>()
@@ -86,7 +88,7 @@ object AiChatsUtils: KoinComponent
         suspend fun join() = job.join()
         fun cancel() = askJob.cancel()
 
-        suspend fun start(service: AskService): Unit = withLock()
+        suspend fun start(): Unit = withLock()
         {
             if (finished || banned) return@withLock
 
@@ -104,6 +106,7 @@ object AiChatsUtils: KoinComponent
                         service.ask(
                             chat,
                             content,
+                            serviceOptions,
                             this@ChatInfo::putMessage
                         )
                     }
@@ -192,7 +195,7 @@ object AiChatsUtils: KoinComponent
 
             checkJobs += coroutineScope.launch()
             {
-                val res = AskService.check(this@ChatInfo.content.toText(), uncheckedList)
+                val res = service.check(this@ChatInfo.content.toText(), uncheckedList)
                 users.addTokenUsage(chat.user, res.second)
                 if (res.first.getOrThrow()) return@launch banned()
             }
@@ -203,7 +206,7 @@ object AiChatsUtils: KoinComponent
             val chat = this.chat.copy(histories = chat.histories + ChatMessage(Role.USER, content) + response.filterIsInstance<TextMessage>().map { ChatMessage(Role.ASSISTANT, it.content, it.reasoningContent) })
             nameJob = coroutineScope.launch()
             {
-                val name = AskService.nameChat(chat)
+                val name = service.nameChat(chat)
                 for (listener in listeners)
                     runCatching { listener(NameChatEvent(name)) }
                 runCatching { chats.updateName(chat.id, name) }
@@ -303,11 +306,11 @@ object AiChatsUtils: KoinComponent
         return@withLock responseMap[chat]
     }
 
-    suspend fun startRespond(content: Content, chat: Chat, service: AskService): String? = chatInfoLocks.withLock(chat.id)
+    suspend fun startRespond(content: Content, chat: Chat, service: AskService, serviceOptions: List<AskService.ServiceOption>): String? = chatInfoLocks.withLock(chat.id)
     {
         if (chat.banned) return@withLock null
         val newHash: String = UUID.randomUUID().toString()
-        val info = ChatInfo(chat.copy(hash = newHash), content)
+        val info = ChatInfo(chat.copy(hash = newHash), content, service, serviceOptions)
         if (responseMap.putIfAbsent(chat.id, info) != null) return@withLock null
         runCatching()
         {
@@ -317,7 +320,7 @@ object AiChatsUtils: KoinComponent
                 return@withLock null
             }
             chats.updateHistory(chat.id, chat.histories + ChatMessage(Role.USER, content), newHash)
-            info.start(service)
+            info.start()
         }.onFailure()
         {
             responseMap.remove(chat.id)
@@ -423,7 +426,7 @@ object AiChatsUtils: KoinComponent
                 {
                     if (it.file.url.startsWith("uuid:")) return@mapIndexed it
                     val bytes = fileBytes[index]!!
-                    val uuid = ChatFiles.addChatFile(chat.id, it.file.filename, AiTools.ToolData.Type.FILE, bytes)
+                    val uuid = ChatFiles.addChatFile(chat.id, it.file.filename, AiToolSet.ToolData.Type.FILE, bytes)
                     ContentNode.file(it.file.filename, "uuid:${uuid.toHexString()}")
                 }
 
@@ -431,7 +434,7 @@ object AiChatsUtils: KoinComponent
                 {
                     if (it.image.url.startsWith("uuid:")) return@mapIndexed it
                     val bytes = fileBytes[index]!!
-                    val uuid = ChatFiles.addChatFile(chat.id, "img.jpeg", AiTools.ToolData.Type.IMAGE, bytes)
+                    val uuid = ChatFiles.addChatFile(chat.id, "img.jpeg", AiToolSet.ToolData.Type.IMAGE, bytes)
                     ContentNode.image("uuid:${uuid.toHexString()}")
                 }
             }

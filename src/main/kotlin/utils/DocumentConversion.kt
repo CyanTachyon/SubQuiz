@@ -190,7 +190,7 @@ object DocumentConversion: KoinComponent
         }
         XMLSlideShow().use()
         { ppt ->
-            ppt.setPageSize(Dimension(maxW, maxH))
+            ppt.pageSize = Dimension(maxW, maxH)
             for (img in images)
             {
                 val pngBytes = img.toJpegBytes()
@@ -201,7 +201,7 @@ object DocumentConversion: KoinComponent
                 val imgH = img.height
                 val x = (maxW - imgW) / 2.0
                 val y = (maxH - imgH) / 2.0
-                pic.setAnchor(Rectangle2D.Double(x, y, imgW.toDouble(), imgH.toDouble()))
+                pic.anchor = Rectangle2D.Double(x, y, imgW.toDouble(), imgH.toDouble())
             }
             ByteArrayOutputStream().use()
             { out ->

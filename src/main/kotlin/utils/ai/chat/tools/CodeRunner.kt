@@ -10,8 +10,9 @@ import java.io.File
 import kotlin.uuid.ExperimentalUuidApi
 
 @OptIn(ExperimentalUuidApi::class)
-object CodeRunner
+object CodeRunner: AiToolSet.ToolProvider
 {
+    override val name: String get() = "执行代码"
     fun getSandbox(chat: ChatId) = Sandbox(
         id = "subquiz-ai-code-runner-$chat",
         containerTarFile = ChatFiles.sandboxImageFile(chat),
@@ -86,9 +87,9 @@ object CodeRunner
         val path: String,
     )
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<CodeRunnerParm>(
+        registerTool<CodeRunnerParm>(
             name = "run_python",
             displayName = "运行代码",
             description = """
@@ -112,15 +113,11 @@ object CodeRunner
                 总之，系统环境和除去`/input` `/output`外的全部文件系统都会恢复到上次persistent=true。
                 [[重要]]如果你希望你的文件/环境被保留请启用persistent
             """.trimIndent(),
-            display = {
-                if (it.parm != null) return@registerTool Content("```python\n${it.parm.code.replace("```", "` ` `")}\n```")
-                else return@registerTool Content()
-            }
         )
-        { (chat, model, parm) ->
-            if (parm.code.isBlank()) return@registerTool AiToolInfo.ToolResult(
-                Content("error: code must not be empty")
-            )
+        {
+            sendMessage("```python\n${parm.code.replace("```", "` ` `")}\n```")
+            if (parm.code.isBlank())
+                return@registerTool AiToolInfo.ToolResult(Content("error: code must not be empty"))
             val timeout = parm.timeoutMs.coerceIn(1000, 120_000)
             return@registerTool try
             {
@@ -138,7 +135,7 @@ object CodeRunner
             }
         }
 
-        AiTools.registerTool<CmdParm>(
+        registerTool<CmdParm>(
             name = "run_cmd",
             displayName = "运行命令",
             description = """
@@ -148,12 +145,9 @@ object CodeRunner
                 - 命令要以数组形式传入，例如 ["ls", "-al"]，而不是 ["ls -al"]
                 - 安装任何软件包后的第一件事情是更换国内镜像源，例如当你安装完npm后，需要在使用前先更换国内镜像
             """.trimIndent(),
-            display = {
-                if (it.parm != null) return@registerTool Content("```bash\n${it.parm.cmd.joinToString(" ")}\n```")
-                else return@registerTool Content()
-            }
         )
-        { (chat, model, parm) ->
+        {
+            sendMessage("```bash\n${parm.cmd.joinToString(" ")}\n```")
             if (parm.cmd.isEmpty()) return@registerTool AiToolInfo.ToolResult(
                 Content("error: cmd must not be empty")
             )
@@ -169,7 +163,7 @@ object CodeRunner
             }
         }
 
-        AiTools.registerTool<ShowFileParm>(
+        registerTool<ShowFileParm>(
             name = "upload_file",
             displayName = null,
             description = """
@@ -182,19 +176,19 @@ object CodeRunner
                 - output中你指定的文件将被删除
             """.trimIndent(),
         )
-        { (chat, model, parm) ->
+        {
             if (!parm.path.startsWith("/workspace/output/"))
                 return@registerTool AiToolInfo.ToolResult(Content("error: path must start with /workspace/output/"))
             val path = parm.path.removePrefix("/workspace/output/").removePrefix("/")
             val file = File(ChatFiles.getChatFilesDir(chat.id), ".docker_out/$path")
             if (!file.exists() || !file.isFile)
                 return@registerTool AiToolInfo.ToolResult(Content("error: file not found"))
-            val uuid = ChatFiles.addChatFile(chat.id, path.substringAfterLast("/"), AiTools.ToolData.Type.FILE, file.readBytes())
+            val uuid = ChatFiles.addChatFile(chat.id, path.substringAfterLast("/"), AiToolSet.ToolData.Type.FILE, file.readBytes())
             file.delete()
             return@registerTool AiToolInfo.ToolResult(
                 content = Content("file uploaded: uuid:${uuid.toHexString()}"),
                 showingContent = uuid.toHexString(),
-                showingType = AiTools.ToolData.Type.FILE
+                showingType = AiToolSet.ToolData.Type.FILE
             )
         }
     }

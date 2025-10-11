@@ -9,8 +9,9 @@ import moe.tachyon.quiz.utils.ai.internal.imageGeneration.sendImageGenerationReq
 import kotlin.uuid.ExperimentalUuidApi
 
 @OptIn(ExperimentalUuidApi::class)
-object ImageGeneration
+object ImageGeneration: AiToolSet.ToolProvider
 {
+    override val name: String get() = "生成图片"
     @Serializable
     private data class Parm(
         @JsonSchema.Description("图片提示词，例如：一只可爱的猫")
@@ -25,9 +26,9 @@ object ImageGeneration
         val image3: String? = null,
     )
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<Parm>(
+        registerTool<Parm>(
             name = "generate_image",
             displayName = "生成图片",
             description = """
@@ -38,7 +39,7 @@ object ImageGeneration
                 你可以传入negative_prompt来让生成的图片避开某些元素。
             """.trimIndent(),
         )
-        { (chat, model, parm) ->
+        {
             val images = sendImageGenerationRequest(
                 model = if (parm.image == null) aiConfig.imageGenerator else aiConfig.imageEditor,
                 prompt = parm.prompt,
@@ -49,13 +50,13 @@ object ImageGeneration
             )
             val uuids = images.map()
             {
-                ChatFiles.addChatFile(chat.id, "img.jpeg", AiTools.ToolData.Type.IMAGE, it)
+                ChatFiles.addChatFile(chat.id, "img.jpeg", AiToolSet.ToolData.Type.IMAGE, it)
             }
             val res = uuids.joinToString("\n") { "uuid:" + it.toHexString() }
             AiToolInfo.ToolResult(
                 content = Content("成功生成图片，已展示给用户。"),
                 showingContent = res,
-                showingType = AiTools.ToolData.Type.IMAGE
+                showingType = AiToolSet.ToolData.Type.IMAGE
             )
         }
     }

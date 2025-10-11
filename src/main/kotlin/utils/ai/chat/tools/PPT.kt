@@ -19,8 +19,9 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 @OptIn(ExperimentalUuidApi::class)
-object PPT
+object PPT: AiToolSet.ToolProvider
 {
+    override val name: String get() = "制作PPT"
     private const val PPT_PROMPT = """
 以下是你需要遵循的PPT制作规则：
 
@@ -170,18 +171,15 @@ object PPT
         logger.warning("error in generating ppt", exception)
     })
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<NewPPTParams>(
+        registerTool<NewPPTParams>(
             name = "create_new_ppt",
             displayName = "创建新PPT",
             description = "创建一个新的PPT文件、将获得PPT的id和后续的操作指南",
-            display = { (chat, model, parm) ->
-                if (parm != null) Content("创建新PPT: ${parm.title}")
-                else Content("创建新PPT")
-            }
         )
-        { (chat, model, parm) ->
+        {
+            sendMessage("创建新PPT: ${parm.title}")
             val id = Uuid.random().toString()
             val pptDir = getPptDir(chat.id, id)
             pptDir.mkdirs()
@@ -191,12 +189,12 @@ object PPT
             )
         }
 
-        AiTools.registerTool<NewPPTPage>(
+        registerTool<NewPPTPage>(
             name = "add_ppt_page",
             displayName = "添加PPT页面",
             description = "向指定的PPT文件添加一个新页面，你可以通过添加一个已有的index来覆盖原来的页面，例如用户要求你修改第3页，你可以只重新添加index为3的页面，再直接调用upload_ppt上传即可",
         )
-        { (chat, model, parm) ->
+        {
             val pptDir = getPptDir(chat.id, parm.id)
             if (!pptDir.exists() || !pptDir.isDirectory)
             {
@@ -224,16 +222,13 @@ object PPT
             )
         }
 
-        AiTools.registerTool<UploadPPT>(
+        registerTool<UploadPPT>(
             name = "upload_ppt",
             displayName = "上传PPT文件",
             description = "将指定的PPT文件打包上传，生成pptx文件并展示给用户",
-            display = { (chat, model, parm) ->
-                if (parm != null) Content("合成并上传PPT\n该步骤将花费1～10分钟，请耐心等待")
-                else Content()
-            }
         )
-        { (chat, model, parm) ->
+        {
+            sendMessage("合成并上传PPT\n该步骤将花费1～10分钟，请耐心等待")
             val pptDir = getPptDir(chat.id, parm.id)
             if (!pptDir.exists() || !pptDir.isDirectory)
             {
@@ -269,16 +264,16 @@ object PPT
                 }
             }.awaitAll()
             val pptx = DocumentConversion.imagesToPptx(images)
-            val pptUuid = ChatFiles.addChatFile(chat.id, "$title.pptx", AiTools.ToolData.Type.FILE, pptx)
+            val pptUuid = ChatFiles.addChatFile(chat.id, "$title.pptx", AiToolSet.ToolData.Type.FILE, pptx)
             val imageUuids = images.mapIndexed()
             { index, bytes ->
-                ChatFiles.addChatFile(chat.id, "$title-${index + 1}.png", AiTools.ToolData.Type.IMAGE, bytes.toJpegBytes())
+                ChatFiles.addChatFile(chat.id, "$title-${index + 1}.png", AiToolSet.ToolData.Type.IMAGE, bytes.toJpegBytes())
             }
             return@registerTool AiToolInfo.ToolResult(
                 content = Content("已生成PPT: $title，共${pages.size}页"),
                 showingContent = listOf(
-                    imageUuids.joinToString("\n") { "uuid:${it.toHexString()}" } to AiTools.ToolData.Type.IMAGE,
-                    "uuid:${pptUuid.toHexString()}" to AiTools.ToolData.Type.FILE,
+                    imageUuids.joinToString("\n") { "uuid:${it.toHexString()}" } to AiToolSet.ToolData.Type.IMAGE,
+                    "uuid:${pptUuid.toHexString()}" to AiToolSet.ToolData.Type.FILE,
                 )
             )
         }

@@ -188,9 +188,8 @@ sealed interface JsonSchema
         )
     }
 
-    @ConsistentCopyVisibility
     @Serializable
-    data class Null private constructor(
+    data class Null constructor(
         @EncodeDefault(EncodeDefault.Mode.NEVER)
         override val description: DescriptionType = null,
     ): JsonSchema

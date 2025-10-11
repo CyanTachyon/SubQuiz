@@ -44,11 +44,6 @@ private data class Resquest(
 )
 
 @Serializable
-private data class Response(
-    val requestId: String
-)
-
-@Serializable
 private data class StatusResponse(
     val status: String,
     val reason: String? = null,

@@ -5,20 +5,25 @@ package moe.tachyon.quiz.utils.ai.chat.plugins
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNull
 import moe.tachyon.quiz.config.AiConfig
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
 import moe.tachyon.quiz.plugin.contentNegotiation.showJson
+import moe.tachyon.quiz.utils.JsonSchema
 import moe.tachyon.quiz.utils.ai.*
 import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
-import moe.tachyon.quiz.utils.ai.internal.llm.*
+import moe.tachyon.quiz.utils.ai.chat.plugins.ContextCompressor.Companion.MARKING_TYPE
+import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
+import moe.tachyon.quiz.utils.ai.internal.llm.BeforeLlmRequest
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
-import moe.tachyon.quiz.utils.ai.internal.llm.utils.jsonResultType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.jsonResultType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
 import org.intellij.lang.annotations.Language
 import kotlin.math.max
+import kotlin.reflect.typeOf
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -29,11 +34,27 @@ interface ContextCompressor
 {
     suspend fun shouldCompress(messages: ChatMessages): Boolean
     suspend fun compress(messages: ChatMessages): Pair<ChatMessages, TokenUsage>
+
+    companion object
+    {
+        const val MARKING_TYPE = "CONTEXT_COMPRESSION"
+    }
 }
 
+// 一个tool，仅作为占位，表示上下文压缩
+private val tool = AiToolInfo<Any>(
+    MARKING_TYPE,
+    "",
+    "上下文压缩",
+    { _, _ -> error("not callable") },
+    JsonSchema.Null(),
+    typeOf<Nothing?>()
+)
+
+@OptIn(ExperimentalUuidApi::class)
 fun ContextCompressor.toLlmPlugin(): BeforeLlmRequest = BeforeLlmRequest()
 {
-    val index = requestMessage.indexOfLast { it.role == Role.CONTEXT_COMPRESSION }
+    val index = requestMessage.indexOfLast { it.role is Role.MARKING && it.role.type == MARKING_TYPE }
     val uncompressed =
         (if (index == -1) requestMessage
         else
@@ -43,11 +64,11 @@ fun ContextCompressor.toLlmPlugin(): BeforeLlmRequest = BeforeLlmRequest()
         }).toChatMessages()
     if (shouldCompress(uncompressed))
     {
-        onReceive(StreamAiResponseSlice.ContextCompression)
+        onReceive(StreamAiResponseSlice.ToolCall(MARKING_TYPE + "-" + Uuid.random().toHexString(), tool))
         val compressed = compress(uncompressed)
         addTokenUsage(compressed.second)
         responseMessage += ChatMessage(
-            role = Role.CONTEXT_COMPRESSION,
+            role = Role.MARKING(MARKING_TYPE, JsonNull),
             content = dataJson.encodeToString(compressed.first)
         )
         requestMessage = compressed.first
@@ -127,7 +148,7 @@ class AiContextCompressor(
     @OptIn(ExperimentalSerializationApi::class)
     @Serializable
     private data class Compress(
-        val role: Role,
+        val role: String,
         val content: Content,
         @EncodeDefault(EncodeDefault.Mode.NEVER)
         val toolCall: ToolCall? = null,
@@ -145,7 +166,7 @@ class AiContextCompressor(
         var id: String? = null
         for (c in this)
         {
-            if (c.role != Role.TOOL && id != null)
+            if (c.role != Role.TOOL.role && id != null)
                 error("an assistant message with toolCall must be followed by a tool message")
             val toolCalls =
                 if (c.toolCall == null) emptyList()
@@ -156,14 +177,15 @@ class AiContextCompressor(
                 }
             when (c.role)
             {
-                Role.SYSTEM              -> Unit
-                Role.CONTEXT_COMPRESSION -> Unit
-                Role.USER                -> res.add(ChatMessage(Role.USER, content = c.content))
-                Role.ASSISTANT           -> res.add(ChatMessage(Role.ASSISTANT, content = c.content, toolCalls = toolCalls))
-                Role.TOOL                ->
+                Role.SYSTEM.role              -> Unit
+                Role.MARKING.role             -> Unit
+                Role.SHOWING_DATA.role        -> Unit
+                Role.USER.role                -> res.add(ChatMessage(Role.USER, content = c.content))
+                Role.ASSISTANT.role           -> res.add(ChatMessage(Role.ASSISTANT, content = c.content, toolCalls = toolCalls))
+                Role.TOOL.role                ->
                 {
                     id ?: error("tool message must follow an assistant message with toolCall")
-                    res.add(ChatMessage(Role.TOOL, content = c.content, toolCallId = id))
+                    res.add(ChatMessage(Role.TOOL(id, MARKING_TYPE), content = c.content))
                     id = null
                 }
             }
@@ -324,11 +346,13 @@ class AiContextCompressor(
             else ToolCall(it.toolCalls[0].name, it.toolCalls[0].arguments)
             when (it.role)
             {
-                Role.USER,
-                Role.ASSISTANT,
-                Role.TOOL                             -> Compress(it.role, it.content, toolCall)
+                is Role.USER,
+                is Role.ASSISTANT,
+                is Role.TOOL                             -> Compress(it.role.role, it.content, toolCall)
 
-                Role.SYSTEM, Role.CONTEXT_COMPRESSION -> Compress(it.role, it.content, toolCall)
+                is Role.SYSTEM,
+                is Role.MARKING,
+                is Role.SHOWING_DATA                     -> null
             }
         }
         prompt.append(showJson.encodeToString(c))

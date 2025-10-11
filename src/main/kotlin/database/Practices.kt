@@ -100,7 +100,7 @@ class Practices: SqlDao<Practices.PracticeTable>(PracticeTable)
             it[knowledgePoints] = practice.knowledgePoints
             it[sectionCount] = practice.sectionCount
             it[accuracy] = practice.accuracy
-            it[dueDate] = practice.dueDate?.let { Instant.fromEpochMilliseconds(it) }
+            it[dueDate] = practice.dueDate?.let(Instant::fromEpochMilliseconds)
         } > 0
     }
 

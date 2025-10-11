@@ -7,8 +7,9 @@ import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
 @OptIn(ExperimentalTime::class)
-data object GetUserInfo
+data object GetUserInfo: AiToolSet.ToolProvider
 {
+    override val name: String get() = "获取用户信息"
     private class Getter(val user: UserId)
     {
         suspend fun getInfo(): String
@@ -33,20 +34,18 @@ data object GetUserInfo
         }
     }
 
-    init
+    override suspend fun AiToolSet.registerTools()
     {
-        AiTools.registerTool<AiTools.EmptyToolParm>(
+        registerTool<AiToolSet.EmptyToolParm>(
             name = "user_info",
             displayName = "获取用户信息",
             description = """
                 获取当前正在和你对话的用户的信息。
                 将获得用户的ID、昵称、实名、学号/工号等信息。
             """.trimIndent(),
-            display = {
-                Content("获取`用户ID` `昵称` `实名` `学工号` `邮箱`" )
-            }
         )
-        { (chat, model, parm) ->
+        {
+            sendMessage("获取`用户ID` `昵称` `实名` `学工号` `邮箱`")
             val getter = Getter(chat.user)
             val info = getter.getInfo()
             AiToolInfo.ToolResult(Content(info))
