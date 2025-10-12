@@ -9,8 +9,11 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
 import moe.tachyon.quiz.plugin.contentNegotiation.dataJson
+import moe.tachyon.quiz.utils.ai.chat.plugins.ContextCompressor
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolSet
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 @Serializable(Role.Serializer::class)
 @OptIn(ExperimentalSerializationApi::class, InternalSerializationApi::class)
@@ -37,28 +40,28 @@ sealed interface Role
             override fun deserialize(decoder: Decoder): USER = USER
         }
     }
-    @Serializable data object SYSTEM: Role
+    @Serializable(with = SYSTEM.Serializer::class) data object SYSTEM: Role
     {
-        class Serializer : KSerializer<Role>
+        class Serializer : KSerializer<SYSTEM>
         {
             override val descriptor = buildSerialDescriptor("Role.System", SerialKind.ENUM)
             {
                 element("system", buildSerialDescriptor("system", StructureKind.OBJECT))
             }
-            override fun serialize(encoder: Encoder, value: Role) = encoder.encodeString("system")
-            override fun deserialize(decoder: Decoder): Role = SYSTEM
+            override fun serialize(encoder: Encoder, value: SYSTEM) = encoder.encodeString("system")
+            override fun deserialize(decoder: Decoder): SYSTEM = SYSTEM
         }
     }
-    @Serializable data object ASSISTANT: Role
+    @Serializable(with = ASSISTANT.Serializer::class) data object ASSISTANT: Role
     {
-        class Serializer : KSerializer<Role>
+        class Serializer : KSerializer<ASSISTANT>
         {
             override val descriptor = buildSerialDescriptor("Role.Assistant", SerialKind.ENUM)
             {
                 element("assistant", buildSerialDescriptor("assistant", StructureKind.OBJECT))
             }
-            override fun serialize(encoder: Encoder, value: Role) = encoder.encodeString("assistant")
-            override fun deserialize(decoder: Decoder): Role = ASSISTANT
+            override fun serialize(encoder: Encoder, value: ASSISTANT) = encoder.encodeString("assistant")
+            override fun deserialize(decoder: Decoder): ASSISTANT = ASSISTANT
         }
     }
     @Serializable data class TOOL(val id: String, val name: String): Role
@@ -91,7 +94,7 @@ sealed interface Role
         }
     }
 
-    private class Serializer: KSerializer<Role>
+    class Serializer: KSerializer<Role>
     {
         override val descriptor: SerialDescriptor = buildSerialDescriptor("Role", PolymorphicKind.SEALED)
         {
@@ -117,15 +120,14 @@ sealed interface Role
             val ele = JsonElement.serializer().deserialize(decoder)
             return when(val role = ((ele as? JsonObject)?.get("role") as? JsonPrimitive)?.content ?: (ele as? JsonPrimitive)?.content)
             {
-                "user"      -> USER
-                "system"    -> SYSTEM
-                "assistant" -> ASSISTANT
-                "tool"      -> decoder.json.decodeFromJsonElement<TOOL>(ele)
+                "user"         -> USER
+                "system"       -> SYSTEM
+                "assistant"    -> ASSISTANT
+                "tool"         -> decoder.json.decodeFromJsonElement<TOOL>(ele)
                 "showing_data" -> decoder.json.decodeFromJsonElement<SHOWING_DATA>(ele)
-                "marking"   -> decoder.json.decodeFromJsonElement<MARKING>(ele)
-                else        -> error("Unsupported role: $role")
+                "marking"      -> decoder.json.decodeFromJsonElement<MARKING>(ele)
+                else           -> error("Unsupported role: $ele")
             }
-
         }
     }
 }
@@ -263,7 +265,9 @@ value class Content(@Serializable(ContentSerializer::class) val content: List<Co
     }
 }
 
-@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable(ChatMessage.Serializer::class)
+@KeepGeneratedSerializer
 data class ChatMessage(
     val role: Role,
     val content: Content,
@@ -313,6 +317,46 @@ data class ChatMessage(
             val name: String,
             val arguments: String,
         )
+    }
+
+    class Serializer: KSerializer<ChatMessage>
+    {
+        private val gen = generatedSerializer()
+        override val descriptor: SerialDescriptor = gen.descriptor
+        override fun serialize(encoder: Encoder, value: ChatMessage) = gen.serialize(encoder, value)
+        @OptIn(ExperimentalUuidApi::class)
+        override fun deserialize(decoder: Decoder): ChatMessage
+        {
+            require(decoder is JsonDecoder) { "This class can be loaded only by Json" }
+            val ele = decoder.decodeJsonElement()
+            if (ele !is JsonObject) error("Expected JsonObject, found ${ele::class}")
+            if ("toolCallId" in ele || "showingType" in ele || (ele["role"] as? JsonPrimitive)?.content in listOf("CONTEXT_COMPRESSION", "tool"))
+            {
+                /// legacy format
+                val role = when((ele["role"] as? JsonPrimitive)?.content)
+                {
+                    "CONTEXT_COMPRESSION" -> Role.MARKING(ContextCompressor.MARKING_TYPE, JsonNull)
+                    "tool"                -> Role.TOOL(Uuid.random().toHexString(), "unknown")
+                    else                  -> decoder.json.decodeFromJsonElement<Role>(ele["role"] ?: error("Missing role field"))
+                }
+                val toolCallId = ele["tool_call_id"]?.let<JsonElement, String>(decoder.json::decodeFromJsonElement) ?: ""
+                val showingType = ele["showingType"]?.let<JsonElement, AiToolSet.ToolData.Type>(decoder.json::decodeFromJsonElement)
+
+                val content = decoder.json.decodeFromJsonElement<Content>(ele["content"] ?: error("Missing content field"))
+                val reasoningContent = (ele["reasoning_content"] as? JsonPrimitive)?.content ?: ""
+                val toolCalls = mutableListOf<ToolCall>()
+                return ChatMessage(
+                    role =
+                        if (toolCallId.isNotBlank()) Role.TOOL(toolCallId, "unknown")
+                        else if (showingType != null) Role.SHOWING_DATA(showingType)
+                        else role,
+                    content = content,
+                    reasoningContent = reasoningContent,
+                    toolCalls = toolCalls,
+                )
+            }
+            return decoder.json.decodeFromJsonElement(gen, ele)
+        }
     }
 }
 

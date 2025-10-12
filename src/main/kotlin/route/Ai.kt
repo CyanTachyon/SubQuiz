@@ -474,19 +474,12 @@ private suspend fun Context.getChatModels(): Nothing
 {
     val customModel =
         getLoginUser()?.id?.let { get<Users>().getCustomSetting<QuizAskService.CustomModelSetting>(it, UserConfigKeys.CUSTOM_MODEL_CONFIG_KEY) }
-    val displayName =
-        if (customModel == null) null
-        else if (customModel.model.length <= 12) customModel.model
-        else customModel.model.take(9) + "..."
     val models = aiConfig.chats.map { ChatModelResponse(it.model, it.displayName, aiConfig.models[it.model]!!.toolable) }
     val rModels =
         if (customModel != null)
-            listOf(ChatModelResponse(QuizAskService.CUSTOM_MODEL_NAME, displayName!!, customModel.toolable)) + models
+            listOf(ChatModelResponse(QuizAskService.CUSTOM_MODEL_NAME, customModel.model, customModel.toolable)) + models
         else models
-    finishCall(
-        HttpStatus.OK,
-        rModels,
-    )
+    finishCall(HttpStatus.OK, rModels,)
 }
 
 private suspend fun Context.getServiceOptions(): Nothing

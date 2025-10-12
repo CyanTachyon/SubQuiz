@@ -15,7 +15,7 @@ val schema_kenerator_version: String by project
 plugins {
     kotlin("jvm") version "2.2.20"
     kotlin("plugin.serialization") version "2.2.20"
-    id("io.ktor.plugin") version "3.3.0"
+    id("io.ktor.plugin") version "3.3.1"
 }
 
 fun getCurrentDateTime(): String
@@ -26,7 +26,7 @@ fun getCurrentDateTime(): String
 }
 
 group = "moe.tachyon.quiz"
-version = "3.3.2.0-${getCurrentDateTime()}"
+version = "3.4.0.0-${getCurrentDateTime()}"
 
 application {
     mainClass.set("moe.tachyon.quiz.SubQuizKt")
@@ -115,7 +115,7 @@ dependencies {
     implementation("me.nullaqua:BluestarAPI-kotlin-reflect:4.3.7")
 
     // tencent cloud object storage
-    implementation("com.qcloud:cos_api:5.6.244")
+    implementation("com.qcloud:cos_api:5.6.255.1")
 }
 
 tasks.withType<ProcessResources> {

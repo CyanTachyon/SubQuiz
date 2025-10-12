@@ -44,6 +44,8 @@ object Power: KoinComponent
             logger.info("Ktor is stopped.")
         }
         else logger.warning("Application is null")
+        // 收尾全部沙盒
+        runBlocking { Sandbox.shutdownAll() }
         startShutdownHook(code)
         exitProcess(code)
     }

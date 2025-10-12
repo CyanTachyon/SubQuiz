@@ -4,6 +4,7 @@
 package moe.tachyon.quiz.utils.ai.internal.llm
 
 import io.ktor.client.*
+import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
@@ -285,7 +286,12 @@ private val streamAiClient = HttpClient(ktorClientEngineFactory)
     engine()
     {
         dispatcher = Dispatchers.IO
-        requestTimeout = 0
+        requestTimeout = Int.MAX_VALUE.toLong()
+        endpoint()
+        {
+            keepAliveTime = aiConfig.timeout
+            connectTimeout = aiConfig.timeout
+        }
     }
     install(SSE)
     {
@@ -298,7 +304,12 @@ private val defaultAiClient = HttpClient(ktorClientEngineFactory)
     engine()
     {
         dispatcher = Dispatchers.IO
-        requestTimeout = 0
+        requestTimeout = Int.MAX_VALUE.toLong()
+        endpoint()
+        {
+            keepAliveTime = aiConfig.timeout
+            connectTimeout = aiConfig.timeout
+        }
     }
     install(ContentNegotiation)
     {
@@ -536,7 +547,7 @@ private suspend fun sendRequest(
         {
             if (!call.response.status.isSuccess())
                 throw SSEClientException(call.response, message = "AI请求返回异常，HTTP状态码 ${call.response.status.value}, 响应体: ${call.response.bodyAsText()}")
-            while(true) incoming
+            incoming
                 .mapNotNull { it.data }
                 .filterNot { it == "[DONE]" }
                 .mapNotNull()

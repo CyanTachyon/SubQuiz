@@ -164,6 +164,7 @@ class AiContextCompressor(
     {
         val res = mutableListOf<ChatMessage>()
         var id: String? = null
+        var toolName = ""
         for (c in this)
         {
             if (c.role != Role.TOOL.role && id != null)
@@ -173,6 +174,7 @@ class AiContextCompressor(
                 else
                 {
                     id = Uuid.random().toHexString()
+                    toolName = c.toolCall.name
                     listOf(ChatMessage.ToolCall(id, c.toolCall.name, c.toolCall.arguments))
                 }
             when (c.role)
@@ -185,7 +187,7 @@ class AiContextCompressor(
                 Role.TOOL.role                ->
                 {
                     id ?: error("tool message must follow an assistant message with toolCall")
-                    res.add(ChatMessage(Role.TOOL(id, MARKING_TYPE), content = c.content))
+                    res.add(ChatMessage(Role.TOOL(id, toolName), content = c.content))
                     id = null
                 }
             }

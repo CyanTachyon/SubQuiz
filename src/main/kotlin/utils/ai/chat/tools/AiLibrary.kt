@@ -19,7 +19,7 @@ import kotlin.math.max
 
 object AiLibrary: KoinComponent, AiToolSet.ToolProvider
 {
-    override val name: String get() = "AI知识库"
+    override val name: String get() = "知识库搜索"
     private val logger = SubQuizLogger.getLogger<AiLibrary>()
     private val rag: Rag by inject()
     private val userRag: UserRag by inject()

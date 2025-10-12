@@ -26,6 +26,31 @@ class Sandbox(
         private val sandboxJobs = ConcurrentHashMap<String, Pair<Job, Boolean>>()
         private val locks = Locks<String>()
 
+        fun getRunningSandboxes() = running.toList()
+
+        suspend fun shutdownAll()
+        {
+            val logger = SubQuizLogger.getLogger("Sandbox-ShutdownAll")
+            logger.info("Shutting down all running sandboxes...")
+            sandboxJobs.forEach()
+            { (id, info) ->
+                Sandbox(
+                    id = id,
+                    containerTarFile = File(""),
+                    baseImage = "alpine",
+                    memoryLimit = "128m",
+                    cpuLimit = "0.1",
+                ).apply()
+                {
+                    logger.severe("Failed to clean up container $id")
+                    {
+                        info.first.cancel()
+                        close(info.second)
+                    }
+                }
+            }
+        }
+
         init
         {
             Runtime.getRuntime().addShutdownHook(Thread()
@@ -94,15 +119,16 @@ class Sandbox(
         maxErr: Int,
         timeout: Long,
         persistent: Boolean,
+        onMessage: suspend (stdout: String, stderr: String) -> Unit = { _, _ -> },
     ): Triple<Int?, String, String> = locks.withLock(id)
     {
         try
         {
             startSandbox()
-            val execResult = executeWithTimeout(cmd, maxOut, maxErr, timeout)
+            val execResult = executeWithTimeout(cmd, maxOut, maxErr, timeout, onMessage)
             return@withLock execResult
         }
-        catch (e: Exception)
+        catch (e: Throwable)
         {
             logger.warning("执行出错: ${e.message}")
             throw e
@@ -216,6 +242,7 @@ class Sandbox(
         maxOut: Int,
         maxErr: Int,
         timeout: Long,
+        onMessage: suspend (stdout: String, stderr: String) -> Unit = { _, _ -> },
     ): Triple<Int?, String, String>
     {
         logger.fine("在容器${id}中执行命令(maxOut=$maxOut, maxErr=$maxErr, timeout=${timeout}ms): ${cmd.joinToString(" ")}")
@@ -233,6 +260,7 @@ class Sandbox(
             while (reader.read(buffer).also { read = it } != -1)
             {
                 currentCoroutineContext().ensureActive()
+                onMessage(buffer.concatToString(), "")
                 if (stdout.length > maxOut) continue
                 stdout.append(buffer, 0, read)
                 if (stdout.length > maxOut)
@@ -248,6 +276,7 @@ class Sandbox(
             while (reader.read(buffer).also { read = it } != -1)
             {
                 currentCoroutineContext().ensureActive()
+                onMessage("", buffer.concatToString())
                 if (stderr.length > maxErr) continue
                 stderr.append(buffer, 0, read)
                 if (stderr.length > maxErr)

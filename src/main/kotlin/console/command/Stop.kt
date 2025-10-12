@@ -1,6 +1,7 @@
 package moe.tachyon.quiz.console.command
 
 import moe.tachyon.quiz.utils.Power
+import moe.tachyon.quiz.utils.Sandbox
 import moe.tachyon.quiz.utils.ai.chatUtils.AiChatsUtils
 
 /**
@@ -19,6 +20,15 @@ object Stop: Command
                 sender.err("There are ${chats.size} active AI chat sessions. If you really want to stop the server, please run the command again with the argument \"confirm\".")
                 chats.forEach { chat ->
                     sender.err(" - $chat")
+                }
+                return true
+            }
+            val runningSandboxes = Sandbox.getRunningSandboxes()
+            if (runningSandboxes.isNotEmpty())
+            {
+                sender.err("There are ${runningSandboxes.size} running sandboxes. If you really want to stop the server, please run the command again with the argument \"confirm\".")
+                runningSandboxes.forEach { id ->
+                    sender.err(" - $id")
                 }
                 return true
             }

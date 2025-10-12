@@ -1,5 +1,7 @@
 package moe.tachyon.quiz.utils.ai.chat.tools
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
 import moe.tachyon.quiz.dataClass.ChatId
 import moe.tachyon.quiz.utils.ChatFiles
@@ -31,7 +33,13 @@ object CodeRunner: AiToolSet.ToolProvider
         ),
     )
 
-    suspend fun executeInSandbox(chat: ChatId, timeout: Long, persistent: Boolean, cmd: List<String>): String
+    suspend fun executeInSandbox(
+        chat: ChatId,
+        timeout: Long,
+        persistent: Boolean,
+        cmd: List<String>,
+        onMessage: suspend (stdout: String, stderr: String)->Unit = { _, _ -> }
+    ): String
     {
         val sandbox = getSandbox(chat)
 
@@ -41,11 +49,13 @@ object CodeRunner: AiToolSet.ToolProvider
             maxErr = 2048,
             timeout = timeout,
             persistent = persistent,
+            onMessage = onMessage,
         )
 
         return buildString()
         {
             append("Exit Code: ${exitCode ?: "程序未退出"}\n")
+            if (!currentCoroutineContext().isActive) append("该进程被用户取消\n")
             if (output.isNotBlank())
             {
                 append("stdout:\n```\n")
@@ -115,7 +125,7 @@ object CodeRunner: AiToolSet.ToolProvider
             """.trimIndent(),
         )
         {
-            sendMessage("```python\n${parm.code.replace("```", "` ` `")}\n```")
+            sendMessage("```python\n${parm.code.replace("```", "")}\n```\n")
             if (parm.code.isBlank())
                 return@registerTool AiToolInfo.ToolResult(Content("error: code must not be empty"))
             val timeout = parm.timeoutMs.coerceIn(1000, 120_000)
@@ -125,7 +135,11 @@ object CodeRunner: AiToolSet.ToolProvider
                     chat = chat.id,
                     cmd = listOf("python3", "-c", parm.code),
                     persistent = parm.persistent,
-                    timeout = timeout
+                    timeout = timeout,
+                    onMessage = { stdout, stderr ->
+                        if (stdout.isNotEmpty()) sendMessage("<span>${stdout.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                        if (stderr.isNotEmpty()) sendMessage("<span style='color:red'>${stderr.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                    }
                 ) + if (!parm.persistent) "由于持久化未启用，本次操作除/output目录中的内容外均会被回滚" else ""
                 AiToolInfo.ToolResult(Content(r))
             }
@@ -147,7 +161,7 @@ object CodeRunner: AiToolSet.ToolProvider
             """.trimIndent(),
         )
         {
-            sendMessage("```bash\n${parm.cmd.joinToString(" ")}\n```")
+            sendMessage("```bash\n${parm.cmd.joinToString(" ").replace("```", "")}\n```\n")
             if (parm.cmd.isEmpty()) return@registerTool AiToolInfo.ToolResult(
                 Content("error: cmd must not be empty")
             )
@@ -155,6 +169,10 @@ object CodeRunner: AiToolSet.ToolProvider
             return@registerTool try
             {
                 val r = executeInSandbox(chat = chat.id, cmd = parm.cmd, persistent = parm.persistent, timeout = timeout)
+                { stdout, stderr ->
+                    if (stdout.isNotEmpty()) sendMessage("<span>${stdout.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                    if (stderr.isNotEmpty()) sendMessage("<span style='color:red'>${stderr.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                }
                 AiToolInfo.ToolResult(Content(r))
             }
             catch (e: Throwable)
