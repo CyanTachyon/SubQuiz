@@ -206,8 +206,7 @@ private suspend fun Context.updatePractice(practice: Practice): Nothing
 
 private suspend fun Context.startPractice(): Nothing
 {
-    val practiceId = call.pathParameters["id"]?.toPracticeIdOrNull()
-                     ?: finishCall(HttpStatus.BadRequest.subStatus("practice id is required", 1))
+    val practiceId = call.pathParameters["id"]?.toPracticeIdOrNull() ?: finishCall(HttpStatus.BadRequest.subStatus("practice id is required", 1))
     val practices: Practices = get()
     val practice = practices.getPractice(practiceId) ?: finishCall(HttpStatus.NotFound)
     if (!practice.available) finishCall(HttpStatus.BadRequest.subStatus("练习不可用", 2))
@@ -216,6 +215,8 @@ private suspend fun Context.startPractice(): Nothing
     val members = get<ClassMembers>().getClassMembers(practice.clazz)
     if (members.all { it.user != loginUser.id }) finishCall(HttpStatus.NotFound)
     val quizzes: Quizzes = get()
+    if (quizzes.getUnfinishedQuizzes(loginUser.id, practiceId).isNotEmpty())
+        finishCall(HttpStatus.BadRequest.subStatus("你已经开始了该练习，请先完成它", 3))
     val sections = get<Sections>().recommendSections(loginUser.id, null, practice.knowledgePoints, practice.sectionCount)
     if (sections.count < practice.sectionCount ) finishCall(HttpStatus.NotEnoughQuestions.subStatus("请联系你的老师添加更多题目", 1))
     val quiz = quizzes.addQuiz(loginUser.id, sections.list, null, practiceId).hideAnswer()

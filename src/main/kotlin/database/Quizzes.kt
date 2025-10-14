@@ -51,11 +51,15 @@ class Quizzes: SqlDao<Quizzes.QuizTable>(QuizTable)
             tokenUsage = row[table.tokenUsage],
         )
 
-    suspend fun getUnfinishedQuizzes(user: UserId): List<Quiz<Any, Any?, JsonElement>> = query()
+    suspend fun getUnfinishedQuizzes(
+        user: UserId,
+        practice: PracticeId? = null,
+    ): List<Quiz<Any, Any?, JsonElement>> = query()
     {
         selectAll()
-            .where { finished eq false }
+            .andWhere { finished eq false }
             .andWhere { table.user eq user }
+            .apply { if (practice != null) andWhere { table.practices eq practice } }
             .orderBy(table.time, SortOrder.DESC)
             .map(::deserialize)
     }

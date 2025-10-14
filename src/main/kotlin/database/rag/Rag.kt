@@ -11,6 +11,7 @@ class Rag: SqlDao<Rag.RagTable>(RagTable)
     {
         override val id = integer("id").autoIncrement().entityId()
         val filePath = text("file_path").index()
+        val content = text("content")
         val vector = vector("vector", 4096)
 
         override val primaryKey = PrimaryKey(id)
@@ -24,7 +25,7 @@ class Rag: SqlDao<Rag.RagTable>(RagTable)
 //        exec("CREATE INDEX IF NOT EXISTS vector_cosine ON rag USING ivfflat (vector vector_cosine_ops);")
     }
 
-    suspend fun insert(filePath: String, vector: List<Double>): Int = query()
+    suspend fun insert(filePath: String, content: String, vector: List<Double>): Int = query()
     {
         val vec =
             if (vector.size > 4096)
@@ -37,17 +38,19 @@ class Rag: SqlDao<Rag.RagTable>(RagTable)
         insertAndGetId()
         { row ->
             row[this.filePath] = filePath
+            row[this.content] = content
             row[this.vector] = vectorParam(vec)
         }.value
     }
 
-    suspend fun query(prefix: String, vector: List<Double>, count: Int = 10): List<Pair<String, Double>> = query()
+    suspend fun query(prefix: String, keyWord: String?, vector: List<Double>, count: Int = 10): List<Pair<String, Double>> = query()
     {
         val expr = (table.vector vectorL2Ops vector).alias("len")
         select(filePath, expr)
             .apply()
             {
                 if (prefix.isNotEmpty()) andWhere { filePath like "$prefix%" }
+                if (!keyWord.isNullOrEmpty()) keyWord.split(" ").forEach { kw -> andWhere { content like "%$kw%" } }
             }
             .orderBy(expr.aliasOnlyExpression())
             .limit(count)

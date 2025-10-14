@@ -78,7 +78,7 @@ object AiLibrary: TreeCommand(Update, Clear, Remove, Indexed, Search, SearchInOr
             }
             val query = args[0]
             val userId = args.getOrNull(1)?.toUserIdOrNull()
-            val results = AiLibrary.search(userId, "", query, 10)
+            val results = AiLibrary.search(userId, "", query, 10, true)
             results.forEach { sender.out("${it.second}: ${it.first}") }
             return true
         }
@@ -98,7 +98,7 @@ object AiLibrary: TreeCommand(Update, Clear, Remove, Indexed, Search, SearchInOr
             val results: List<String>
             val time = measureTime()
             {
-                results = AiLibrary.searchInOrder(userId, "", query, 3)
+                results = AiLibrary.searchInOrder(userId, "", query, 3, true)
             }
             sender.out(showJson.encodeToString(results.map { it.take(50) }))
             sender.out("Search completed in $time")

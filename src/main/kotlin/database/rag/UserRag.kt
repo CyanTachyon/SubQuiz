@@ -13,6 +13,7 @@ class UserRag: SqlDao<UserRag.RagTable>(RagTable)
     {
         override val id = integer("id").autoIncrement().entityId()
         val filePath = text("file_path").index()
+        val content = text("content")
         val vector = vector("vector", 4096)
         val user = reference("user", Users.UserTable).index()
 
@@ -27,7 +28,7 @@ class UserRag: SqlDao<UserRag.RagTable>(RagTable)
 //        exec("CREATE INDEX IF NOT EXISTS vector_cosine ON rag USING ivfflat (vector vector_cosine_ops);")
     }
 
-    suspend fun insert(user: UserId, filePath: String, vector: List<Double>): Int = query()
+    suspend fun insert(user: UserId, filePath: String, content: String, vector: List<Double>): Int = query()
     {
         val vec =
             if (vector.size > 4096)
@@ -41,6 +42,7 @@ class UserRag: SqlDao<UserRag.RagTable>(RagTable)
         { row ->
             row[table.filePath] = filePath
             row[table.vector] = vectorParam(vec)
+            row[table.content] = content
             row[table.user] = user
         }.value
     }

@@ -32,7 +32,7 @@ object ShowHtml: AiToolSet.ToolProvider
             """.trimIndent()
         )
         {
-            val svgContent = parm.svg.trim()
+            val svgContent = "<!--show-download-image-->\n" + parm.svg.trim()
             AiToolInfo.ToolResult(Content("已成功展示 SVG 图像"), svgContent)
         }
 
@@ -48,7 +48,7 @@ object ShowHtml: AiToolSet.ToolProvider
             """.trimIndent()
         )
         {
-            val html = parm.html.trim()
+            val html = "<!--show-download-image-->\n" + parm.html.trim()
             AiToolInfo.ToolResult(Content("已成功展示 HTML 页面"), html, AiToolSet.ToolData.Type.HTML)
         }
     }

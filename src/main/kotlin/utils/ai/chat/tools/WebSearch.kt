@@ -2,6 +2,7 @@ package moe.tachyon.quiz.utils.ai.chat.tools
 
 import io.ktor.client.*
 import io.ktor.client.call.*
+import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -11,6 +12,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.longOrNull
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.contentNegotiationJson
@@ -24,13 +31,21 @@ object WebSearch: AiToolSet.ToolProvider
     override val name: String get() = "网络搜索"
     private val logger = SubQuizLogger.getLogger<WebSearch>()
     private const val SEARCH_URL = "https://api.tavily.com/search"
+    private const val EXTRACT_URL = "https://api.tavily.com/extract"
+    private const val USAGE_URL = "https://api.tavily.com/usage"
+    private const val CRAWL_URL = "https://api.tavily.com/crawl"
 
     private val client = HttpClient(ktorClientEngineFactory)
     {
+        val timeout = 25_000L
         engine()
         {
             dispatcher = Dispatchers.IO
-            requestTimeout = 15_000
+            requestTimeout = timeout
+            endpoint {
+                connectTimeout = timeout
+                keepAliveTime = timeout
+            }
         }
         install(ContentNegotiation)
         {
@@ -48,40 +63,29 @@ object WebSearch: AiToolSet.ToolProvider
         val content: String,
     )
 
-    @Serializable
-    private data class SearchRequest(
-        val query: String,
-        val count: Int,
-    )
-
     suspend fun search(key: String, count: Int = 5): List<SearchResult> = withContext(Dispatchers.IO)
     {
         val res = client.post(SEARCH_URL)
         {
             contentType(ContentType.Application.Json)
             accept(ContentType.Any)
-            bearerAuth(aiConfig.webSearchKey.random())
-            setBody(SearchRequest(query = key, count = count))
-        }
-        val body = res.bodyAsText()
-        logger.warning("failed to parse search response: $body")
+            bearerAuth(getKey())
+            setBody(JsonObject(mapOf(
+                "query" to showJson.encodeToJsonElement(key),
+                "count" to showJson.encodeToJsonElement(count.coerceIn(1, 20)),
+            )))
+        }.bodyAsText()
+        logger.warning("failed to parse search response: $res")
         {
-            contentNegotiationJson.decodeFromString<Results<SearchResult>>(body).results
+            contentNegotiationJson.decodeFromString<Results<SearchResult>>(res).results
         }.getOrThrow()
     }
-
-    private const val EXTRACT_URL = "https://api.tavily.com/extract"
 
     @Serializable
     data class ExtractResult(
         val url: String,
         @SerialName("raw_content")
-        val rawContent: String,
-    )
-
-    @Serializable
-    private data class ExtractRequest(
-        val urls: String,
+        val rawContent: String?,
     )
 
     suspend fun extract(url: String): List<ExtractResult> = withContext(Dispatchers.IO)
@@ -90,10 +94,52 @@ object WebSearch: AiToolSet.ToolProvider
         {
             contentType(ContentType.Application.Json)
             accept(ContentType.Any)
-            bearerAuth(aiConfig.webSearchKey.random())
-            setBody(ExtractRequest(urls = url))
-        }
-        res.body<Results<ExtractResult>>().results
+            bearerAuth(getKey())
+            setBody(JsonObject(mapOf("urls" to showJson.encodeToJsonElement(url))))
+        }.bodyAsText()
+        logger.warning("failed to parse search response: $res")
+        {
+            contentNegotiationJson.decodeFromString<Results<ExtractResult>>(res).results
+        }.getOrThrow()
+    }
+
+    suspend fun crawl(url: String, query: String, depth: Int): List<ExtractResult> = withContext(Dispatchers.IO)
+    {
+        val res = client.post(CRAWL_URL)
+        {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Any)
+            bearerAuth(getKey())
+            setBody(JsonObject(mapOf(
+                "url" to showJson.encodeToJsonElement(url),
+                "instructions" to showJson.encodeToJsonElement(query),
+                "max_deep" to showJson.encodeToJsonElement(depth),
+            )))
+        }.bodyAsText()
+        logger.warning("failed to parse crawl response: $res")
+        {
+            contentNegotiationJson.decodeFromString<Results<ExtractResult>>(res).results
+        }.getOrThrow()
+    }
+
+    suspend fun getKey(): String
+    {
+        val keys = aiConfig.webSearchKey.shuffled()
+        for (key in keys)
+            if (checkKey(key)) return key
+        error("No valid web search API key found")
+    }
+    suspend fun checkKey(key: String): Boolean = withContext(Dispatchers.IO)
+    {
+        val res = client.get(USAGE_URL)
+        {
+            accept(ContentType.Any)
+            bearerAuth(key)
+        }.body<JsonObject>()
+        runCatching {
+            require(res["key"]!!.jsonObject["usage"]!!.jsonPrimitive.long < (res["key"]!!.jsonObject["limit"]?.jsonPrimitive?.longOrNull ?: Long.MAX_VALUE))
+            require(res["account"]!!.jsonObject["plan_usage"]!!.jsonPrimitive.long < (res["account"]!!.jsonObject["plan_limit"]?.jsonPrimitive?.longOrNull ?: Long.MAX_VALUE))
+        }.isSuccess
     }
 
     @Serializable
@@ -106,6 +152,16 @@ object WebSearch: AiToolSet.ToolProvider
     @Serializable
     private data class AiExtractToolData(@JsonSchema.Description("要请求的url") val url: String)
 
+    @Serializable
+    private data class AiCrawlToolData(
+        @JsonSchema.Description("起始url")
+        val url: String,
+        @JsonSchema.Description("爬取指令，例如：Find all pages about the Python SDK")
+        val query: String,
+        @JsonSchema.Description("爬取深度，不得超过5，默认为1")
+        val depth: Int = 1,
+    )
+
     override suspend fun AiToolSet.registerTools()
     {
         registerTool<AiSearchToolData>(
@@ -116,11 +172,21 @@ object WebSearch: AiToolSet.ToolProvider
             """.trimIndent(),
         )
         {
-            sendMessage("查找网页: ${parm.key.split(" ").joinToString(" ") { s -> "`$s`" }}")
+            sendMessage("查找网页: `${parm.key.replace("\n", " ").replace("`", "")}`")
             val data = parm.key
-            if (data.isBlank()) AiToolInfo.ToolResult(Content("error: key must not be empty"))
-            else AiToolInfo.ToolResult(Content(showJson.encodeToString(search(data, parm.count.coerceIn(1, 20))) +
-                    "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\" />"))
+            if (data.isBlank()) return@registerTool AiToolInfo.ToolResult(Content("error: key must not be empty"))
+            val sb = StringBuilder()
+            val res = search(data, parm.count.coerceIn(1, 20))
+            for ((i, item) in res.withIndex())
+            {
+                sb.appendLine("${i + 1}. [${item.title}](${item.url})")
+                val content = item.content.trim().lines().joinToString(" ")
+                sb.appendLine(content)
+                sb.appendLine()
+            }
+            sb.appendLine()
+            sb.append("请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如: <data type=\"web\" path=\"https://example.com\" />")
+            AiToolInfo.ToolResult(Content(sb.toString()))
         }
 
         registerTool<AiExtractToolData>(
@@ -133,9 +199,22 @@ object WebSearch: AiToolSet.ToolProvider
         {
             sendMessage("读取网页: [${parm.url}](${parm.url})")
             val data = parm.url
-            if (data.isBlank()) AiToolInfo.ToolResult(Content("error: url must not be empty"))
-            else AiToolInfo.ToolResult(Content(showJson.encodeToString(extract(data)) +
-                    "请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如:\n<data type=\"web\" path=\"https://example.com\" />"))
+            if (data.isBlank()) return@registerTool AiToolInfo.ToolResult(Content("error: url must not be empty"))
+            val res = extract(data)
+            if (res.isEmpty()) return@registerTool AiToolInfo.ToolResult(Content("未找到任何内容"))
+            val sb = StringBuilder()
+            for ((i, item) in res.withIndex())
+            {
+                sb.appendLine("${i + 1}. [${item.url}](${item.url})")
+                val content = item.rawContent?.trim()?.lines()?.joinToString(" ")
+                sb.append("<!--content-truncate-start-->")
+                sb.appendLine(content)
+                sb.append("<!--content-truncate-end-->")
+                sb.appendLine()
+            }
+            sb.appendLine()
+            sb.append("请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如: <data type=\"web\" path=\"https://example.com\" />")
+            AiToolInfo.ToolResult(Content(sb.toString()))
         }
 
         registerToolDataGetter("web")
@@ -144,6 +223,38 @@ object WebSearch: AiToolSet.ToolProvider
                 type = AiToolSet.ToolData.Type.URL,
                 value = path,
             )
+        }
+
+        registerTool<AiCrawlToolData>(
+            name = "web_crawl",
+            displayName = "爬取网页内容",
+            description = """
+                爬取网页内容，将从指定url开始，按照指令爬取相关页面并返回
+                当你需要某个特定的站点中搜索内容时非常有用
+            """.trimIndent(),
+        )
+        {
+            sendMessage("爬取网页: [${parm.url}](${parm.url})，指令: ${parm.query}，深度: ${parm.depth}")
+            val url = parm.url
+            val query = parm.query
+            val depth = parm.depth.coerceIn(1, 5)
+            if (url.isBlank()) return@registerTool AiToolInfo.ToolResult(Content("error: url must not be empty"))
+            if (query.isBlank()) return@registerTool AiToolInfo.ToolResult(Content("error: query must not be empty"))
+            val res = crawl(url, query, depth)
+            if (res.isEmpty()) return@registerTool AiToolInfo.ToolResult(Content("未找到任何内容"))
+            val sb = StringBuilder()
+            for ((i, item) in res.withIndex())
+            {
+                sb.appendLine("${i + 1}. [${item.url}](${item.url})")
+                val content = item.rawContent?.trim()?.lines()?.joinToString(" ")
+                sb.append("<!--content-truncate-start-->")
+                sb.appendLine(content)
+                sb.append("<!--content-truncate-end-->")
+                sb.appendLine()
+            }
+            sb.appendLine()
+            sb.append("请在你后面的回答中添加信息来源标记，type为 `web`，path为网页url，例如: <data type=\"web\" path=\"https://example.com\" />")
+            AiToolInfo.ToolResult(Content(sb.toString()))
         }
     }
 }

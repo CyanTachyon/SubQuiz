@@ -386,7 +386,7 @@ object AiChatsUtils: KoinComponent
                     runCatching()
                     {
                         if (it.file.url.startsWith("uuid:")) return@forEachIndexed
-                        val bytes = it.file.url.decodeBase64Bytes()
+                        val bytes = it.file.url.replace(Regex("^data:.*;base64,"), "").decodeBase64Bytes()
                         if (bytes.size > MAX_FILE_SIZE) // 10MB
                             return MakeContentResult.Failure("文件过大，单个文件不能超过10MB")
                         fileBytes[index] = bytes

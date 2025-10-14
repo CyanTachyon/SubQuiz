@@ -47,8 +47,8 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
         files.forEach()
         { file ->
             updateLibrary(file, "", indexed, USER_SPLIT_SIZE)
-            { path, vector ->
-                userRag.insert(user, path, vector)
+            { path, content, vector ->
+                userRag.insert(user, path, content, vector)
             }
         }
     }
@@ -58,7 +58,7 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
         prefix: String,
         exclude: Set<String>,
         splitSize: Int? = null,
-        insert: suspend (filePath: String, vector: List<Double>)->Unit,
+        insert: suspend (filePath: String, content: String, vector: List<Double>)->Unit,
     ): Unit = when (file)
     {
         is AiLibraryFiles.FileInfo.Directory -> file.files.forEach()
@@ -78,11 +78,11 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
                     {
                         content.chunked(splitSize).forEach()
                         { s ->
-                            insert(filePath, sendAiEmbeddingRequest(s).first)
+                            insert(filePath, s, sendAiEmbeddingRequest(s).first)
                         }
                     }
                     else
-                        insert(filePath, sendAiEmbeddingRequest(file.content).first)
+                        insert(filePath, file.content, sendAiEmbeddingRequest(file.content).first)
                 }
             }
             Unit
@@ -166,16 +166,16 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
         if (user == null) AiLibraryFiles.getAiLibraryFileBytes(filePath = filePath)
         else AiLibraryFiles.getAiLibraryFileBytes(baseDir = AiLibraryFiles.getUserAiLibraryBaseDir(user), filePath = filePath)
 
-    suspend fun search(user: UserId?, prefix: String, query: String, count: Int): List<Pair<String, Double>>
+    suspend fun search(user: UserId?, prefix: String, query: String, count: Int, useEmbedding: Boolean): List<Pair<String, Double>>
     {
         val vector = sendAiEmbeddingRequest(query)
         val results =
-            if (user == null) rag.query(prefix, vector.first, count)
+            if (user == null) rag.query(prefix, query.takeUnless { useEmbedding }, vector.first, count)
             else userRag.query(user, prefix, vector.first, count)
         return results
     }
 
-    suspend fun searchInOrder(user: UserId?, prefix: String, query: String, count: Int): List<String>
+    suspend fun searchInOrder(user: UserId?, prefix: String, query: String, count: Int, useEmbedding: Boolean): List<String>
     {
         val searchCount =
             if (count <= 2) 5
@@ -183,7 +183,7 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
             else if (count <= 10) max(count * 2, 15)
             else max(count + count / 2, 20)
 
-        val results = search(user, prefix, query, searchCount).map()
+        val results = search(user, prefix, query, searchCount, useEmbedding).map()
         { r ->
             AiLibraryFiles.getAiLibraryFileText(
                 baseDir = if (user == null) AiLibraryFiles.aiLibrary else AiLibraryFiles.getUserAiLibraryBaseDir(user),
@@ -207,7 +207,13 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
     private data class BookSearchParm(
         @JsonSchema.Description("书籍科目")
         val subject: String = "",
-        @JsonSchema.Description("搜索内容，自然语言而非关键词")
+        @JsonSchema.Description(
+            "是否使用自然语言进行搜索，若为false则使用关键词搜索\n" +
+                    "当你通过古诗题目、语句等进行搜索时，建议使用关键词搜索\n" +
+                    "当你通过问题进行搜索时，建议使用自然语言搜索"
+        )
+        val naturalLanguage: Boolean,
+        @JsonSchema.Description("搜索内容，如果使用关键词搜索，请使用空格分隔关键词，例如：'红楼梦 诗词'，如果使用自然语言搜索，请直接输入问题，例如：'红楼梦中有哪些著名的诗词？'")
         val query: String,
         @JsonSchema.Description("返回结果数量, 不填默认为3")
         val count: Int = 3,
@@ -227,7 +233,7 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
         )
         {
             sendMessage("搜索北大附中资料: ${parm.query.split(" ").joinToString(" ") { s -> "`$s`" }}")
-            val res = searchInOrder(null, "/bdfz/", parm.query, parm.count)
+            val res = searchInOrder(null, "/bdfz/", parm.query, parm.count, false)
             AiToolInfo.ToolResult(
                 Content(
                     showJson.encodeToString(res) +
@@ -269,7 +275,7 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
             val path =
                 if (parm.subject.isBlank()) "/books/"
                 else "/books/${parm.subject}/"
-            val res = searchInOrder(null, path, parm.query, parm.count)
+            val res = searchInOrder(null, path, parm.query, parm.count, useEmbedding = parm.naturalLanguage)
             AiToolInfo.ToolResult(
                 Content(
                     showJson.encodeToString(res) +
@@ -302,7 +308,7 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
         )
         {
             sendMessage("搜索资料: ${parm.query.split(" ").joinToString(" ") { s -> "`$s`" }}")
-            val res = searchInOrder(chat.user, "", parm.query, parm.count)
+            val res = searchInOrder(chat.user, "", parm.query, parm.count, false)
             AiToolInfo.ToolResult(
                 Content(
                     showJson.encodeToString(res) +

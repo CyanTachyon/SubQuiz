@@ -30,6 +30,7 @@ object CodeRunner: AiToolSet.ToolProvider
             listOf("python3", "-m", "pip", "config", "set", "global.index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"),
             listOf("python3", "-m", "pip", "config", "set", "install.trusted-host", "pypi.tuna.tsinghua.edu.cn"),
             listOf("python3", "-m", "pip", "install", "--upgrade", "pip"),
+            listOf("python3", "-m", "pip", "install", "sympy"),
         ),
     )
 
@@ -104,7 +105,7 @@ object CodeRunner: AiToolSet.ToolProvider
             displayName = "运行代码",
             description = """
                 在虚拟机（操作系统为alpine Linux）中运行Python代码，返回其输出结果
-                - 当你需要进行一些复杂数学计算时你可以编写Python代码来完成计算
+                - 系统已经预装sympy。当你需要进行一些复杂数学计算时你可以使用sympy来完成计算
                 - 当你需要处理数据时你可以编写Python代码来处理数据
                 - 默认的工作目录是"/workspace"
                 - 重要：当用户上传文件给你之后，你应该使用Python代码来处理这些文件。例如用户上传了一个DOCX文件，你可以使用python-docx库来读取文件内容，或转为PDF再使用ReadImage工具来读取
@@ -137,8 +138,8 @@ object CodeRunner: AiToolSet.ToolProvider
                     persistent = parm.persistent,
                     timeout = timeout,
                     onMessage = { stdout, stderr ->
-                        if (stdout.isNotEmpty()) sendMessage("<span>${stdout.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
-                        if (stderr.isNotEmpty()) sendMessage("<span style='color:red'>${stderr.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                        if (stdout.isNotEmpty()) sendMessage("<span style='white-space:pre;'>${stdout.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                        if (stderr.isNotEmpty()) sendMessage("<span style='color:red;white-space:pre;'>${stderr.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
                     }
                 ) + if (!parm.persistent) "由于持久化未启用，本次操作除/output目录中的内容外均会被回滚" else ""
                 AiToolInfo.ToolResult(Content(r))
