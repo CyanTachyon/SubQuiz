@@ -1,6 +1,8 @@
 @file:Suppress("unused")
 package moe.tachyon.quiz.utils.ai
 
+import com.charleskorn.kaml.YamlInput
+import com.charleskorn.kaml.YamlScalar
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -232,10 +234,7 @@ value class Content(@Serializable(ContentSerializer::class) val content: List<Co
         return content.joinToString(separator = "") { (it as? ContentNode.Text)?.text ?: "" }
     }
 
-    override fun isEmpty(): Boolean
-    {
-        return content.isEmpty() || content.all { it is ContentNode.Text && it.text.isBlank() }
-    }
+    override fun isEmpty(): Boolean = content.isEmpty() || content.all { it is ContentNode.Text && it.text.isBlank() }
 
     private class ContentSerializer: KSerializer<List<ContentNode>>
     {
@@ -255,13 +254,21 @@ value class Content(@Serializable(ContentSerializer::class) val content: List<Co
                 serializer.serialize(encoder, value)
         }
 
-        override fun deserialize(decoder: Decoder): List<ContentNode>
-        {
-            val json = if (decoder is JsonDecoder) decoder.json else Json
-            val ele = JsonElement.serializer().deserialize(decoder)
-            return if (ele is JsonPrimitive) listOf(ContentNode.Text(ele.content))
-            else json.decodeFromJsonElement(serializer, ele)
-        }
+        override fun deserialize(decoder: Decoder): List<ContentNode> =
+            if (decoder is JsonDecoder)
+            {
+                val json = decoder.json
+                val ele = JsonElement.serializer().deserialize(decoder)
+                if (ele is JsonPrimitive) listOf(ContentNode.Text(ele.content))
+                else json.decodeFromJsonElement(serializer, ele)
+            }
+            else if (decoder is YamlInput)
+            {
+                val ele = decoder.node
+                if (ele is YamlScalar) listOf(ContentNode.Text(ele.content))
+                else decoder.yaml.decodeFromYamlNode(serializer, ele)
+            }
+            else error("Unsupported decoder type: ${decoder::class}")
     }
 }
 
@@ -272,13 +279,13 @@ data class ChatMessage(
     val role: Role,
     val content: Content,
     @SerialName("reasoning_content")
-    val reasoningContent: String = "",
+    val reasoningContent: Content = Content(),
     @SerialName("tool_calls")
     val toolCalls: List<ToolCall> = emptyList(),
 )
 {
     constructor(role: Role, content: String, reasoningContent: String = ""):
-            this(role, Content(content), reasoningContent, emptyList())
+            this(role, Content(content), Content(reasoningContent), emptyList())
     init
     {
         if (toolCalls.isNotEmpty() && role != Role.ASSISTANT)
@@ -300,7 +307,7 @@ data class ChatMessage(
         )
     }
 
-    fun isBlank(): Boolean = content.isEmpty() && reasoningContent.isBlank() && toolCalls.isEmpty()
+    fun isBlank(): Boolean = content.isEmpty() && reasoningContent.isEmpty() && toolCalls.isEmpty()
 
     @Serializable
     data class ToolCall(
@@ -343,7 +350,7 @@ data class ChatMessage(
                 val showingType = ele["showingType"]?.let<JsonElement, AiToolSet.ToolData.Type>(decoder.json::decodeFromJsonElement)
 
                 val content = decoder.json.decodeFromJsonElement<Content>(ele["content"] ?: error("Missing content field"))
-                val reasoningContent = (ele["reasoning_content"] as? JsonPrimitive)?.content ?: ""
+                val reasoningContent = ele["content"]?.let<JsonElement, Content>(decoder.json::decodeFromJsonElement) ?: Content()
                 val toolCalls = mutableListOf<ToolCall>()
                 return ChatMessage(
                     role =
@@ -368,8 +375,10 @@ value class ChatMessages(private val messages: List<ChatMessage>): List<ChatMess
     override fun subList(fromIndex: Int, toIndex: Int): ChatMessages =
         ChatMessages(messages.subList(fromIndex, toIndex))
     constructor(vararg messages: ChatMessage): this(messages.toList())
-    constructor(role: Role, content: Content, reasoningContent: String = ""):
-        this(ChatMessage(role, content, reasoningContent))
+    constructor(role: Role, content: Content, reasoningContent: Content = Content()):
+            this(ChatMessage(role, content, reasoningContent))
+    constructor(role: Role, content: Content, reasoningContent: String):
+        this(ChatMessage(role, content, Content(reasoningContent)))
     constructor(role: Role, content: String, reasoningContent: String = ""):
             this(role, Content(content), reasoningContent)
     constructor(vararg messages: Pair<Role, Content>):
@@ -428,10 +437,11 @@ sealed interface StreamAiResponseSlice
         val tool: AiToolInfo<*>,
     ): StreamAiResponseSlice
 
+    @Serializable
     data class ToolMessage(
         val id: String,
         @SerialName("reasoning_content")
-        val reasoningContent: String = "",
+        val reasoningContent: Content = Content(),
     ): StreamAiResponseSlice
 
     @Serializable

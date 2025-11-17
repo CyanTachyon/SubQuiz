@@ -91,15 +91,20 @@ class AiToolSet
     suspend fun getTools(chat: Chat, model: AiConfig.LlmModel?): List<AiToolInfo<*>> =
         toolGetters.flatMap { it(chat, model) }
 
-    data class ToolStatus<T>(val chat: Chat, val model: AiConfig.LlmModel?, val parm: T, val sendMessage: suspend (msg: String) -> Unit)
+    data class ToolStatus<T>(val chat: Chat, val model: AiConfig.LlmModel?, val parm: T, val sendMessage: suspend (msg: Content) -> Unit)
+    {
+        suspend fun sendMessage(msg: String) = sendMessage(Content(msg))
+    }
 
     inline fun <reified T: Any> registerTool(
         name: String,
         displayName: String?,
         description: String,
+        noinline condition: suspend (chat: Chat, model: AiConfig.LlmModel?) -> Boolean = { _, _ -> true },
         noinline block: suspend ToolStatus<T>.() -> AiToolInfo.ToolResult
     ) = registerTool()
     { chat, model ->
+        if (!condition(chat, model)) return@registerTool emptyList()
         val tool = AiToolInfo<T>(name, description, displayName)
         { parm, sendMessage ->
             block(ToolStatus(chat, model, parm, sendMessage))
@@ -127,7 +132,7 @@ data class AiToolInfo<T: Any>(
     val type: KType,
 )
 {
-    typealias Invoker<T> = suspend (parm: T, sendMessage: suspend (msg: String) -> Unit) -> ToolResult
+    typealias Invoker<T> = suspend (parm: T, sendMessage: suspend (msg: Content) -> Unit) -> ToolResult
     data class ToolResult(
         val content: Content,
         val showingContent: List<Pair<String, AiToolSet.ToolData.Type>> = emptyList(),
@@ -154,7 +159,7 @@ data class AiToolInfo<T: Any>(
         aiNegotiationJson.decodeFromString(aiNegotiationJson.serializersModule.serializer(type), parm) as T
 
     @Suppress("UNCHECKED_CAST")
-    suspend operator fun invoke(parm: String, sendMessage: suspend (msg: String) -> Unit) =
+    suspend operator fun invoke(parm: String, sendMessage: suspend (msg: Content) -> Unit) =
         invoke(parse(parm), sendMessage)
 
     companion object

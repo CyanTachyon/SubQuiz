@@ -11,8 +11,6 @@ import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.*
-import kotlin.time.Clock
-import kotlin.time.Instant
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import moe.tachyon.quiz.dataClass.*
@@ -26,7 +24,9 @@ import moe.tachyon.quiz.utils.ai.AiGrading.checkAnswer
 import moe.tachyon.quiz.utils.ai.TokenUsage
 import moe.tachyon.quiz.utils.statuses
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 private val answerCheckingJobs = ConcurrentHashMap<QuizId, Job>()
 private val logger = SubQuizLogger.getLogger()
@@ -164,44 +164,53 @@ private suspend fun Context.saveQuiz(body: Quiz<Any?, Any?, JsonElement?>): Noth
     {
         val job = SupervisorJob()
         if (answerCheckingJobs.putIfAbsent(id, job) != null)
-        {
-            job.complete()
             finishCall(HttpStatus.QuestionMarking)
-        }
-        job.invokeOnCompletion {
+        else job.invokeOnCompletion()
+        {
             answerCheckingJobs.remove(id)
         }
         val q2 = q1.copy(finished = true).checkFinished() ?: finishCall(HttpStatus.BadRequest.subStatus("完成作答时, 仍有题目未完成", 2))
         quizzes.updateQuiz(q1.id, true, (Clock.System.now() - Instant.fromEpochMilliseconds(q1.time)).inWholeMilliseconds, q2.sections)
-        runCatching()
+        logger.severe("Failed to start grading job for QuizID: $id")
         {
-            CoroutineScope(Dispatchers.IO + job).launch()
+            CoroutineScope(Dispatchers.IO + job + CoroutineExceptionHandler()
+            { _, exception ->
+                logger.warning("批阅测试时发生未处理的异常, QuizID: $id", exception)
+            }).launch()
             {
                 var totalToken = TokenUsage()
-                val res = q2.sections
-                    .map { async { it.checkAnswer() } }
-                    .map {
-                        val ans = it.await()
-                        totalToken += ans.second
-                        ans.first
-                    }
-                logger.severe("") { quizzes.updateQuizAnswerCorrect(q2.id, res, totalToken) }
-                val score = (res zip q2.sections).associate { (r, s) ->
-                    s.id to (r.count { it == true }.toDouble() / r.size)
+                val res = logger.warning("批阅测试失败, QuizID: $id")
+                {
+                    q2.sections
+                        .map { async { it.checkAnswer() } }
+                        .map {
+                            val ans = it.await()
+                            totalToken += ans.second
+                            ans.first
+                        }
+                }.getOrElse()
+                {
+                    q2.sections.map { List(it.questions.size) { _ -> null } }
                 }
+                logger.severe("") { quizzes.updateQuizAnswerCorrect(q2.id, res, totalToken) }
+                val score = (res zip q2.sections).associate { (r, s) -> s.id to (r.count { it == true }.toDouble() / r.size) }
                 logger.severe("") { get<Histories>().addHistories(user, score, q2.exam) }
                 logger.severe("") { get<Users>().addTokenUsage(user, totalToken) }
                 (res zip q2.sections)
                     .map { (r, s) -> s.type to (r.count { it == true }.toDouble() / r.size) }
-                    .forEach {
+                    .forEach()
+                    {
                         logger.severe("")
                         {
-                            val knowledgePoint =
-                                get<SectionTypes>().getSectionType(it.first)?.knowledgePoint ?: return@forEach
+                            val knowledgePoint = get<SectionTypes>().getSectionType(it.first)?.knowledgePoint ?: return@forEach
                             get<Preferences>().addPreference(user, knowledgePoint, it.second)
                         }
                     }
             }
+        }.onFailure()
+        {
+            val res = q2.sections.map { List(it.questions.size) { _ -> null } }
+            logger.severe("") { quizzes.updateQuizAnswerCorrect(q2.id, res, TokenUsage()) }
         }
         job.complete()
     }

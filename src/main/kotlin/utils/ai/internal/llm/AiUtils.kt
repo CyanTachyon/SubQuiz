@@ -270,8 +270,8 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
                     messages += res
                     messages += ChatMessages(
                         Role.USER,
-                        "你返回的内容格式不符合规定，请严格按照要求的JSON格式返回: ${e.message}\n\n" +
-                        "请你重新输出结果，注意仅输出JSON对象，不要添加任何多余的文本。并修正错误。"
+                        "你返回的内容格式不符合规定，请严格按照要求的格式返回: ${e.message}\n\n" +
+                        "请你重新输出结果，注意仅输出对象，不要添加任何多余的文本或说明。并修正错误。"
                     )
                 }
             }

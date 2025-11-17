@@ -18,9 +18,9 @@ object CodeRunner: AiToolSet.ToolProvider
     fun getSandbox(chat: ChatId) = Sandbox(
         id = "subquiz-ai-code-runner-$chat",
         containerTarFile = ChatFiles.sandboxImageFile(chat),
-        baseImage = "python:3.9-alpine",
-        memoryLimit = "512m",
-        cpuLimit = "0.5",
+        baseImage = "python:3.11.14-slim-trixie",
+        memoryLimit = "2048m",
+        cpuLimit = "1",
 
         dirs = listOf(
             Triple(ChatFiles.getChatFilesDir(chat), "/workspace/input", false),
@@ -89,7 +89,7 @@ object CodeRunner: AiToolSet.ToolProvider
         @JsonSchema.Description("是否保留你在虚拟机内的修改，例如创建的文件、安装的软件包等")
         val persistent: Boolean,
         @JsonSchema.Description("需要运行的命令")
-        val cmd: List<String>,
+        val cmd: String,
     )
 
     @Serializable
@@ -104,11 +104,12 @@ object CodeRunner: AiToolSet.ToolProvider
             name = "run_python",
             displayName = "运行代码",
             description = """
-                在虚拟机（操作系统为alpine Linux）中运行Python代码，返回其输出结果
+                在虚拟机（python:3.11.14-slim-trixie）中运行Python代码，返回其输出结果
                 - 系统已经预装sympy。当你需要进行一些复杂数学计算时你可以使用sympy来完成计算
                 - 当你需要处理数据时你可以编写Python代码来处理数据
                 - 默认的工作目录是"/workspace"
-                - 重要：当用户上传文件给你之后，你应该使用Python代码来处理这些文件。例如用户上传了一个DOCX文件，你可以使用python-docx库来读取文件内容，或转为PDF再使用ReadImage工具来读取
+                - 当用户上传文件给你之后，你应该使用Python代码来处理这些文件。例如用户上传了一个DOCX文件，你可以使用python-docx库来读取文件内容，或转为PDF再使用ReadImage工具来读取
+                - 当用户有一些特别需要时，你可以使用该工具来运行Python代码完成任务，虚拟机支持联网
                 - 用户上传到聊天的文件会被放在"/workspace/input"中，你可以读取这些文件，但注意：
                   - 文件上传后会变成两个文件，一个为{uuid}.info，另一个为{uuid}.data
                   - 你可以读取{uuid}.info文件来获取文件的原始文件名等信息
@@ -138,8 +139,8 @@ object CodeRunner: AiToolSet.ToolProvider
                     persistent = parm.persistent,
                     timeout = timeout,
                     onMessage = { stdout, stderr ->
-                        if (stdout.isNotEmpty()) sendMessage("<span style='white-space:pre;'>${stdout.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
-                        if (stderr.isNotEmpty()) sendMessage("<span style='color:red;white-space:pre;'>${stderr.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                        if (stdout.isNotEmpty()) sendMessage("<span style='white-space:pre-wrap;'>${stdout.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                        if (stderr.isNotEmpty()) sendMessage("<span style='color:red;white-space:pre-wrap;'>${stderr.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
                     }
                 ) + if (!parm.persistent) "由于持久化未启用，本次操作除/output目录中的内容外均会被回滚" else ""
                 AiToolInfo.ToolResult(Content(r))
@@ -156,23 +157,26 @@ object CodeRunner: AiToolSet.ToolProvider
             description = """
                 在虚拟机中运行命令，例如安装python包等。
                 注意
-                - 操作系统为alpine Linux
-                - 命令要以数组形式传入，例如 ["ls", "-al"]，而不是 ["ls -al"]
                 - 安装任何软件包后的第一件事情是更换国内镜像源，例如当你安装完npm后，需要在使用前先更换国内镜像
             """.trimIndent(),
         )
         {
-            sendMessage("```bash\n${parm.cmd.joinToString(" ").replace("```", "")}\n```\n")
+            sendMessage("```bash\n${parm.cmd.replace("```", "")}\n```\n")
             if (parm.cmd.isEmpty()) return@registerTool AiToolInfo.ToolResult(
                 Content("error: cmd must not be empty")
             )
             val timeout = parm.timeoutMs.coerceIn(1000, 120_000)
             return@registerTool try
             {
-                val r = executeInSandbox(chat = chat.id, cmd = parm.cmd, persistent = parm.persistent, timeout = timeout)
+                val r = executeInSandbox(
+                    chat = chat.id,
+                    cmd = listOf("bash", "-c", parm.cmd),
+                    persistent = parm.persistent,
+                    timeout = timeout
+                )
                 { stdout, stderr ->
-                    if (stdout.isNotEmpty()) sendMessage("<span>${stdout.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
-                    if (stderr.isNotEmpty()) sendMessage("<span style='color:red'>${stderr.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                    if (stdout.isNotEmpty()) sendMessage("<span style='white-space:pre-wrap;'>${stdout.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
+                    if (stderr.isNotEmpty()) sendMessage("<span style='color:red;white-space:pre-wrap;'>${stderr.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</span>")
                 }
                 AiToolInfo.ToolResult(Content(r))
             }

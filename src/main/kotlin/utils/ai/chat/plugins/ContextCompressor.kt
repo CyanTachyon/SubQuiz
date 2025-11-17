@@ -19,9 +19,8 @@ import moe.tachyon.quiz.utils.ai.chat.tools.AiToolInfo
 import moe.tachyon.quiz.utils.ai.internal.llm.BeforeLlmRequest
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.ResultType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.RetryType
-import moe.tachyon.quiz.utils.ai.internal.llm.utils.jsonResultType
 import moe.tachyon.quiz.utils.ai.internal.llm.utils.sendAiRequestAndGetResult
-import org.intellij.lang.annotations.Language
+import moe.tachyon.quiz.utils.ai.internal.llm.utils.yamlResultType
 import kotlin.math.max
 import kotlin.reflect.typeOf
 import kotlin.uuid.ExperimentalUuidApi
@@ -293,41 +292,32 @@ class AiContextCompressor(
             ]
             ```
             ### 输出
-            ```json
-            [
+            ```yaml
+            - role: user
+              content: 请帮我制作一个关于人工智能的PPT
+            - role: assistant
+              content: 我将先收集资料
+              toolCall: 
+                name: web_search
+                arguments: |
                 {
-                    "role": "user",
-                    "content": "请帮我制作一个关于人工智能的PPT"
-                },
-                {
-                    "role": "assistant",
-                    "content": "我将先收集资料",
-                    "toolCall": {
-                        "name": "web_search",
-                        "arguments": "{\"key\":\"人工智能介绍\",\"count\":5}"
-                    }
-                },
-                {
-                    "role": "tool",
-                    "content": "这里你可以把搜索结果进行总结，把web_search和web_extract的结果合并为在这里，因为这样更简洁且与原先效果基本一致"
-                },
-                {
-                    "role": "assistant",
-                    "content": "我将根据资料为你制作PPT，请稍等",
-                    "toolCall": {
-                        "name": "create_ppt",
-                        "arguments": "..."
-                    }
-                },
-                {
-                    "role": "tool",
-                    "content": "PPT制作完成，已展示给用户"
-                },
-                {
-                    "role": "assistant",
-                    "content": "PPT已经制作完成！若需要进一步修改，请告诉我！"
+                    "key":"人工智能介绍",
+                    "count":5
                 }
-            ]
+            - role: tool
+              content: 这里你可以把搜索结果进行总结，把web_search和web_extract的结果合并为在这里，因为这样更简洁且与原先效果基本一致
+            - role: assistant
+              content: 我将根据资料为你制作PPT，请稍等
+              toolCall:
+                name: create_ppt
+                arguments: |
+                {
+                    "content": "......"
+                }
+            - role: tool
+              content: PPT制作完成，已展示给用户
+            - role: assistant
+              content: PPT已经制作完成！若需要进一步修改，请告诉我！
             ```
             以上就是一个简单的压缩示例，你需要根据实际输入的消息进行类似的压缩。
             简而言之，你需要用一个简短的聊天记录，来替换原聊天记录，使得短的聊天记录基本包含了长聊天记录的主要信息。
@@ -337,8 +327,9 @@ class AiContextCompressor(
             - 总结工具调用结果，替换掉冗长的工具调用结果
             等方式来达到压缩的目的。
             接下来，请你压缩下面的聊天记录，你需要将他们压缩到${max(2, (messages.sumOf { it.content.toText().length } * compressingRate).toInt())}字以内。
-            注意你的回复必须是一个合法的json数组，格式如上文所示。
+            注意你的回复必须是一个合法的yaml数组，格式如上文所示。善用yaml多行字符串来避免转义。
             
+            ### 输入
             ```json
             
         """.trimIndent())
@@ -361,7 +352,7 @@ class AiContextCompressor(
         prompt.append("\n```\n")
         prompt.append("""
             现在请你按照上述要求，对这${messages.size}条消息进行压缩，输出格式与输入格式完全相同，请注意不要遗漏任何关键信息。
-            **注意**: 你必须直接输出一个json数组，不能包含任何其他内容，且必须是合法的json格式，注意检查引号、逗号、括号等符号。
+            **注意**: 你必须直接输出一个yaml数组，不能包含任何其他内容，且必须是合法的yaml格式，注意检查引号、逗号、括号等符号。
         """.trimIndent())
         return prompt.toString()
     }
@@ -387,7 +378,6 @@ class AiContextCompressor(
         if (splitIndex <= 0) return messages to TokenUsage()
         val toCompress = messages.subList(0, splitIndex)
         val tail = messages.subList(splitIndex, messages.size)
-        @Language("JSON")
         val prompt = makePrompt(toCompress)
         val (res, usage) = sendAiRequestAndGetResult<ChatMessages>(
             model = model,
@@ -395,18 +385,17 @@ class AiContextCompressor(
             retryType = RetryType.ADD_MESSAGE,
             resultType = object: ResultType<ChatMessages>
             {
-                private val impl = jsonResultType<List<Compress>>()
+                private val impl = yamlResultType<List<Compress>>()
                 private var time = 0
-
 
                 override fun getValue(str: String): ChatMessages
                 {
                     if ((++time) < aiConfig.retry) return impl.getValue(str).toChatMessages()
                     runCatching { return impl.getValue(str).toChatMessages() }
-                    // 最后一次仍然失败，退而求其次，将未能解析为json的内容作为一条system消息，指导继续聊天
+                    // 最后一次仍然失败，退而求其次，将未能解析为yaml的内容作为一条system消息，指导继续聊天
                     val sb = StringBuilder()
                     sb.append("============= 以下是你和用户之前的聊天记录 =============\n")
-                    sb.append(sb)
+                    sb.append(str)
                     sb.append("============= 以上是你和用户之前的聊天记录 =============\n")
                     sb.append("现在，请你和用户继续对话")
                     return ChatMessages(Role.SYSTEM, Content(sb.toString()))

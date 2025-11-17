@@ -18,4 +18,4 @@ class AiResponseFormatException(
 {
     constructor(response: ChatMessage, msg: String = "AI的响应格式无效", cause: Throwable? = null): this(ChatMessages(response), msg, cause)
 }
-class UnknownAiResponseException(cause: Throwable? = null): AiResponseException("未知的AI响应: $cause", cause)
+class UnknownAiResponseException(cause: Throwable? = null): AiResponseException("未知的AI响应 ${cause?.message ?: ""}", cause)

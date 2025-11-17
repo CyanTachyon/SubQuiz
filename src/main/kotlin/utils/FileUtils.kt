@@ -112,10 +112,24 @@ object AiLibraryFiles
         return true
     }
 
-    fun getBookSubjects(): List<String>
+    /**
+     * 获取图书
+     * @return 图书列表，格式为 Map<学科, Map<书名, 页数>>
+     */
+    fun getBooks(): Map<String, Map<String, Int>>
     {
-        if (!booksLibrary.exists() || !booksLibrary.isDirectory) return emptyList()
-        return booksLibrary.listFiles()?.map { it.name }?.filterNotNull() ?: emptyList()
+        if (!booksLibrary.exists() || !booksLibrary.isDirectory) return emptyMap()
+        return booksLibrary.listFiles()?.filter { it.isDirectory }?.associate()
+        { dir ->
+            val subject = dir.name
+            val books = dir.listFiles()?.filter { it.isDirectory }?.associate()
+            { bookDir ->
+                val bookName = bookDir.name
+                val pageCount = bookDir.listFiles()?.filter { it.isFile && it.extension == "md" }?.maxOf { it.nameWithoutExtension.toIntOrNull() ?: 0 } ?: 0
+                bookName to pageCount
+            } ?: emptyMap()
+            subject to books
+        }?.filter { it.value.isNotEmpty() } ?: emptyMap()
     }
 }
 

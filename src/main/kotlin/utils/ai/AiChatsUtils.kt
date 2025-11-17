@@ -14,7 +14,8 @@ import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.utils.ChatFiles
 import moe.tachyon.quiz.utils.Locks
 import moe.tachyon.quiz.utils.ai.*
-import moe.tachyon.quiz.utils.ai.chat.AskService
+import moe.tachyon.quiz.utils.ai.ChatMessages.Companion.toChatMessages
+import moe.tachyon.quiz.utils.ai.chat.AiAgent
 import moe.tachyon.quiz.utils.ai.chat.tools.AiToolSet
 import moe.tachyon.quiz.utils.ai.internal.llm.AiResult
 import moe.tachyon.quiz.utils.safeWithContext
@@ -62,8 +63,8 @@ object AiChatsUtils: KoinComponent
     class ChatInfo(
         val chat: Chat,
         val content: Content,
-        val service: AskService,
-        val serviceOptions: List<AskService.ServiceOption>,
+        val service: AiAgent<Chat>,
+        val agentOptions: List<AiAgent.AgentOption>,
     )
     {
         private val checkJobs = mutableListOf<Job>()
@@ -103,10 +104,10 @@ object AiChatsUtils: KoinComponent
                 {
                     safeWithContext(askJob)
                     {
-                        service.ask(
+                        service.work(
                             chat,
                             content,
-                            serviceOptions,
+                            agentOptions,
                             this@ChatInfo::putMessage
                         )
                     }
@@ -203,10 +204,9 @@ object AiChatsUtils: KoinComponent
 
         private fun nameChat()
         {
-            val chat = this.chat.copy(histories = chat.histories + ChatMessage(Role.USER, content) + response.filterIsInstance<TextMessage>().map { ChatMessage(Role.ASSISTANT, it.content, it.reasoningContent) })
             nameJob = coroutineScope.launch()
             {
-                val name = service.nameChat(chat)
+                val name = service.nameChat(chat, content, response.filterIsInstance<TextMessage>().map { ChatMessage(Role.ASSISTANT, it.content, it.reasoningContent) }.toChatMessages())
                 for (listener in listeners)
                     runCatching { listener(NameChatEvent(name)) }
                 runCatching { chats.updateName(chat.id, name) }
@@ -306,11 +306,11 @@ object AiChatsUtils: KoinComponent
         return@withLock responseMap[chat]
     }
 
-    suspend fun startRespond(content: Content, chat: Chat, service: AskService, serviceOptions: List<AskService.ServiceOption>): String? = chatInfoLocks.withLock(chat.id)
+    suspend fun startRespond(content: Content, chat: Chat, service: AiAgent<Chat>, agentOptions: List<AiAgent.AgentOption>): String? = chatInfoLocks.withLock(chat.id)
     {
         if (chat.banned) return@withLock null
         val newHash: String = UUID.randomUUID().toString()
-        val info = ChatInfo(chat.copy(hash = newHash), content, service, serviceOptions)
+        val info = ChatInfo(chat.copy(hash = newHash), content, service, agentOptions)
         if (responseMap.putIfAbsent(chat.id, info) != null) return@withLock null
         runCatching()
         {

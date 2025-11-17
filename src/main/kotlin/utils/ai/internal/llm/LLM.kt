@@ -50,7 +50,7 @@ private sealed interface AiResponse
     sealed interface Choice
     {
         val finishReason: FinishReason?
-        val index: Int
+        val index: Int?
         val message: Message
 
         @Serializable
@@ -114,7 +114,7 @@ private data class DefaultAiResponse(
     data class Choice(
         @SerialName("finish_reason")
         override val finishReason: AiResponse.FinishReason? = null,
-        override val index: Int,
+        override val index: Int? = null,
         override val message: Message,
     ): AiResponse.Choice
     {
@@ -141,7 +141,7 @@ private data class StreamAiResponse(
 {
     @Serializable
     data class Choice(
-        override val index: Int,
+        override val index: Int? = null,
         @SerialName("finish_reason")
         override val finishReason: AiResponse.FinishReason? = null,
         @SerialName("delta")
@@ -187,9 +187,9 @@ private data class AiRequest(
         val role: String,
         val content: Content = Content(),
         @SerialName("reasoning_content")
-        val reasoningContent0: String?,
+        val reasoningContent0: Content?,
         @SerialName("reasoning")
-        val reasoningContent1: String?,
+        val reasoningContent1: Content?,
         @EncodeDefault(EncodeDefault.Mode.NEVER)
         @SerialName("tool_call_id")
         val toolCallId: String? = null,
@@ -201,7 +201,7 @@ private data class AiRequest(
         constructor(
             role: String,
             content: Content = Content(),
-            reasoningContent: String?,
+            reasoningContent: Content?,
             toolCallId: String? = null,
             toolCalls: List<ToolCall> = emptyList()
         ): this(role, content, reasoningContent, reasoningContent, toolCallId, toolCalls)
@@ -270,13 +270,13 @@ private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
         return AiRequest.Message(
             role = this.role.role,
             content = this.content,
-            reasoningContent = this.reasoningContent.takeUnless { it.isBlank() },
+            reasoningContent = this.reasoningContent.takeUnless { it.isNotEmpty() }.takeUnless { role is Role.ASSISTANT },
             toolCallId = (this.role as? Role.TOOL)?.id,
             toolCalls = this.toolCalls.map { AiRequest.Message.ToolCall(it.id, function = AiRequest.Message.ToolCall.Function(it.name, it.arguments)) },
         )
     }
 
-    return this.mapNotNull(ChatMessage::toRequestMessage)
+    return mapNotNull(ChatMessage::toRequestMessage)
 }
 
 private val logger = SubQuizLogger.getLogger()
@@ -291,6 +291,7 @@ private val streamAiClient = HttpClient(ktorClientEngineFactory)
         {
             keepAliveTime = aiConfig.timeout
             connectTimeout = aiConfig.timeout
+            socketTimeout
         }
     }
     install(SSE)
@@ -499,7 +500,7 @@ private suspend fun sendRequest(
         val msg = ChatMessage(
             role = Role.ASSISTANT,
             content = res.choices.joinToString("") { it.message.content }.let(::Content),
-            reasoningContent = res.choices.joinToString("") { it.message.reasoningContent ?: "" }
+            reasoningContent = res.choices.joinToString("") { it.message.reasoningContent ?: "" }.let(::Content)
         )
         val usage = res.usage
         if (record) runCatching()
@@ -672,14 +673,14 @@ private suspend fun parseToolCalls(
             )
         }
 
-        val sb = StringBuilder()
+        var toolReasoning = Content()
         val content = try
         {
             logger.config("Calling tool $toolName with parameters $parm")
             @Suppress("UNCHECKED_CAST")
             (tool as AiToolInfo<Any>).invoke(data)
             {
-                sb.append(it)
+                toolReasoning += it
                 logger.warning("fail to put tool message")
                 {
                     onReceive(StreamAiResponseSlice.ToolMessage(id, it))
@@ -691,21 +692,21 @@ private suspend fun parseToolCalls(
             logger.warning("Tool call failed for $toolName with parameters $parm", e)
             return@flatMap ChatMessages(
                 role = Role.TOOL(id, toolName),
-                content = "error: \n${e.stackTraceToString()}",
-                reasoningContent = sb.toString(),
+                content = Content("error: \n${e.stackTraceToString()}"),
+                reasoningContent = toolReasoning,
             )
         }
         val toolCall = ChatMessage(
             role = Role.TOOL(id, toolName),
             content = content.content,
-            reasoningContent = sb.toString(),
+            reasoningContent = toolReasoning,
         )
         val showingContents = content.showingContent.map()
         {
             ChatMessage(
                 role = Role.SHOWING_DATA(it.second),
                 content = Content(it.first),
-                reasoningContent = sb.toString(),
+                reasoningContent = toolReasoning,
             )
         }
         return@flatMap listOf(toolCall) + showingContents

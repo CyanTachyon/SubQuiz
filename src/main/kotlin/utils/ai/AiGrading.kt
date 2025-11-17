@@ -38,33 +38,37 @@ object AiGrading: KoinComponent
         { index, it ->
             coroutineScope.async()
             {
-                when (it)
+                logger.warning("Failing to check answer, SectionID: $id, QuestionIndex: $index")
                 {
-                    is FillQuestion, is EssayQuestion -> checkAnswer(
-                        subject?.name,
-                        this@checkAnswer.description.toString(),
-                        it.description.toString(),
-                        it.userAnswer.toString(),
-                        it.answer.toString()
-                    ).let()
-                    { ans ->
-                        totalTokens += ans.second
-                        ans.first.onFailure()
-                        { e ->
-                            logger.warning("检查答案失败, SectionID: $id, QuestionIndex: $index", e)
-                            if (e is AiRetryFailedException) e.exceptions.forEachIndexed()
-                            { i, cause ->
-                                logger.warning("Cause$i: ", cause)
-                            }
-                        }.getOrNull()
-                    }
-                    is JudgeQuestion, is SingleChoiceQuestion -> it.userAnswer == it.answer
-                    is MultipleChoiceQuestion ->
+                    when (it)
                     {
-                        val x = it as MultipleChoiceQuestion<*, *, *>
-                        x.userAnswer?.toSet() == x.answer?.toSet()
+                        is FillQuestion, is EssayQuestion         -> checkAnswer(
+                            subject?.name,
+                            this@checkAnswer.description.toString(),
+                            it.description.toString(),
+                            it.userAnswer.toString(),
+                            it.answer.toString()
+                        ).let()
+                        { ans ->
+                            totalTokens += ans.second
+                            ans.first.onFailure()
+                            { e ->
+                                logger.warning("检查答案失败, SectionID: $id, QuestionIndex: $index", e)
+                                if (e is AiRetryFailedException) e.exceptions.forEachIndexed()
+                                { i, cause ->
+                                    logger.warning("Cause$i: ", cause)
+                                }
+                            }.getOrNull()
+                        }
+
+                        is JudgeQuestion, is SingleChoiceQuestion -> it.userAnswer == it.answer
+                        is MultipleChoiceQuestion                 ->
+                        {
+                            val x = it as MultipleChoiceQuestion<*, *, *>
+                            x.userAnswer?.toSet() == x.answer?.toSet()
+                        }
                     }
-                }
+                }.getOrNull()
             }
         }
         job.complete()

@@ -185,10 +185,7 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
 
         val results = search(user, prefix, query, searchCount, useEmbedding).map()
         { r ->
-            AiLibraryFiles.getAiLibraryFileText(
-                baseDir = if (user == null) AiLibraryFiles.aiLibrary else AiLibraryFiles.getUserAiLibraryBaseDir(user),
-                filePath = r.first
-            )?.let { "`path: ${r.first}`\n\n$it" } ?: "${r.first} (文件不存在)"
+            getFileText(user, r.first)?.let { "`path: ${r.first}`\n\n$it" } ?: "${r.first} (文件不存在)"
         }
         if (results.isEmpty()) return listOf("未找到相关文件")
         if (results.size <= count) return results
@@ -217,6 +214,16 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
         val query: String,
         @JsonSchema.Description("返回结果数量, 不填默认为3")
         val count: Int = 3,
+    )
+
+    @Serializable
+    private data class GetBookPageParm(
+        @JsonSchema.Description("书籍科目, 例如 '语文'")
+        val subject: String,
+        @JsonSchema.Description("书籍名称, 例如 '必修一'，注意请在列出的可用书籍中选择")
+        val book: String,
+        @JsonSchema.Description("页码，一个数组，表示需要获取的页码，例如 [12, 15, 20]")
+        val pages: List<Int>,
     )
 
     override suspend fun AiToolSet.registerTools()
@@ -264,7 +271,7 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
             
             注意：
             - 目前仅支持高中阶段的教科书，若你需要获得非高中阶段的内容，请使用其他工具
-            - 当前可用的科目包括: ${AiLibraryFiles.getBookSubjects()}，请确保你的subject参数在这些科目中（若不指定则同时搜索这些科目）
+            - 当前可用的科目包括: ${AiLibraryFiles.getBooks().keys}，请确保你的subject参数在这些科目中（若不指定则同时搜索这些科目）
             """.trimIndent(),
         )
         {
@@ -276,6 +283,43 @@ object AiLibrary: KoinComponent, AiToolSet.ToolProvider
                 if (parm.subject.isBlank()) "/books/"
                 else "/books/${parm.subject}/"
             val res = searchInOrder(null, path, parm.query, parm.count, useEmbedding = parm.naturalLanguage)
+            AiToolInfo.ToolResult(
+                Content(
+                    showJson.encodeToString(res) +
+                    "当你在后面的回答中使用以上信息时，添加信息来源标记，type为 `book`，path为文档路径，" +
+                    "例如: <data type=\"book\" path=\"/path/to/book.md\" />"
+                )
+            )
+        }
+
+        registerTool<GetBookPageParm>(
+            "books_get_page",
+            "读取教科书",
+            """
+获取教科书中指定页码的内容
+该工具适用于你已经知道需要查阅的书籍名称和页码时使用，例如当你需要引用某一页的内容时
+注意：请确保你提供的书籍名称和页码是存在的，否则你将无法获得任何内容
+当前可用的科目和书籍包括: 
+${
+    AiLibraryFiles.getBooks().map() 
+    { (k, v) ->
+        "- 科目：$k\n" + v.toList().joinToString("\n") 
+        { (book, pages) -> 
+            "  - 书名: $book, 页码: 1 - $pages" 
+        }
+    }.joinToString("\n")
+}，请确保你的subject和book参数在这些范围内
+            """.trimIndent(),
+        )
+        {
+            if (parm.pages.isEmpty()) return@registerTool AiToolInfo.ToolResult(Content("pages参数不能为空"))
+            sendMessage("获取课本内容: `${parm.subject}` - `${parm.book}` - 页码: ${parm.pages.joinToString(", ")}")
+            val basePath = "/books/${parm.subject}/${parm.book}"
+            val res = parm.pages.map()
+            { page ->
+                val path = "$basePath/page_${page}.md"
+                getFileText(null, path)?.let { "`path: $path`\n\n$it" } ?: "$path (文件不存在)"
+            }
             AiToolInfo.ToolResult(
                 Content(
                     showJson.encodeToString(res) +

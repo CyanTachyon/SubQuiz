@@ -20,9 +20,9 @@ class Rag: SqlDao<Rag.RagTable>(RagTable)
     override fun Transaction.init()
     {
         exec("CREATE EXTENSION IF NOT EXISTS vector;")
-//        exec("CREATE INDEX IF NOT EXISTS vector_l2 ON rag USING ivfflat (vector vector_l2_ops);")
-//        exec("CREATE INDEX IF NOT EXISTS vector_ip ON rag USING ivfflat (vector vector_ip_ops);")
-//        exec("CREATE INDEX IF NOT EXISTS vector_cosine ON rag USING ivfflat (vector vector_cosine_ops);")
+//        exec("CREATE INDEX IF NOT EXISTS vector_l2 ON rag USING hnsw (vector vector_l2_ops);")
+//        exec("CREATE INDEX IF NOT EXISTS vector_ip ON rag USING hnsw (vector vector_ip_ops);")
+//        exec("CREATE INDEX IF NOT EXISTS vector_cosine ON rag USING hnsw (vector vector_cosine_ops);")
     }
 
     suspend fun insert(filePath: String, content: String, vector: List<Double>): Int = query()
@@ -50,7 +50,8 @@ class Rag: SqlDao<Rag.RagTable>(RagTable)
             .apply()
             {
                 if (prefix.isNotEmpty()) andWhere { filePath like "$prefix%" }
-                if (!keyWord.isNullOrEmpty()) keyWord.split(" ").forEach { kw -> andWhere { content like "%$kw%" } }
+                if (!keyWord.isNullOrEmpty())
+                    andWhere { keyWord.split(" ").fold(Op.TRUE as Op<Boolean>) { acc, s -> acc or (filePath like "%$s%") } }
             }
             .orderBy(expr.aliasOnlyExpression())
             .limit(count)

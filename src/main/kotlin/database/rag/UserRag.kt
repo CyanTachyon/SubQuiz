@@ -13,7 +13,7 @@ class UserRag: SqlDao<UserRag.RagTable>(RagTable)
     {
         override val id = integer("id").autoIncrement().entityId()
         val filePath = text("file_path").index()
-        val content = text("content")
+        val content = text("content").nullable()
         val vector = vector("vector", 4096)
         val user = reference("user", Users.UserTable).index()
 

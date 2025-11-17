@@ -135,7 +135,10 @@ class Sandbox(
         }
         finally
         {
-            addCloseJob(persistent)
+            withContext(NonCancellable)
+            {
+                addCloseJob(persistent)
+            }
         }
     }
 
@@ -156,30 +159,36 @@ class Sandbox(
             this.baseImage to true
         }
 
-        // 2. 启动容器
-        logger.info("启动容器: $id")
-        val runCommand = listOf(
-            dockerPath, "run", "-d",
-            "--name", id,
-            "--memory", memoryLimit,
-            "--cpus", cpuLimit,
-            "--pids-limit", "100",
-            "--tmpfs", "/tmp:rw,size=200m",
-        ) + dirs.flatMap()
-        { (hostDir, containerDir, writeable) ->
-            listOf("-v", "${hostDir.absolutePath}:$containerDir:${if (writeable) "rw" else "ro"}")
-        } + listOf(
-            "-w", "/workspace",
-            "--log-driver", "none",
-            baseImage,
-            "tail", "-f", "/dev/null"
-        )
+        try
+        {
+            logger.info("启动容器: $id")
+            val runCommand = listOf(
+                dockerPath, "run", "-d",
+                "--name", id,
+                "--memory", memoryLimit,
+                "--cpus", cpuLimit,
+                "--pids-limit", "100",
+                "--tmpfs", "/tmp:rw,size=200m",
+            ) + dirs.flatMap()
+            { (hostDir, containerDir, writeable) ->
+                listOf("-v", "${hostDir.absolutePath}:$containerDir:${if (writeable) "rw" else "ro"}")
+            } + listOf(
+                "-w", "/workspace",
+                "--log-driver", "none",
+                baseImage,
+                "tail", "-f", "/dev/null"
+            )
 
-        val runResult = execCommand(runCommand)
-        if (runResult.first != 0)
-            error("启动容器失败: ${runResult.third}")
-        // 删除临时镜像
-        execCommand(listOf("docker", "rmi", "${id}_restored"))
+            val runResult = execCommand(runCommand)
+            if (runResult.first != 0)
+                error("启动容器失败: ${runResult.third}")
+        }
+        finally
+        {
+            execCommand(listOf("docker", "rmi", "${id}_restored"))
+        }
+
+
         Thread.sleep(1000)
         if (firstRun && init.isNotEmpty())
         {
@@ -260,11 +269,14 @@ class Sandbox(
             while (reader.read(buffer).also { read = it } != -1)
             {
                 currentCoroutineContext().ensureActive()
-                onMessage(buffer.concatToString(), "")
                 if (stdout.length > maxOut) continue
+                onMessage(buffer.concatToString(), "")
                 stdout.append(buffer, 0, read)
                 if (stdout.length > maxOut)
+                {
                     stdout.append("\n...output truncated...\n")
+                    onMessage("\n...output truncated...\n", "")
+                }
             }
         }
 
@@ -276,11 +288,14 @@ class Sandbox(
             while (reader.read(buffer).also { read = it } != -1)
             {
                 currentCoroutineContext().ensureActive()
-                onMessage("", buffer.concatToString())
                 if (stderr.length > maxErr) continue
+                onMessage("", buffer.concatToString())
                 stderr.append(buffer, 0, read)
                 if (stderr.length > maxErr)
+                {
                     stderr.append("\n...error output truncated...\n")
+                    onMessage("", "\n...error output truncated...\n")
+                }
             }
         }
 
