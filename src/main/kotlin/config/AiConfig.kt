@@ -49,6 +49,7 @@ data class AiConfig(
         val maxConcurrency: Int = 50,
         val imageable: Boolean = false,
         val toolable: Boolean = false,
+        val supportToolCalls: Boolean = toolable,
         @YamlComment("思考预算，单位为token，null表示不设置")
         @SerialName("thinking_budget")
         val thinkingBudget: Int? = null,

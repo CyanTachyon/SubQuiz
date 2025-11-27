@@ -361,13 +361,7 @@ class AiContextCompressor(
     {
         if (messages.size <= keepTail) return 0
         var splitIndex = messages.size - keepTail
-        while (
-            keepTail != 0 &&
-            splitIndex > 0 && (
-                messages[splitIndex].role == Role.ASSISTANT && messages[splitIndex - 1].role in setOf(Role.USER, Role.SYSTEM) ||
-                messages[splitIndex].role == Role.TOOL
-            )
-        ) splitIndex--
+        while ((splitIndex > 0 && messages[splitIndex - 1].role == Role.ASSISTANT)) splitIndex--
         return splitIndex
     }
 

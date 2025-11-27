@@ -65,7 +65,7 @@ object JwtAuth: KoinComponent
     {
         if (SSO.isSsoUser(token)) error("Cannot check token for SSO user")
         val verifier = JWT.require(algorithm).build()
-        return try
+        return logger.fine("Invalid token")
         {
             val decoded = verifier.verify(token.removePrefix(SSO.CUSTOM_USER_PREFIX))
             if (decoded.getClaim("type").asString() != "SubQuizUser") error("Invalid token type")
@@ -77,12 +77,7 @@ object JwtAuth: KoinComponent
             val lastPasswordChange = db.lastPasswordChange
             if (decoded.issuedAt.toInstant() < lastPasswordChange.toJavaInstant()) error("Token issued before last password change")
             user
-        }
-        catch (e: Throwable)
-        {
-            logger.fine("Invalid token", e)
-            null
-        }
+        }.getOrNull()
     }
 
     suspend fun getSsoUser(token: String): SsoUserFull?
@@ -116,9 +111,6 @@ object JwtAuth: KoinComponent
     fun encryptPassword(password: String): String = hasher.hashToString(12, password.toCharArray())
     fun verifyPassword(password: String, hash: String): Boolean = verifier.verify(password.toCharArray(), hash).verified
 
-    suspend fun checkPassword(user: UserId, password: String): Boolean
-    {
-        val db = customUsers.getUser(-user) ?: return false
-        return verifyPassword(password, db.password)
-    }
+    suspend fun checkPassword(user: UserId, password: String): Boolean =
+        verifyPassword(password, (customUsers.getUser(-user) ?: return false).password)
 }

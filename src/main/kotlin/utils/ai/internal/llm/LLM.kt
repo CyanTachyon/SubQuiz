@@ -33,6 +33,7 @@ import moe.tachyon.quiz.utils.getKoin
 import moe.tachyon.quiz.utils.ktorClientEngineFactory
 import moe.tachyon.quiz.utils.toJsonElement
 import kotlin.collections.set
+import kotlin.random.Random
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -253,7 +254,7 @@ private data class AiRequest(
     }
 }
 
-private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
+private fun ChatMessages.toRequestMessages(escapeToolCalls: Boolean): List<AiRequest.Message>
 {
     fun ChatMessage.toRequestMessage(): AiRequest.Message?
     {
@@ -268,11 +269,16 @@ private fun ChatMessages.toRequestMessages(): List<AiRequest.Message>
         }
 
         return AiRequest.Message(
-            role = this.role.role,
-            content = this.content,
+            role =
+                if (escapeToolCalls && this.role is Role.TOOL) Role.USER.role
+                else this.role.role,
+            content =
+                if (escapeToolCalls && this.role is Role.TOOL) Content("<|tool_call_result|>\n<tool_call_id>\n${this.role.id}</tool_call_id>\n<tool_response>\n") + this.content + Content("\n</tool_response>\n<|tool_call_result|>")
+                else if (escapeToolCalls && this.role is Role.ASSISTANT) this.content + Content(this.toolCalls.flatMap { Content("<|tool_call|>\n<tool_call_id>${it.id}</tool_call_id>\n<tool_name>${it.name}</tool_name>\n<tool_arguments>\n${it.arguments}\n</tool_arguments>\n<|tool_call|>") })
+                else this.content,
             reasoningContent = this.reasoningContent.takeUnless { it.isNotEmpty() }.takeUnless { role is Role.ASSISTANT },
-            toolCallId = (this.role as? Role.TOOL)?.id,
-            toolCalls = this.toolCalls.map { AiRequest.Message.ToolCall(it.id, function = AiRequest.Message.ToolCall.Function(it.name, it.arguments)) },
+            toolCallId = (this.role as? Role.TOOL)?.id?.takeUnless { escapeToolCalls },
+            toolCalls = (this.toolCalls.takeUnless { escapeToolCalls } ?: emptyList()).map { AiRequest.Message.ToolCall(it.id, function = AiRequest.Message.ToolCall.Function(it.name, it.arguments)) },
         )
     }
 
@@ -291,7 +297,6 @@ private val streamAiClient = HttpClient(ktorClientEngineFactory)
         {
             keepAliveTime = aiConfig.timeout
             connectTimeout = aiConfig.timeout
-            socketTimeout
         }
     }
     install(SSE)
@@ -387,7 +392,7 @@ suspend fun sendAiRequest(
             val url = context.model.url
             val body = AiRequest(
                 model = context.model.model,
-                messages = beforeLlmRequestContext.requestMessage.toRequestMessages(),
+                messages = beforeLlmRequestContext.requestMessage.toRequestMessages(!model.supportToolCalls),
                 stream = stream,
                 maxTokens = context.maxTokens,
                 thinkingBudget = context.model.thinkingBudget,
@@ -468,6 +473,10 @@ data class RequestResult(
     var error: Throwable?,
 )
 
+const val toolCallTag = "<|tool_call|>"
+const val toolCallNameTag = "<|tool_name|>"
+const val toolCallArgsTag = "<|tool_args|>"
+
 private suspend fun sendRequest(
     url: String,
     key: String,
@@ -475,6 +484,7 @@ private suspend fun sendRequest(
     stream: Boolean,
     record: Boolean,
     onReceive: suspend (StreamAiResponseSlice) -> Unit,
+    useCustomToolCall: Boolean = false,
 ): RequestResult
 {
     logger.config("AI请求$url : ${contentNegotiationJson.encodeToString(body)}")
@@ -548,6 +558,7 @@ private suspend fun sendRequest(
         {
             if (!call.response.status.isSuccess())
                 throw SSEClientException(call.response, message = "AI请求返回异常，HTTP状态码 ${call.response.status.value}, 响应体: ${call.response.bodyAsText()}")
+            val buffer = StringBuilder()
             incoming
                 .mapNotNull { it.data }
                 .filterNot { it == "[DONE]" }
@@ -584,20 +595,111 @@ private suspend fun sendRequest(
                             }
                         }
 
-                        if (!c.message.content.isNullOrEmpty() || !c.message.reasoningContent.isNullOrEmpty())
+                        if (!c.message.reasoningContent.isNullOrEmpty())
                         {
                             onReceive(
                                 StreamAiResponseSlice.Message(
-                                    content = c.message.content ?: "",
+                                    content = "",
                                     reasoningContent = c.message.reasoningContent ?: "",
                                 )
                             )
+                            curMsg += ChatMessage(
+                                role = Role.ASSISTANT,
+                                content = "",
+                                reasoningContent = c.message.reasoningContent ?: "",
+                            )
+                            return@forEach
                         }
-                        curMsg += ChatMessage(
-                            role = Role.ASSISTANT,
-                            content = c.message.content ?: "",
-                            reasoningContent = c.message.reasoningContent ?: "",
-                        )
+
+                        if (!useCustomToolCall)
+                        {
+                            if (!c.message.content.isNullOrEmpty())
+                            {
+                                onReceive(
+                                    StreamAiResponseSlice.Message(
+                                        content = c.message.content,
+                                        reasoningContent = "",
+                                    )
+                                )
+                                curMsg += ChatMessage(
+                                    role = Role.ASSISTANT,
+                                    content = c.message.content,
+                                )
+                            }
+                            return@forEach
+                        }
+
+                        val putContent: suspend (String) -> Unit = { contentPart ->
+                            onReceive(
+                                StreamAiResponseSlice.Message(
+                                    content = contentPart,
+                                    reasoningContent = "",
+                                )
+                            )
+                            curMsg += ChatMessage(
+                                role = Role.ASSISTANT,
+                                content = Content(contentPart),
+                            )
+                        }
+
+                        buffer.append(c.message.content ?: "")
+                        val tmp = buffer.toString()
+                        if (tmp.contains(toolCallTag))
+                        {
+                            val parts = tmp.split(toolCallTag)
+                            parts.forEachIndexed()
+                            { i, part ->
+                                // 偶数部分是内容
+                                if (i % 2 == 0 && i != parts.size - 1)
+                                {
+                                    if (part.isNotEmpty())
+                                        putContent(part)
+                                }
+                                // 奇数部分是toolCall
+                                else if (i % 2 == 1 && i != parts.size - 1)
+                                {
+                                    // 解析toolCall内容
+                                    val nameStart = part.indexOf(toolCallNameTag)
+                                    val argsStart = part.indexOf(toolCallArgsTag)
+                                    if (nameStart == -1 || argsStart == -1 || nameStart >= argsStart)
+                                    {
+                                        // 格式错误，全部作为内容返回
+                                        putContent(toolCallTag + part + toolCallTag)
+                                    }
+                                    else
+                                    {
+                                        val name = part.substring(nameStart, argsStart).trim().removePrefix(toolCallNameTag).removeSuffix(toolCallNameTag).trim()
+                                        val args = part.substring(argsStart).trim().removePrefix(toolCallArgsTag).removeSuffix(toolCallArgsTag).trim()
+                                        val index = Random.nextInt()
+                                        waitingTools[index] = name to args
+                                    }
+                                }
+                                // 最后一部分可能是不完整的内容，保留在buffer中
+                                else
+                                {
+                                    buffer.clear()
+                                    if (part.length % 2 == 0) buffer.append(toolCallTag)
+                                    buffer.append(part)
+                                }
+                            }
+                        }
+
+                        // 检查结尾是否出现toolCallTag的部分，即可能有未完成的toolCallTag
+                        for (len in toolCallTag.length - 1 downTo 1)
+                        {
+                            if (tmp.endsWith(toolCallTag.take(len)))
+                            {
+                                val completePart = tmp.dropLast(len)
+                                if (completePart.isNotEmpty())
+                                    putContent(completePart)
+                                buffer.clear()
+                                buffer.append(toolCallTag.take(len))
+                                return@forEach
+                            }
+                        }
+                        // 未出现toolCallTag并且不可能出现，全部作为内容
+                        putContent(tmp)
+                        buffer.clear()
                     }
                 }
         }
