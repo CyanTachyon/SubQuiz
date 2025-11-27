@@ -211,7 +211,7 @@ object ToConsoleHandler: Handler()
         }
     }
 
-    override fun publish(record: LogRecord) = safe()
+    override fun publish(record: LogRecord): Unit = safe()
     {
         if (!loggerConfig.check(record)) return
         val message = formatter.format(record)
@@ -357,7 +357,7 @@ object ToFileHandler: Handler()
     }
 
     private val colorMatcher = Regex("\u001B\\[[;\\d]*m")
-    override fun publish(record: LogRecord) = safe()
+    override fun publish(record: LogRecord): Unit = safe()
     {
         if (!loggerConfig.check(record)) return
         val message = formatter.format(record)

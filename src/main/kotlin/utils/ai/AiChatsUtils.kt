@@ -140,7 +140,6 @@ object AiChatsUtils: KoinComponent
                             is AiResult.ServiceError    -> logger.warning("Got service error in chat ${chat.id}")
                             is AiResult.TooManyRequests -> logger.warning("Got too many requests in chat ${chat.id} use service $service")
                             is AiResult.UnknownError    -> logger.warning("Got unknown error in chat ${chat.id}", res.error)
-                            else                        -> Unit
                         }
 
                         val endMsg = if (res.messages.isNotEmpty()) "\n---\n$ERROR_MESSAGE" else ERROR_MESSAGE

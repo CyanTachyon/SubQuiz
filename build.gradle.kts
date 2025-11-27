@@ -13,9 +13,9 @@ val swagger_ui_version: String by project
 val schema_kenerator_version: String by project
 
 plugins {
-    kotlin("jvm") version "2.2.20"
-    kotlin("plugin.serialization") version "2.2.20"
-    id("io.ktor.plugin") version "3.3.1"
+    kotlin("jvm") version "2.3.0-RC"
+    kotlin("plugin.serialization") version "2.3.0-RC"
+    id("io.ktor.plugin") version "3.3.2"
 }
 
 fun getCurrentDateTime(): String
