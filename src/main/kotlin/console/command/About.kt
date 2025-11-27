@@ -19,7 +19,7 @@ object About: Command
         "CyanTachyon",
         "cyan@tachyon.moe",
         "https://www.tachyon.moe/",
-        "https://github.com/CyanTachyon",
+        "https://github.com/CyanTachyon/SubQuiz",
     )
 
     override suspend fun execute(sender: CommandSender, args: List<String>): Boolean
