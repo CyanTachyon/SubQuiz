@@ -59,7 +59,7 @@ fun Route.ai() = route("/ai", {
             }
         }, Context::newChat)
 
-        put( {
+        put({
             description = "发送AI聊天消息"
             request()
             {
@@ -290,6 +290,35 @@ fun Route.ai() = route("/ai", {
                     }
                 }, Context::deleteLibraryFile)
             }
+        }
+
+        route("/globalMemory", {})
+        {
+            get({
+                description = "获取全局记忆列表"
+                response()
+                {
+                    statuses<Map<String, String>>(HttpStatus.OK)
+                    statuses(HttpStatus.Unauthorized)
+                }
+            }, Context::getGlobalMemories)
+
+            put({
+                description = "设置全局记忆"
+                request()
+                {
+                    body<Map<String, String>>()
+                    {
+                        required = true
+                        description = "全局记忆键值对"
+                    }
+                }
+                response()
+                {
+                    statuses(HttpStatus.OK)
+                    statuses(HttpStatus.Unauthorized)
+                }
+            }, Context::setGlobalMemory)
         }
     }
 
@@ -901,5 +930,19 @@ private suspend fun Context.deleteLibraryFile(): Nothing
 {
     val path = call.request.queryParameters["path"] ?: finishCall(HttpStatus.BadRequest.subStatus("path is required"))
     AiLibrary.remove(loginUser.id, path, true)
+    finishCall(HttpStatus.OK)
+}
+
+private suspend fun Context.getGlobalMemories(): Nothing
+{
+    val users = get<Users>()
+    finishCall(HttpStatus.OK, users.getGlobalMemory(loginUser.id))
+}
+
+private suspend fun Context.setGlobalMemory(): Nothing
+{
+    val body = call.receive<Map<String, String>>()
+    val users = get<Users>()
+    users.setGlobalMemories(loginUser.id, body)
     finishCall(HttpStatus.OK)
 }

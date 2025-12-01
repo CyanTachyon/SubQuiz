@@ -180,6 +180,7 @@ object WebSearch: AiToolSet.ToolProvider
             for ((i, item) in res.withIndex())
             {
                 sb.appendLine("${i + 1}. [${item.title}](${item.url})")
+                sendMessage("${i + 1}. [${item.title}](${item.url})")
                 val content = item.content.trim().lines().joinToString(" ")
                 sb.appendLine(content)
                 sb.appendLine()

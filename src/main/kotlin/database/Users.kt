@@ -75,6 +75,11 @@ class Users: SqlDao<Users.UserTable>(UserTable)
         update({ UserTable.id eq id }) { it[globalMemory] = updatedMemory } > 0
     }
 
+    suspend fun setGlobalMemories(id: UserId, memories: Map<String, String>): Boolean = query()
+    {
+        update({ UserTable.id eq id }) { it[globalMemory] = memories } > 0
+    }
+
     suspend fun removeGlobalMemory(id: UserId, key: String): Boolean = query()
     {
         val currentMemory = select(globalMemory).where { UserTable.id eq id }.singleOrNull()?.get(globalMemory) ?: emptyMap()
