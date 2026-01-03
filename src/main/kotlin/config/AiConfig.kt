@@ -7,6 +7,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class ApiFormat {
+    @SerialName("chat_completions") CHAT_COMPLETIONS,
+    @SerialName("responses") RESPONSES
+}
+
+@Serializable
 data class AiConfig(
     @YamlComment("AI请求的超时时间，单位为毫秒，仅限非流式请求")
     val timeout: Long = 2 * 60 * 1_000,
@@ -50,6 +56,8 @@ data class AiConfig(
         val imageable: Boolean = false,
         val toolable: Boolean = false,
         val supportToolCalls: Boolean = toolable,
+        @YamlComment("API格式: chat_completions 或 responses")
+        val apiFormat: ApiFormat = ApiFormat.CHAT_COMPLETIONS,
         @YamlComment("思考预算，单位为token，null表示不设置")
         @SerialName("thinking_budget")
         val thinkingBudget: Int? = null,

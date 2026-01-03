@@ -21,6 +21,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import moe.tachyon.quiz.config.AiConfig
+import moe.tachyon.quiz.config.ApiFormat
 import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.database.Records
 import moe.tachyon.quiz.logger.SubQuizLogger
@@ -254,6 +255,126 @@ private data class AiRequest(
     }
 }
 
+// ==================== Responses API Data Classes ====================
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+private data class ResponsesApiRequest(
+    val model: String,
+    val input: JsonElement,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val instructions: String? = null,
+    val stream: Boolean = false,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val tools: List<ResponsesTool>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("max_output_tokens") val maxOutputTokens: Int? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val temperature: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("top_p") val topP: Double? = null,
+)
+
+@Serializable
+private data class ResponsesInputItem(
+    val type: String = "message",
+    val role: String? = null,
+    val content: JsonElement? = null,
+    @SerialName("call_id") val callId: String? = null,
+    val output: String? = null,
+)
+
+@Serializable
+private data class ResponsesTool(
+    val type: String = "function",
+    val name: String,
+    val description: String? = null,
+    val parameters: JsonSchema? = null,
+)
+
+@Serializable
+private data class ResponsesApiResponse(
+    val id: String,
+    val `object`: String,
+    @SerialName("created_at") val createdAt: Long,
+    val status: String,
+    val output: List<ResponsesOutputItem> = emptyList(),
+    val usage: ResponsesUsage? = null,
+)
+
+@Serializable
+private data class ResponsesOutputItem(
+    val type: String,
+    val role: String? = null,
+    val content: List<ResponsesContentPart>? = null,
+    val id: String? = null,
+    val name: String? = null,
+    @SerialName("call_id") val callId: String? = null,
+    val arguments: String? = null,
+)
+
+@Serializable
+private data class ResponsesContentPart(
+    val type: String,
+    val text: String? = null,
+)
+
+@Serializable
+private data class ResponsesUsage(
+    @SerialName("input_tokens") val inputTokens: Long = 0,
+    @SerialName("output_tokens") val outputTokens: Long = 0,
+    @SerialName("total_tokens") val totalTokens: Long = 0,
+)
+
+@Serializable
+private data class ResponsesStreamEvent(
+    val type: String,
+    val response: JsonElement? = null,
+    val item: JsonElement? = null,
+    val delta: String? = null,
+    @SerialName("content_index") val contentIndex: Int? = null,
+    @SerialName("output_index") val outputIndex: Int? = null,
+)
+
+// ==================== Responses API Conversion Functions ====================
+
+private fun ChatMessages.toResponsesInput(): Pair<List<ResponsesInputItem>, String?> {
+    var instructions: String? = null
+    val items = flatMap { msg ->
+        when (msg.role) {
+            Role.SYSTEM -> { instructions = (instructions ?: "") + msg.content.toText(); emptyList() }
+            Role.USER -> listOf(ResponsesInputItem(
+                type = "message",
+                role = "user",
+                content = JsonPrimitive(msg.content.toText())
+            ))
+            Role.ASSISTANT -> {
+                val messageItems = mutableListOf<ResponsesInputItem>()
+                if (!msg.content.isEmpty()) {
+                    messageItems += ResponsesInputItem(
+                        type = "message",
+                        role = "assistant",
+                        content = JsonPrimitive(msg.content.toText())
+                    )
+                }
+                msg.toolCalls.forEach { toolCall ->
+                    messageItems += ResponsesInputItem(
+                        type = "function_call",
+                        callId = toolCall.id,
+                        content = buildJsonObject {
+                            put("name", toolCall.name)
+                            put("arguments", toolCall.arguments)
+                        }
+                    )
+                }
+                messageItems
+            }
+            is Role.TOOL -> listOf(ResponsesInputItem(
+                type = "function_call_output",
+                callId = (msg.role as Role.TOOL).id,
+                output = msg.content.toText()
+            ))
+            else -> emptyList()
+        }
+    }
+    return items to instructions
+}
+
 private fun ChatMessages.toRequestMessages(escapeToolCalls: Boolean): List<AiRequest.Message>
 {
     fun ChatMessage.toRequestMessage(): AiRequest.Message?
@@ -390,31 +511,57 @@ suspend fun sendAiRequest(
             }
 
             val url = context.model.url
-            val body = AiRequest(
-                model = context.model.model,
-                messages = beforeLlmRequestContext.requestMessage.toRequestMessages(!model.supportToolCalls),
-                stream = stream,
-                maxTokens = context.maxTokens,
-                thinkingBudget = context.model.thinkingBudget,
-                temperature = context.temperature,
-                topP = context.topP,
-                frequencyPenalty = context.frequencyPenalty,
-                presencePenalty = context.presencePenalty,
-                stop = context.stop,
-                tools = context.tools.map()
-                {
-                    AiRequest.Tool(
-                        function = AiRequest.Tool.Function(
-                            name = it.name,
-                            description = it.description,
-                            parameters = it.dataSchema,
+            val body = when (context.model.apiFormat) {
+                ApiFormat.CHAT_COMPLETIONS -> AiRequest(
+                    model = context.model.model,
+                    messages = beforeLlmRequestContext.requestMessage.toRequestMessages(!model.supportToolCalls),
+                    stream = stream,
+                    maxTokens = context.maxTokens,
+                    thinkingBudget = context.model.thinkingBudget,
+                    temperature = context.temperature,
+                    topP = context.topP,
+                    frequencyPenalty = context.frequencyPenalty,
+                    presencePenalty = context.presencePenalty,
+                    stop = context.stop,
+                    tools = context.tools.map()
+                    {
+                        AiRequest.Tool(
+                            function = AiRequest.Tool.Function(
+                                name = it.name,
+                                description = it.description,
+                                parameters = it.dataSchema,
+                            )
                         )
-                    )
-                },
-            ).let(contentNegotiationJson::encodeToJsonElement)
-                .jsonObject
-                .plus(context.model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
-                .let(::JsonObject)
+                    },
+                ).let(contentNegotiationJson::encodeToJsonElement)
+                    .jsonObject
+                    .plus(context.model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
+                    .let(::JsonObject)
+
+                ApiFormat.RESPONSES -> {
+                    val (input, instructions) = beforeLlmRequestContext.requestMessage.toResponsesInput()
+                    ResponsesApiRequest(
+                        model = context.model.model,
+                        input = contentNegotiationJson.encodeToJsonElement(input),
+                        instructions = instructions,
+                        stream = stream,
+                        tools = context.tools.map {
+                            ResponsesTool(
+                                type = "function",
+                                name = it.name,
+                                description = it.description,
+                                parameters = it.dataSchema,
+                            )
+                        }.takeIf { it.isNotEmpty() },
+                        maxOutputTokens = context.maxTokens,
+                        temperature = context.temperature,
+                        topP = context.topP,
+                    ).let(contentNegotiationJson::encodeToJsonElement)
+                        .jsonObject
+                        .plus(context.model.customRequestParms?.toJsonElement()?.jsonObject ?: emptyMap())
+                        .let(::JsonObject)
+                }
+            }
 
             val requestResult = run()
             {
@@ -422,7 +569,7 @@ suspend fun sendAiRequest(
                 repeat(aiConfig.retry)
                 {
                     currentCoroutineContext().ensureActive()
-                    val tmp = sendRequest(url, context.model.key.random(), body, stream, record, onReceive)
+                    val tmp = sendRequest(url, context.model.key.random(), body, stream, record, onReceive, true, context.model.apiFormat)
                     tmp.error?.let(errors::add)
                     tmp.error =
                         if (errors.size <= 1) errors.firstOrNull()
@@ -480,6 +627,22 @@ val toolNameRegex = Regex("<\\|tool_name\\|>(.*?)<\\|tool_name\\|>", RegexOption
 val toolArgsRegex = Regex("<\\|tool_args\\|>(.*?)<\\|tool_args\\|>", RegexOption.DOT_MATCHES_ALL)
 
 private suspend fun sendRequest(
+    url: String,
+    key: String,
+    body: JsonElement,
+    stream: Boolean,
+    record: Boolean,
+    onReceive: suspend (StreamAiResponseSlice) -> Unit,
+    useCustomToolCall: Boolean = true,
+    apiFormat: ApiFormat = ApiFormat.CHAT_COMPLETIONS,
+): RequestResult {
+    return when (apiFormat) {
+        ApiFormat.CHAT_COMPLETIONS -> sendChatCompletionsRequest(url, key, body, stream, record, onReceive, useCustomToolCall)
+        ApiFormat.RESPONSES -> sendResponsesApiRequest(url, key, body, stream, record, onReceive)
+    }
+}
+
+private suspend fun sendChatCompletionsRequest(
     url: String,
     key: String,
     body: JsonElement,
@@ -737,6 +900,156 @@ private suspend fun sendRequest(
     }
 
     return RequestResult(waitingTools.values.mapIndexed { i, it -> "call-$loopId-$i" to it }.toMap(), curMsg, usage0, r.exceptionOrNull())
+}
+
+// ==================== Responses API Request Handler ====================
+
+private suspend fun sendResponsesApiRequest(
+    url: String,
+    key: String,
+    body: JsonElement,
+    stream: Boolean,
+    record: Boolean,
+    onReceive: suspend (StreamAiResponseSlice) -> Unit,
+): RequestResult {
+    logger.config("AI请求(Responses API) $url : ${contentNegotiationJson.encodeToString(body)}")
+
+    if (!stream) runCatching {
+        val response = defaultAiClient.post(url) {
+            bearerAuth(key)
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            setBody(body)
+        }
+        val responseBody = response.bodyAsText()
+        val json = contentNegotiationJson.parseToJsonElement(responseBody)
+        val res = runCatching {
+            contentNegotiationJson.decodeFromJsonElement<ResponsesApiResponse>(json)
+        }.onFailure {
+            logger.warning("Responses API请求返回异常: $json")
+        }.getOrThrow()
+
+        // Extract content from output items
+        val content = res.output
+            .filter { it.type == "message" && it.role == "assistant" }
+            .flatMap { it.content ?: emptyList() }
+            .filter { it.type == "output_text" }
+            .joinToString("") { it.text ?: "" }
+
+        // Extract tool calls from output items
+        val toolCalls = res.output
+            .filter { it.type == "function_call" }
+            .mapNotNull { item ->
+                val callId = item.callId ?: item.id ?: return@mapNotNull null
+                callId to ((item.name ?: "") to (item.arguments ?: ""))
+            }.toMap()
+
+        val msg = ChatMessage(
+            role = Role.ASSISTANT,
+            content = Content(content),
+        )
+        val usage = res.usage?.let { TokenUsage(it.outputTokens, it.inputTokens, it.totalTokens) } ?: TokenUsage()
+
+        if (record) runCatching {
+            withContext(NonCancellable) {
+                records.addRecord(url, body, json)
+            }
+        }
+        return RequestResult(toolCalls, msg, usage, null)
+    }.onFailure {
+        runCatching {
+            withContext(NonCancellable) {
+                records.addRecord(url, body, null)
+            }
+        }
+        return RequestResult(emptyMap(), ChatMessage(Role.ASSISTANT, ""), TokenUsage(), it)
+    }
+
+    // Streaming mode
+    var usage0 = TokenUsage()
+    val toolCalls = mutableMapOf<Int, Triple<String, String, String>>() // index -> (id, name, args)
+    var curMsg = ChatMessage(Role.ASSISTANT, "")
+    val responses = mutableListOf<JsonElement>()
+    val loopId = Uuid.random().toHexString()
+
+    val r = runCatching {
+        streamAiClient.sse(url, {
+            method = HttpMethod.Post
+            bearerAuth(key)
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Any)
+            setBody(contentNegotiationJson.encodeToString(body))
+        }) {
+            if (!call.response.status.isSuccess())
+                throw SSEClientException(call.response, message = "Responses API请求返回异常，HTTP状态码 ${call.response.status.value}, 响应体: ${call.response.bodyAsText()}")
+
+            incoming
+                .mapNotNull { it.data }
+                .filterNot { it == "[DONE]" }
+                .collect { data ->
+                    runCatching {
+                        val json = contentNegotiationJson.parseToJsonElement(data)
+                        responses += json
+                        val event = contentNegotiationJson.decodeFromJsonElement<ResponsesStreamEvent>(json)
+
+                        when (event.type) {
+                            "response.output_text.delta" -> {
+                                val delta = event.delta ?: return@collect
+                                onReceive(StreamAiResponseSlice.Message(delta, ""))
+                                curMsg += ChatMessage(Role.ASSISTANT, Content(delta))
+                            }
+                            "response.function_call_arguments.delta" -> {
+                                val idx = event.outputIndex ?: return@collect
+                                val (id, name, args) = toolCalls[idx] ?: Triple("", "", "")
+                                toolCalls[idx] = Triple(id, name, args + (event.delta ?: ""))
+                            }
+                            "response.output_item.added" -> {
+                                val item = event.item ?: return@collect
+                                val itemObj = contentNegotiationJson.decodeFromJsonElement<ResponsesOutputItem>(item)
+                                if (itemObj.type == "function_call") {
+                                    val idx = event.outputIndex ?: return@collect
+                                    val callId = itemObj.callId ?: itemObj.id ?: "call-$loopId-$idx"
+                                    toolCalls[idx] = Triple(callId, itemObj.name ?: "", "")
+                                }
+                            }
+                            "response.completed" -> {
+                                val responseObj = event.response ?: return@collect
+                                runCatching {
+                                    val finalResponse = contentNegotiationJson.decodeFromJsonElement<ResponsesApiResponse>(responseObj)
+                                    finalResponse.usage?.let {
+                                        usage0 = TokenUsage(it.outputTokens, it.inputTokens, it.totalTokens)
+                                    }
+                                }
+                            }
+                        }
+                    }.onFailure { e ->
+                        logger.warning("无法解析Responses API返回的数据流, data: $data, error: ${e.message}")
+                    }
+                }
+        }
+    }.let {
+        val e = it.exceptionOrNull() ?: return@let it
+        if (e is SSEClientException) {
+            val response = e.response ?: return@let it
+            if (!response.status.isSuccess())
+                return@let Result.failure(Exception("Responses API请求返回异常，HTTP状态码 ${response.status.value}, 响应体: ${response.bodyAsText()}"))
+        }
+        it
+    }
+
+    runCatching {
+        withContext(NonCancellable) {
+            if (record) records.addRecord(url, body, responses)
+        }
+    }
+
+    // Convert tool calls to the expected format
+    val toolCallsMap = toolCalls.map { (_, triple) ->
+        val (id, name, args) = triple
+        id to (name to args)
+    }.toMap()
+
+    return RequestResult(toolCallsMap, curMsg, usage0, r.exceptionOrNull())
 }
 
 private suspend fun parseToolCalls(
