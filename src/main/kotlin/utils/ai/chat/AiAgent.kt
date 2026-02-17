@@ -139,12 +139,14 @@ abstract class AiAgent<in T>: KoinComponent
         onRecord: suspend (StreamAiResponseSlice) -> Unit,
     ): AiResult
 
-    open suspend fun options(): List<AgentOption> = emptyList()
+    open suspend fun options(visibleOnly: Boolean): List<AgentOption> = emptyList()
 
     open suspend fun check(
+        context: T,
+        options: List<AgentOption>,
         content: String,
         uncheckedList: List<StreamAiResponseSlice.Message>,
-    ): Pair<Result<Boolean>, TokenUsage> = AiAgent.check(content, uncheckedList)
+    ): Pair<Result<Boolean>, TokenUsage> = check(content, uncheckedList)
 
     abstract suspend fun nameChat(
         context: T,

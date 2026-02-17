@@ -10,6 +10,7 @@ object Help: Command
     override val description = "Show help."
     override val args = "[command]"
     override val log = false
+    override val aliases: List<String> get() = listOf("?")
 
     /**
      * 根据参数获取命令对象([TreeCommand]), 如果找不到就返回null

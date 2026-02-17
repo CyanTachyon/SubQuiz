@@ -428,7 +428,7 @@ private suspend fun Context.newChat(): Nothing
         val content = AiChatsUtils.makeContent(chat, body.content)
         if (content !is AiChatsUtils.MakeContentResult.Success)
             finishCall(HttpStatus.BadRequest.subStatus(content.error))
-        AiChatsUtils.startRespond(content.content, chat, service, service.options().filter { it.name in body.options } ) ?: finishCall(HttpStatus.Conflict)
+        AiChatsUtils.startRespond(content.content, chat, service, service.options(false).filter { it.name in body.options } ) ?: finishCall(HttpStatus.Conflict)
         chat.id
     }.onFailure { AiChatsUtils.deleteChat(chat.id, user.id) }.getOrThrow()
     finishCall(HttpStatus.OK, res)
@@ -467,7 +467,7 @@ private suspend fun Context.sendChatMessage(): Nothing
     val content = AiChatsUtils.makeContent(chat, body.content)
     if (content !is AiChatsUtils.MakeContentResult.Success)
         finishCall(HttpStatus.BadRequest.subStatus(content.error))
-    val hash = AiChatsUtils.startRespond(content.content, chat, service, service.options().filter { it.name in body.options }) ?: finishCall(HttpStatus.Conflict)
+    val hash = AiChatsUtils.startRespond(content.content, chat, service, service.options(false).filter { it.name in body.options }) ?: finishCall(HttpStatus.Conflict)
     finishCall(HttpStatus.OK, SendChatMessageResponse(content.content, hash))
 }
 
@@ -498,10 +498,10 @@ private suspend fun Context.getChatModels(): Nothing
 {
     val customModel =
         getLoginUser()?.id?.let { get<Users>().getCustomSetting<DefaultChatAgent.CustomModelSetting>(it, UserConfigKeys.CUSTOM_MODEL_CONFIG_KEY) }
-    val models = aiConfig.chats.map { ChatModelResponse(it.model, it.displayName, aiConfig.models[it.model]!!.toolable) }
+    val models = aiConfig.chats.map { ChatModelResponse(it.model, it.displayName, true) }
     val rModels =
         if (customModel != null)
-            listOf(ChatModelResponse(DefaultChatAgent.CUSTOM_MODEL_NAME, customModel.model, customModel.toolable)) + models
+            listOf(ChatModelResponse(DefaultChatAgent.CUSTOM_MODEL_NAME, customModel.model, true)) + models
         else models
     finishCall(HttpStatus.OK, rModels,)
 }
@@ -510,7 +510,7 @@ private suspend fun Context.getServiceOptions(): Nothing
 {
     val model = call.queryParameters["model"] ?: finishCall(HttpStatus.BadRequest)
     val service = DefaultChatAgent.getAgent(loginUser.id, model).leftOrElse { finishCall(HttpStatus.BadRequest.subStatus(it ?: "模型不存在")) }
-    finishCall(HttpStatus.OK, service.options().map { it.name })
+    finishCall(HttpStatus.OK, service.options(true).map { it.name })
 }
 
 private fun Context.sseHeaders()
@@ -792,7 +792,7 @@ private suspend fun Context.getChatFile(info: Boolean): Nothing
                 "attachment; filename=\"$simpleName\"; filename*=UTF-8''$filename"
             )
         }
-        finishCallWithBytes(HttpStatus.OK, ContentType.fromFileExtension(file.first.name).firstOrNull() ?: ContentType.Application.OctetStream, file.second)
+        finishCallWithBytes(HttpStatus.OK, ContentType.defaultForFileExtension(file.first.name), file.second)
     }
 }
 

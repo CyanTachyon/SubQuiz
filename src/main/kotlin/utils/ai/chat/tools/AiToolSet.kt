@@ -148,12 +148,6 @@ data class AiToolInfo<T: Any>(
         )
     }
 
-    @Serializable
-    data class DisplayToolInfo(
-        val title: String,
-        val content: Content
-    )
-
     @Suppress("UNCHECKED_CAST")
     fun parse(parm: String): T =
         aiNegotiationJson.decodeFromString(aiNegotiationJson.serializersModule.serializer(type), parm) as T

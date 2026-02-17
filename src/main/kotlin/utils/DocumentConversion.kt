@@ -90,49 +90,54 @@ object DocumentConversion: KoinComponent
 
             driver.get(dataUrl)
 
-            val wait = WebDriverWait(driver, timeoutSec.seconds.toJavaDuration())
+            runCatching() {
 
-            // 等待 document.readyState === 'complete'
-            wait.until<Boolean?>
-            { d: WebDriver? ->
-                (d as JavascriptExecutor).executeScript("return document.readyState") == "complete"
-            }
+                val wait = WebDriverWait(driver, timeoutSec.seconds.toJavaDuration())
 
-            wait.until<Boolean?>
-            { d: WebDriver? ->
-                val o = (d as JavascriptExecutor).executeScript(
-                    "if(!document.body) return false; " +
-                    "var r = document.body.getBoundingClientRect(); " +
-                    "return (r.width>0 && r.height>0);"
-                )
-                o == true
-            }
+                // 等待 document.readyState === 'complete'
+                wait.until<Boolean?>
+                { d: WebDriver? ->
+                    (d as JavascriptExecutor).executeScript("return document.readyState") == "complete"
+                }
 
-            if (waitForResources) wait.until<Boolean?>
-            { d: WebDriver? ->
-                val js = d as JavascriptExecutor
-                val result = js.executeScript("""
-                    function checkAllResources() 
-                    {
-                        const images = document.querySelectorAll('img');
-                        for (let img of images)
-                            if (!img.complete || img.naturalHeight === 0) 
-                                return false;
-                        if (document.fonts && document.fonts.status !== 'loaded')
-                            return false;
-                        if (window.performance) 
+                wait.until<Boolean?>
+                { d: WebDriver? ->
+                    val o = (d as JavascriptExecutor).executeScript(
+                        "if(!document.body) return false; " +
+                        "var r = document.body.getBoundingClientRect(); " +
+                        "return (r.width>0 && r.height>0);"
+                    )
+                    o == true
+                }
+
+                if (waitForResources) wait.until<Boolean?>
+                { d: WebDriver? ->
+                    val js = d as JavascriptExecutor
+                    val result = js.executeScript(
+                            """
+                        function checkAllResources() 
                         {
-                            const resources = performance.getEntriesByType('resource');
-                            for (let resource of resources) 
-                                if (resource.initiatorType === 'img' || resource.initiatorType === 'css')
-                                    if (!resource.responseEnd)
-                                        return false;
+                            const images = document.querySelectorAll('img');
+                            for (let img of images)
+                                if (!img.complete || img.naturalHeight === 0) 
+                                    return false;
+                            if (document.fonts && document.fonts.status !== 'loaded')
+                                return false;
+                            if (window.performance) 
+                            {
+                                const resources = performance.getEntriesByType('resource');
+                                for (let resource of resources) 
+                                    if (resource.initiatorType === 'img' || resource.initiatorType === 'css')
+                                        if (!resource.responseEnd)
+                                            return false;
+                            }
+                            return true;
                         }
-                        return true;
-                    }
-                    return checkAllResources();
-                """.trimIndent())
-                result == true
+                        return checkAllResources();
+                    """.trimIndent()
+                    )
+                    result == true
+                }
             }
 
             // 读取最终 body bounding rect 和 devicePixelRatio
@@ -168,13 +173,7 @@ object DocumentConversion: KoinComponent
         }
         finally
         {
-            try
-            {
-                driver.quit()
-            }
-            catch (_: Exception)
-            {
-            }
+            runCatching { driver.quit() }
         }
     }
 

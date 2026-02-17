@@ -276,7 +276,7 @@ private fun ChatMessages.toRequestMessages(escapeToolCalls: Boolean): List<AiReq
                 if (escapeToolCalls && this.role is Role.TOOL) Content("<|tool_call_result|>\n${toolCallNameTag}\n${this.role.name}${toolCallNameTag}\n<|tool_response|>\n") + this.content + Content("\n<|tool_response|>\n<|tool_call_result|>")
                 else if (escapeToolCalls && this.role is Role.ASSISTANT) this.content + Content(this.toolCalls.flatMap { Content("$toolCallTag\n$toolCallNameTag${it.name}$toolCallNameTag\n${toolCallArgsTag}\n${it.arguments}\n${toolCallArgsTag}\n${toolCallTag}") })
                 else this.content,
-            reasoningContent = this.reasoningContent.takeIf { it.isNotEmpty() && this.role is Role.ASSISTANT },
+            reasoningContent = this.reasoningContent.takeIf { it.isNotEmpty() && this.role is Role.ASSISTANT } ?: Content(),
             toolCallId = (this.role as? Role.TOOL)?.id?.takeUnless { escapeToolCalls },
             toolCalls = (this.toolCalls.takeUnless { escapeToolCalls } ?: emptyList()).map { AiRequest.Message.ToolCall(it.id, function = AiRequest.Message.ToolCall.Function(it.name, it.arguments)) },
         )
@@ -561,6 +561,7 @@ private suspend fun sendRequest(
             if (!call.response.status.isSuccess())
                 throw SSEClientException(call.response, message = "AI请求返回异常，HTTP状态码 ${call.response.status.value}, 响应体: ${call.response.bodyAsText()}")
             val buffer = StringBuilder()
+            var done = false
             incoming
                 .mapNotNull { it.data }
                 .filterNot { it == "[DONE]" }
@@ -575,6 +576,7 @@ private suspend fun sendRequest(
                 }
                 .collect()
                 {
+                    if (done) return@collect
                     responses += it
                     if (it.usage != null && it.usage.totalTokens > usage0.totalTokens)
                         usage0 = it.usage
@@ -649,6 +651,33 @@ private suspend fun sendRequest(
                         if (tmp.contains(toolCallTag))
                         {
                             val parts = tmp.split(toolCallTag)
+
+
+                            val content = parts[0]
+                            val toolcall = parts[1]
+                            if (content.isNotEmpty()) putContent(content)
+                            val index = Random.nextInt()
+                            val matchName = toolNameRegex.find(toolcall)
+                            val matchArgs = toolArgsRegex.find(toolcall)
+                            val toolName = matchName?.value
+                                               ?.trim()
+                                               ?.removePrefix(toolCallNameTag)
+                                               ?.removeSuffix(toolCallNameTag)
+                                               ?.trim()
+                                               ?: ""
+                            val toolArgs = matchArgs?.value
+                                               ?.trim()
+                                               ?.removePrefix(toolCallArgsTag)
+                                               ?.removeSuffix(toolCallArgsTag)
+                                               ?.trim()
+                                               ?: ""
+                            println("Parsed tool call: name='$toolName', args='$toolArgs'")
+                            waitingTools[index] = toolName to toolArgs
+                            call.cancel()
+                            done = true
+                            return@collect
+
+                            /* 允许并行工具调用的实现，暂时禁止并行工具调用
                             parts.forEachIndexed()
                             { i, part ->
                                 // 偶数部分是内容
@@ -660,7 +689,6 @@ private suspend fun sendRequest(
                                 // 奇数部分是toolCall
                                 else if (i % 2 == 1 && i != parts.size - 1)
                                 {
-                                    println("tool call: $part")
                                     val index = Random.nextInt()
                                     val matchName = toolNameRegex.find(part)
                                     val matchArgs = toolArgsRegex.find(part)
@@ -668,11 +696,13 @@ private suspend fun sendRequest(
                                         ?.trim()
                                         ?.removePrefix(toolCallNameTag)
                                         ?.removeSuffix(toolCallNameTag)
+                                        ?.trim()
                                         ?: ""
                                     val toolArgs = matchArgs?.value
                                         ?.trim()
                                         ?.removePrefix(toolCallArgsTag)
                                         ?.removeSuffix(toolCallArgsTag)
+                                        ?.trim()
                                         ?: ""
                                     println("Parsed tool call: name='$toolName', args='$toolArgs'")
                                     waitingTools[index] = toolName to toolArgs
@@ -686,6 +716,7 @@ private suspend fun sendRequest(
                                 }
                             }
                             return@forEach
+                            */
                         }
 
                         // 检查结尾是否出现toolCallTag的部分，即可能有未完成的toolCallTag

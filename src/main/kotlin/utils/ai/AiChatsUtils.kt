@@ -195,7 +195,7 @@ object AiChatsUtils: KoinComponent
 
             checkJobs += coroutineScope.launch()
             {
-                val res = service.check(this@ChatInfo.content.toText(), uncheckedList)
+                val res = service.check(chat, agentOptions, this@ChatInfo.content.toText(), uncheckedList)
                 users.addTokenUsage(chat.user, res.second)
                 if (res.first.getOrThrow()) return@launch banned()
             }
