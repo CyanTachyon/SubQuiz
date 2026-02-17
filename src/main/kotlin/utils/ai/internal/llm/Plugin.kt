@@ -33,7 +33,7 @@ data object PluginScope
 
 
     // AfterLlmResponse
-    context(c: RequestResult) var toolCalls : Map<String, Pair<String, String>> get() = c.toolCalls; set(value) { c.toolCalls = value }
+    context(c: RequestResult) var toolCalls : Map<String, ToolCallData> get() = c.toolCalls; set(value) { c.toolCalls = value }
     context(c: RequestResult) var message: ChatMessage get() = c.message; set(value) { c.message = value }
     context(c: RequestResult) var usage: TokenUsage get() = c.usage; set(value) { c.usage = value }
     context(c: RequestResult) var error: Throwable? get() = c.error; set(value) { c.error = value }
