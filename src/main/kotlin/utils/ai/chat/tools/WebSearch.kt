@@ -144,8 +144,8 @@ object WebSearch: AiToolSet.ToolProvider
 
     @Serializable
     private data class AiSearchToolData(
-        @JsonSchema.Description("搜索关键字")
-        val key: String,
+        @JsonSchema.Description("要搜索的问题，自然语言描述而不是关键词")
+        val query: String,
         @JsonSchema.Description("返回结果数量，不得超过20, 不填默认为10")
         val count: Int = 10,
     )
@@ -172,8 +172,8 @@ object WebSearch: AiToolSet.ToolProvider
             """.trimIndent(),
         )
         {
-            sendMessage("查找网页: `${parm.key.replace("\n", " ").replace("`", "")}`")
-            val data = parm.key
+            sendMessage("查找网页: `${parm.query.replace("\n", " ").replace("`", "")}`")
+            val data = parm.query
             if (data.isBlank()) return@registerTool AiToolInfo.ToolResult(Content("error: key must not be empty"))
             val sb = StringBuilder()
             val res = search(data, parm.count.coerceIn(1, 20))
