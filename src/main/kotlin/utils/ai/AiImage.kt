@@ -2,6 +2,7 @@ package moe.tachyon.quiz.utils.ai
 
 import com.charleskorn.kaml.YamlList
 import com.charleskorn.kaml.YamlNode
+import com.charleskorn.kaml.YamlScalar
 import io.ktor.util.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -216,6 +217,18 @@ object AiImage
     )
 
     /**
+     * 识别简答题答案
+     */
+    suspend fun recognizeEssayAnswer(imageUrls: List<String>, questionDescription: String): Pair<String, TokenUsage> = sendAiRequestAndGetReply(
+        model = aiConfig.imageModel,
+        messages = ChatMessages(
+            ChatMessage(Role.USER, Content(imageUrls.map { ContentNode.image(it) } + ContentNode.text(
+                "以下是一道简答题的题目描述：\n$questionDescription\n\n请你从图片中识别出该题的答案内容，并输出为纯文本格式（支持markdown）。不要做任何额外的解释、或其他额外工作，仅输出答案内容。若有批改等请忽略，若有拼写错误请勿纠正，仅保持原样输出。若图片中包含数学公式，请转换为LaTeX格式并用\$符号包裹。"
+            )))
+        )
+    )
+
+    /**
      * 识别作文题目要求
      */
     suspend fun recognizeEssayRequirement(imageUrl: String): Pair<String, TokenUsage> = sendAiRequestAndGetReply(
@@ -237,7 +250,7 @@ object AiImage
      * 识别section内容
      */
     suspend fun <Answer, Analysis: JsonElement?> recognizeSection(
-        imageUrl: String,
+        imageUrls: List<String>,
         section: Section<Answer, Any?, Analysis>
     ): Pair<Section<Answer, Any?, Analysis>, TokenUsage>
     {
@@ -256,7 +269,7 @@ object AiImage
         """.trimIndent())
         section.questions.forEachIndexed()
         { index, question ->
-            sb.appendLine("### 小题 ${index + 1}")
+            sb.appendLine("### 小题ID: ${index + 1}")
             sb.appendLine("题目类型: ${question.type}")
             sb.append("对于本题，你应该输出的的格式为:")
             when (question)
@@ -287,8 +300,9 @@ object AiImage
         sb.appendLine("- 你需要确保你输出的列表和上面给出的题目一一对应")
         sb.appendLine("- 你不需要对图片中的内容进行任何解释或修改，保持原样输出")
         sb.appendLine("- 善用yaml的多行字符串，以减少冗余和字符串转义，以避免转义错误")
+        sb.appendLine("- 对于简答题和填空题，若答案中包含数学公式，请将公式转换为LaTeX格式并用\$符号包裹（行内公式用单\$，独立公式用双\$\$）")
         sb.appendLine()
-        val message = ChatMessage(Role.USER, Content(ContentNode.image(imageUrl), ContentNode.text(sb.toString())))
+        val message = ChatMessage(Role.USER, Content(imageUrls.map { ContentNode.image(it) } + ContentNode.text(sb.toString())))
         val resultType = object: ResultType<Section<Answer, Any?, Analysis>>
         {
             private val impl = yamlResultType<List<RecognizeSectionResult>>()
@@ -318,11 +332,11 @@ object AiImage
                     { (q, a) ->
                         when (q)
                         {
-                            is EssayQuestion<Answer, Any?, Analysis>          -> q.copy(userAnswer = a.contentToString())
-                            is FillQuestion<Answer, Any?, Analysis>           -> q.copy(userAnswer = a.contentToString())
-                            is JudgeQuestion<Answer, Any?, Analysis>          -> q.copy(userAnswer = a.contentToString() == "true")
+                            is EssayQuestion<Answer, Any?, Analysis>          -> q.copy(userAnswer = (a as? YamlScalar)?.content ?: error("简答题答案格式错误"))
+                            is FillQuestion<Answer, Any?, Analysis>           -> q.copy(userAnswer = (a as? YamlScalar)?.content ?: error("填空题答案格式错误"))
+                            is JudgeQuestion<Answer, Any?, Analysis>          -> q.copy(userAnswer = (a as? YamlScalar)?.toBoolean() ?: error("判断题答案格式错误"))
                             is MultipleChoiceQuestion<Answer, Any?, Analysis> -> q.copy(userAnswer = (a as? YamlList)?.items?.map { toOption(it.contentToString()) } ?: error("多选题答案格式错误"))
-                            is SingleChoiceQuestion<Answer, Any?, Analysis>   -> q.copy(userAnswer = toOption(a.contentToString()))
+                            is SingleChoiceQuestion<Answer, Any?, Analysis>   -> q.copy(userAnswer = toOption((a as? YamlScalar)?.content ?: error("单选题答案格式错误")))
                         }
                     }
                 )
@@ -333,7 +347,7 @@ object AiImage
             messages = ChatMessages(message),
             resultType = resultType,
             retryType = RetryType.ADD_MESSAGE,
-            record = false,
+            record = true,
         ).let { it.first.getOrThrow() to it.second }
     }
 }

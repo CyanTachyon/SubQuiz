@@ -19,6 +19,7 @@ import moe.tachyon.quiz.config.aiConfig
 import moe.tachyon.quiz.dataClass.*
 import moe.tachyon.quiz.dataClass.ChatId.Companion.toChatIdOrNull
 import moe.tachyon.quiz.database.Chats
+import moe.tachyon.quiz.database.Quizzes
 import moe.tachyon.quiz.database.Users
 import moe.tachyon.quiz.logger.SubQuizLogger
 import moe.tachyon.quiz.plugin.contentNegotiation.QuestionAnswerSerializer
@@ -397,6 +398,40 @@ fun Route.ai() = route("/ai", {
             statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest)
         }
     }, Context::essayCorrection)
+
+    post("/recognizeSection", {
+        description = "拍照识别大题答案"
+        request()
+        {
+            body<RecognizeSectionRequest>()
+            {
+                required = true
+                description = "识别大题答案请求"
+            }
+        }
+        response()
+        {
+            statuses<String>(HttpStatus.OK)
+            statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest, HttpStatus.Forbidden)
+        }
+    }, Context::recognizeSectionAnswers)
+
+    post("/recognizeEssay", {
+        description = "拍照识别简答题答案"
+        request()
+        {
+            body<RecognizeEssayRequest>()
+            {
+                required = true
+                description = "识别简答题答案请求"
+            }
+        }
+        response()
+        {
+            statuses<String>(HttpStatus.OK)
+            statuses(HttpStatus.Unauthorized, HttpStatus.BadRequest, HttpStatus.Forbidden)
+        }
+    }, Context::recognizeEssayAnswer)
 }
 
 @OptIn(InternalSerializationApi::class, ExperimentalSerializationApi::class)
@@ -406,6 +441,21 @@ private val ser = Section.serializer(
     JsonElement.serializer()
 )
 private class SectionSerializer: KSerializer<Section<Any, Any, JsonElement>> by ser
+
+@Serializable
+private data class RecognizeSectionRequest(
+    val quizId: QuizId,
+    val sectionIndex: Int,
+    val images: List<String>,
+)
+
+@Serializable
+private data class RecognizeEssayRequest(
+    val quizId: QuizId,
+    val sectionIndex: Int,
+    val questionIndex: Int,
+    val images: List<String>,
+)
 
 @Serializable
 private data class CreateChatRequest(
@@ -900,6 +950,40 @@ private suspend fun Context.essayCorrection()
     {
         finishCall(HttpStatus.InternalServerError.subStatus("服务错误，请稍后再试或联系管理员"))
     }
+}
+
+private suspend fun Context.recognizeSectionAnswers()
+{
+    val body = call.receive<RecognizeSectionRequest>()
+    if (body.images.isEmpty()) finishCall(HttpStatus.BadRequest.subStatus("请上传至少一张图片"))
+    val user = loginUser
+    val quiz = get<Quizzes>().getQuiz(body.quizId) ?: finishCall(HttpStatus.BadRequest.subStatus("测试不存在"))
+    if (quiz.user != user.id) finishCall(HttpStatus.Forbidden.subStatus("无权访问该测试"))
+    if (quiz.finished) finishCall(HttpStatus.BadRequest.subStatus("测试已结束"))
+    if (body.sectionIndex !in quiz.sections.indices) finishCall(HttpStatus.BadRequest.subStatus("大题索引无效"))
+    val section = quiz.sections[body.sectionIndex]
+    val res = AiImage.recognizeSection(body.images, section)
+    get<Users>().addTokenUsage(user.id, res.second)
+    finishCall(HttpStatus.OK, res.first)
+}
+
+private suspend fun Context.recognizeEssayAnswer()
+{
+    val body = call.receive<RecognizeEssayRequest>()
+    if (body.images.isEmpty()) finishCall(HttpStatus.BadRequest.subStatus("请上传至少一张图片"))
+    val user = loginUser
+    val quiz = get<Quizzes>().getQuiz(body.quizId) ?: finishCall(HttpStatus.BadRequest.subStatus("测试不存在"))
+    if (quiz.user != user.id) finishCall(HttpStatus.Forbidden.subStatus("无权访问该测试"))
+    if (quiz.finished) finishCall(HttpStatus.BadRequest.subStatus("测试已结束"))
+    if (body.sectionIndex !in quiz.sections.indices) finishCall(HttpStatus.BadRequest.subStatus("大题索引无效"))
+    val section = quiz.sections[body.sectionIndex]
+    if (body.questionIndex !in section.questions.indices) finishCall(HttpStatus.BadRequest.subStatus("小题索引无效"))
+    val question = section.questions[body.questionIndex]
+    if (question !is EssayQuestion<*, *, *>) finishCall(HttpStatus.BadRequest.subStatus("该题目不是简答题"))
+    val description = question.description.toString()
+    val res = AiImage.recognizeEssayAnswer(body.images, description)
+    get<Users>().addTokenUsage(user.id, res.second)
+    finishCall(HttpStatus.OK, res.first)
 }
 
 private suspend fun Context.getLibraryFiles(): Nothing =

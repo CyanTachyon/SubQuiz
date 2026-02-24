@@ -251,8 +251,8 @@ suspend fun <T: Any> sendAiRequestAndGetResult(
             val content = res.content.toText().trim()
             if (content.startsWith("```") && content.endsWith("```"))
             {
-                val jsonContent = content.substringAfter("\n").substringBeforeLast("```").trim()
-                return Result.success(resultType.getValue(jsonContent)) to totalTokens
+                val content = content.substringAfter("\n").substringBeforeLast("```").trim()
+                return Result.success(resultType.getValue(content)) to totalTokens
             }
             return Result.success(resultType.getValue(content)) to totalTokens
         }
