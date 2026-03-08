@@ -312,13 +312,10 @@ data class ChatMessage(
     @Serializable
     data class ToolCall(
         val id: String,
-        val function: Function,
-        @SerialName("extra_content")
-        @EncodeDefault(EncodeDefault.Mode.NEVER)
-        val extraContent: JsonObject? = null,
+        val function: Function
     )
     {
-        constructor(id: String, name: String, arguments: String, extraContent: JsonObject? = null): this(id, Function(name, arguments), extraContent)
+        constructor(id: String, name: String, arguments: String): this(id, Function(name, arguments))
         val type = "function"
         val name: String get() = function.name
         val arguments: String get() = function.arguments

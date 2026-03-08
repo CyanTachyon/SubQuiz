@@ -68,8 +68,6 @@ private sealed interface AiResponse
                 val id: String? = null,
                 val index: Int? = null,
                 val function: Function,
-                @SerialName("extra_content")
-                val extraContent: JsonObject? = null,
             )
             {
                 @Suppress("RedundantNullableReturnType")
@@ -213,9 +211,6 @@ private data class AiRequest(
         data class ToolCall(
             val id: String,
             val function: Function,
-            @EncodeDefault(EncodeDefault.Mode.NEVER)
-            @SerialName("extra_content")
-            val extraContent: JsonObject? = null,
         )
         {
             @EncodeDefault(EncodeDefault.Mode.ALWAYS)
@@ -283,7 +278,7 @@ private fun ChatMessages.toRequestMessages(escapeToolCalls: Boolean): List<AiReq
                 else this.content,
             reasoningContent = this.reasoningContent.takeIf { it.isNotEmpty() && this.role is Role.ASSISTANT } ?: Content(),
             toolCallId = (this.role as? Role.TOOL)?.id?.takeUnless { escapeToolCalls },
-            toolCalls = (this.toolCalls.takeUnless { escapeToolCalls } ?: emptyList()).map { AiRequest.Message.ToolCall(it.id, function = AiRequest.Message.ToolCall.Function(it.name, it.arguments), extraContent = it.extraContent) },
+            toolCalls = (this.toolCalls.takeUnless { escapeToolCalls } ?: emptyList()).map { AiRequest.Message.ToolCall(it.id, function = AiRequest.Message.ToolCall.Function(it.name, it.arguments)) },
         )
     }
 
@@ -471,10 +466,8 @@ suspend fun sendAiRequest(
     AiResult.Success(res.toChatMessages(), usage)
 }
 
-data class ToolCallData(val name: String, val arguments: String, val extraContent: JsonObject? = null)
-
 data class RequestResult(
-    var toolCalls : Map<String, ToolCallData>,
+    var toolCalls : Map<String, Pair<String, String>>,
     var message: ChatMessage,
     var usage: TokenUsage,
     var error: Throwable?,
@@ -532,7 +525,7 @@ private suspend fun sendRequest(
         val calls = res.choices.mapNotNull { it.message.toolCalls }.flatten().mapNotNull()
         {
             it.id ?: return@mapNotNull null
-            it.id to ToolCallData(it.function.name ?: "", it.function.arguments ?: "", it.extraContent)
+            it.id to ((it.function.name ?: "") to (it.function.arguments ?: ""))
         }.toMap()
         return RequestResult(calls, msg, usage ?: TokenUsage(), null)
     }.onFailure()
@@ -549,7 +542,7 @@ private suspend fun sendRequest(
 
 
     var usage0 = TokenUsage()
-    val waitingTools = mutableMapOf<Int, ToolCallData>()
+    val waitingTools = mutableMapOf<Int, Pair<String, String>>()
     var lstIndex = -1
     var curMsg = ChatMessage(Role.ASSISTANT, "")
     val responses = mutableListOf<StreamAiResponse>()
@@ -598,10 +591,10 @@ private suspend fun sendRequest(
                             }
                             else
                             {
-                                val existing = waitingTools[index] ?: ToolCallData("", "")
-                                val newName = existing.name + (tool.function.name ?: "")
-                                val newArg = existing.arguments + (tool.function.arguments ?: "")
-                                waitingTools[index] = ToolCallData(newName, newArg, existing.extraContent ?: tool.extraContent)
+                                val (name, args) = waitingTools[index] ?: ("" to "")
+                                val newName = name + (tool.function.name ?: "")
+                                val newArg = args + (tool.function.arguments ?: "")
+                                waitingTools[index] = newName to newArg
                                 lstIndex = index
                             }
                         }
@@ -679,7 +672,7 @@ private suspend fun sendRequest(
                                                ?.trim()
                                                ?: ""
                             println("Parsed tool call: name='$toolName', args='$toolArgs'")
-                            waitingTools[index] = ToolCallData(toolName, toolArgs)
+                            waitingTools[index] = toolName to toolArgs
                             call.cancel()
                             done = true
                             return@collect
@@ -751,7 +744,7 @@ private suspend fun sendRequest(
             curMsg += ChatMessage(
                 role = Role.ASSISTANT,
                 content = Content(),
-                toolCalls = listOf(ChatMessage.ToolCall("call-$loopId-$i", it.value.name, it.value.arguments, it.value.extraContent)),
+                toolCalls = listOf(ChatMessage.ToolCall("call-$loopId-$i", it.value.first, it.value.second)),
             )
         }
     }.let()
@@ -778,7 +771,7 @@ private suspend fun sendRequest(
 }
 
 private suspend fun parseToolCalls(
-    waitingTools: Map<String, ToolCallData>,
+    waitingTools: Map<String, Pair<String, String>>,
     tools: List<AiToolInfo<*>>,
     onReceive: suspend (StreamAiResponseSlice) -> Unit,
 ): ChatMessages
@@ -790,8 +783,7 @@ private suspend fun parseToolCalls(
         else id to t
     }.flatMap()
     { (id, t) ->
-        val toolName = t.name
-        val parm = t.arguments
+        val (toolName, parm) = t
         val tool = tools.firstOrNull { it.name == toolName } ?: return@flatMap run()
         {
             ChatMessages(

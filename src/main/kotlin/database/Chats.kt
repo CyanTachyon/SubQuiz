@@ -200,7 +200,6 @@ class Chats: SqlDao<Chats.ChatTable>(ChatTable)
                         it.id.removeUnsupportedChars(unsupportedChars),
                         it.name.removeUnsupportedChars(unsupportedChars),
                         it.arguments.removeUnsupportedChars(unsupportedChars),
-                        it.extraContent,
                     )
                 },
             )
